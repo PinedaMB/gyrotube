@@ -3,22 +3,39 @@ use std::rc::Rc;
 
 use gtk4::prelude::*;
 use gtk4::{
-    Align, Box as GtkBox, Button, Entry, Label, ListBox, Orientation, PolicyType, ScrolledWindow,
-    SelectionMode,
+    Align, Box as GtkBox, Button, Entry, FlowBox, Image, Label, Orientation, PolicyType,
+    ScrolledWindow, SelectionMode,
 };
 use libadwaita as adw;
 
-use crate::models::{UserPlaylist, save_user_playlists};
+use crate::models::{UserPlaylist, save_recent_tracks, save_user_playlists};
 use crate::ui::player::play_queue_index;
 use crate::ui::state::AppState;
 use crate::ui::widgets::{clear_box, populate_track_list};
 
 pub fn build_collection_page(state: Rc<RefCell<AppState>>) -> ScrolledWindow {
-    let container = GtkBox::new(Orientation::Vertical, 20);
+    let container = GtkBox::new(Orientation::Vertical, 22);
     container.set_margin_top(18);
     container.set_margin_bottom(28);
     container.set_margin_start(20);
     container.set_margin_end(20);
+
+    let page_header = GtkBox::new(Orientation::Vertical, 2);
+    page_header.append(
+        &Label::builder()
+            .label("Colección")
+            .xalign(0.0)
+            .css_classes(["title-1"])
+            .build(),
+    );
+    page_header.append(
+        &Label::builder()
+            .label("Tus playlists locales, historial reciente y canciones favoritas")
+            .xalign(0.0)
+            .css_classes(["dim-label", "caption"])
+            .build(),
+    );
+    container.append(&page_header);
 
     // 1. Custom local playlists
     let pl_header = GtkBox::new(Orientation::Horizontal, 8);
@@ -85,13 +102,59 @@ pub fn build_collection_page(state: Rc<RefCell<AppState>>) -> ScrolledWindow {
     container.append(&playlists_box);
 
     // 2. Recently played
-    container.append(
+    let recent_header = GtkBox::new(Orientation::Horizontal, 8);
+    recent_header.append(
         &Label::builder()
             .label("Escuchado recientemente")
             .xalign(0.0)
+            .hexpand(true)
             .css_classes(["title-2"])
             .build(),
     );
+    let play_recent_btn = Button::builder()
+        .icon_name("media-playback-start-symbolic")
+        .label("Reproducir todo")
+        .css_classes(["flat", "pill-switch"])
+        .build();
+    play_recent_btn.set_cursor_from_name(Some("pointer"));
+    {
+        let state = Rc::clone(&state);
+        play_recent_btn.connect_clicked(move |_| {
+            let has_tracks = {
+                let mut s = state.borrow_mut();
+                if s.recent_tracks.is_empty() {
+                    false
+                } else {
+                    s.queue = s.recent_tracks.clone();
+                    s.source_name = String::from("Recientes");
+                    true
+                }
+            };
+            if has_tracks {
+                play_queue_index(Rc::clone(&state), 0);
+            }
+        });
+    }
+    let clear_recent_btn = Button::builder()
+        .icon_name("user-trash-symbolic")
+        .tooltip_text("Limpiar historial")
+        .css_classes(["flat", "circular"])
+        .build();
+    {
+        let state = Rc::clone(&state);
+        clear_recent_btn.connect_clicked(move |_| {
+            {
+                let mut s = state.borrow_mut();
+                s.recent_tracks.clear();
+                save_recent_tracks(&s.recent_tracks);
+            }
+            refresh_recent_ui(Rc::clone(&state));
+        });
+    }
+    recent_header.append(&play_recent_btn);
+    recent_header.append(&clear_recent_btn);
+    container.append(&recent_header);
+
     let (recent_list, recent_empty_label) = {
         let s = state.borrow();
         (s.recent_list.clone(), s.recent_empty_label.clone())
@@ -100,13 +163,42 @@ pub fn build_collection_page(state: Rc<RefCell<AppState>>) -> ScrolledWindow {
     container.append(&recent_list);
 
     // 3. Favorites
-    container.append(
+    let fav_header = GtkBox::new(Orientation::Horizontal, 8);
+    fav_header.append(
         &Label::builder()
             .label("Favoritos")
             .xalign(0.0)
+            .hexpand(true)
             .css_classes(["title-2"])
             .build(),
     );
+    let play_fav_btn = Button::builder()
+        .icon_name("media-playback-start-symbolic")
+        .label("Reproducir todo")
+        .css_classes(["flat", "pill-switch"])
+        .build();
+    play_fav_btn.set_cursor_from_name(Some("pointer"));
+    {
+        let state = Rc::clone(&state);
+        play_fav_btn.connect_clicked(move |_| {
+            let has_tracks = {
+                let mut s = state.borrow_mut();
+                if s.favorites.is_empty() {
+                    false
+                } else {
+                    s.queue = s.favorites.clone();
+                    s.source_name = String::from("Favoritos");
+                    true
+                }
+            };
+            if has_tracks {
+                play_queue_index(Rc::clone(&state), 0);
+            }
+        });
+    }
+    fav_header.append(&play_fav_btn);
+    container.append(&fav_header);
+
     let (favorites_list, favorites_empty_label) = {
         let s = state.borrow();
         (s.favorites_list.clone(), s.favorites_empty_label.clone())
@@ -115,7 +207,7 @@ pub fn build_collection_page(state: Rc<RefCell<AppState>>) -> ScrolledWindow {
     container.append(&favorites_list);
 
     let clamp = adw::Clamp::builder()
-        .maximum_size(860)
+        .maximum_size(1040)
         .child(&container)
         .build();
 
@@ -169,26 +261,50 @@ pub fn refresh_playlists_ui(state: Rc<RefCell<AppState>>) {
     playlists_empty_label.set_visible(playlists.is_empty());
     playlists_box.set_visible(!playlists.is_empty());
 
-    let list = ListBox::builder()
+    let flow = FlowBox::builder()
         .selection_mode(SelectionMode::None)
-        .css_classes(["boxed-list"])
+        .homogeneous(true)
+        .min_children_per_line(1)
+        .max_children_per_line(3)
+        .row_spacing(12)
+        .column_spacing(12)
         .build();
 
-    for pl in playlists {
-        let row_box = GtkBox::new(Orientation::Horizontal, 12);
-        row_box.add_css_class("track-row");
+    for (idx, pl) in playlists.into_iter().enumerate() {
+        let variant = (idx % 4) + 1;
+        let badge_class = format!("quick-badge-{variant}");
+
+        let icon = Image::builder()
+            .icon_name("folder-music-symbolic")
+            .pixel_size(18)
+            .halign(Align::Center)
+            .valign(Align::Center)
+            .hexpand(true)
+            .build();
+        let badge = GtkBox::builder()
+            .width_request(38)
+            .height_request(38)
+            .valign(Align::Center)
+            .css_classes(["quick-icon-badge", &badge_class])
+            .build();
+        badge.append(&icon);
 
         let title = Label::builder()
             .label(&pl.name)
             .xalign(0.0)
-            .hexpand(true)
+            .ellipsize(gtk4::pango::EllipsizeMode::End)
             .css_classes(["heading"])
             .build();
         let count_label = Label::builder()
             .label(&format!("{} pistas", pl.tracks.len()))
-            .valign(Align::Center)
+            .xalign(0.0)
             .css_classes(["dim-label", "caption", "numeric"])
             .build();
+        let text_box = GtkBox::new(Orientation::Vertical, 2);
+        text_box.set_hexpand(true);
+        text_box.set_valign(Align::Center);
+        text_box.append(&title);
+        text_box.append(&count_label);
 
         let play_btn = Button::builder()
             .icon_name("media-playback-start-symbolic")
@@ -233,12 +349,14 @@ pub fn refresh_playlists_ui(state: Rc<RefCell<AppState>>) {
             });
         }
 
-        row_box.append(&title);
-        row_box.append(&count_label);
-        row_box.append(&play_btn);
-        row_box.append(&del_btn);
-        list.append(&row_box);
+        let card_row = GtkBox::new(Orientation::Horizontal, 12);
+        card_row.add_css_class("quick-card");
+        card_row.append(&badge);
+        card_row.append(&text_box);
+        card_row.append(&play_btn);
+        card_row.append(&del_btn);
+        flow.insert(&card_row, -1);
     }
 
-    playlists_box.append(&list);
+    playlists_box.append(&flow);
 }

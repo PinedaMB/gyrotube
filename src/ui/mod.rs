@@ -253,13 +253,16 @@ pub fn build_ui(app: &adw::Application) {
         .selectable(true)
         .css_classes(["body"])
         .build();
+    let lyrics_lines_box = GtkBox::new(Orientation::Vertical, 2);
+    lyrics_lines_box.append(&lyrics_body_label);
+
     let lyrics_box = GtkBox::new(Orientation::Vertical, 12);
     lyrics_box.set_margin_top(14);
     lyrics_box.set_margin_bottom(14);
     lyrics_box.set_margin_start(16);
     lyrics_box.set_margin_end(16);
     lyrics_box.append(&lyrics_title_label);
-    lyrics_box.append(&lyrics_body_label);
+    lyrics_box.append(&lyrics_lines_box);
 
     let lyrics_scroll = ScrolledWindow::builder()
         .hscrollbar_policy(PolicyType::Never)
@@ -270,6 +273,7 @@ pub fn build_ui(app: &adw::Application) {
     // Sidebar Queue View
     let queue_list = ListBox::builder()
         .selection_mode(SelectionMode::None)
+        .activate_on_single_click(true)
         .css_classes(["boxed-list"])
         .build();
     let queue_empty_label = Label::builder()
@@ -279,19 +283,24 @@ pub fn build_ui(app: &adw::Application) {
         .css_classes(["dim-label"])
         .build();
 
+    let queue_title_label = Label::builder()
+        .label("Cola")
+        .xalign(0.0)
+        .hexpand(true)
+        .css_classes(["title-4"])
+        .build();
+    let queue_save_btn = Button::builder()
+        .icon_name("folder-music-symbolic")
+        .tooltip_text("Guardar cola como playlist")
+        .css_classes(["flat", "circular"])
+        .build();
     let queue_clear_btn = Button::builder()
         .label("Limpiar")
         .css_classes(["flat"])
         .build();
-    let queue_header = GtkBox::new(Orientation::Horizontal, 8);
-    queue_header.append(
-        &Label::builder()
-            .label("Cola")
-            .xalign(0.0)
-            .hexpand(true)
-            .css_classes(["title-4"])
-            .build(),
-    );
+    let queue_header = GtkBox::new(Orientation::Horizontal, 6);
+    queue_header.append(&queue_title_label);
+    queue_header.append(&queue_save_btn);
     queue_header.append(&queue_clear_btn);
 
     let queue_box = GtkBox::new(Orientation::Vertical, 10);
@@ -543,9 +552,14 @@ pub fn build_ui(app: &adw::Application) {
         duration_label,
         lyrics_title_label,
         lyrics_body_label,
+        lyrics_box: lyrics_lines_box,
+        lyrics_scroll,
+        synced_lyrics: Vec::new(),
+        active_lyric_idx: None,
         lyrics_loaded_for: None,
         queue_list,
         queue_empty_label,
+        queue_title_label,
         favorites_list,
         favorites_empty_label,
         recent_list,
@@ -566,6 +580,44 @@ pub fn build_ui(app: &adw::Application) {
     refresh_favorites_ui(Rc::clone(&state));
     refresh_recent_ui(Rc::clone(&state));
     refresh_playlists_ui(Rc::clone(&state));
+
+    {
+        let state = Rc::clone(&state);
+        queue_save_btn.connect_clicked(move |_| {
+            let saved = {
+                let mut s = state.borrow_mut();
+                if s.queue.is_empty() {
+                    s.show_toast("La cola está vacía.");
+                    false
+                } else {
+                    let id = format!(
+                        "local-{}",
+                        std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .map(|d| d.as_millis())
+                            .unwrap_or(0)
+                    );
+                    let name = if s.source_name.trim().is_empty() {
+                        String::from("Cola guardada")
+                    } else {
+                        s.source_name.clone()
+                    };
+                    let tracks = s.queue.clone();
+                    s.user_playlists.push(crate::models::UserPlaylist {
+                        id,
+                        name: name.clone(),
+                        tracks,
+                    });
+                    crate::models::save_user_playlists(&s.user_playlists);
+                    s.show_toast(&format!("Playlist guardada: {name}"));
+                    true
+                }
+            };
+            if saved {
+                refresh_playlists_ui(Rc::clone(&state));
+            }
+        });
+    }
 
     {
         let state = Rc::clone(&state);
@@ -593,18 +645,28 @@ pub fn build_ui(app: &adw::Application) {
     );
 
     // Quick search bar in header forwards to Explore search + shows recent & debounced suggestions
-    let search_popover = Popover::builder().autohide(false).can_focus(false).build();
+    let search_popover = Popover::builder().autohide(true).can_focus(false).build();
     search_popover.set_parent(&top_search_entry);
+    let debounce_id: Rc<RefCell<Option<glib::SourceId>>> = Rc::new(RefCell::new(None));
+    let suggest_gen: Rc<RefCell<u64>> = Rc::new(RefCell::new(0));
+    let suppress_suggest: Rc<std::cell::Cell<bool>> = Rc::new(std::cell::Cell::new(false));
+
     let run_header_search: Rc<dyn Fn(&str)> = {
         let content_view_stack = content_view_stack.clone();
         let explore_search_entry = explore_search_entry.clone();
         let state = Rc::clone(&state);
         let search_popover = search_popover.clone();
+        let debounce_id = Rc::clone(&debounce_id);
+        let suggest_gen = Rc::clone(&suggest_gen);
         Rc::new(move |query: &str| {
             let trimmed = query.trim();
             if trimmed.is_empty() {
                 return;
             }
+            if let Some(id) = debounce_id.borrow_mut().take() {
+                id.remove();
+            }
+            *suggest_gen.borrow_mut() += 1;
             {
                 let mut s = state.borrow_mut();
                 s.search_history.retain(|q| !q.eq_ignore_ascii_case(trimmed));
@@ -622,6 +684,7 @@ pub fn build_ui(app: &adw::Application) {
         let search_popover = search_popover.clone();
         let top_entry_ref = top_search_entry.clone();
         let run_header_search = Rc::clone(&run_header_search);
+        let suppress_suggest = Rc::clone(&suppress_suggest);
         move |heading_text: &str, icon_name: &str, items: Vec<String>| {
             if items.is_empty() {
                 search_popover.popdown();
@@ -658,9 +721,12 @@ pub fn build_ui(app: &adw::Application) {
                     .build();
                 let top_entry = top_entry_ref.clone();
                 let run_fn = Rc::clone(&run_header_search);
+                let suppress = Rc::clone(&suppress_suggest);
                 let term_clone = term.clone();
                 item.connect_clicked(move |_| {
+                    suppress.set(true);
                     top_entry.set_text(&term_clone);
+                    suppress.set(false);
                     run_fn(&term_clone);
                 });
                 box_hist.append(&item);
@@ -699,10 +765,14 @@ pub fn build_ui(app: &adw::Application) {
         let state = Rc::clone(&state);
         let show_search_popover = show_search_popover.clone();
         let search_popover = search_popover.clone();
-        let debounce_id: Rc<RefCell<Option<glib::SourceId>>> = Rc::new(RefCell::new(None));
-        let suggest_gen: Rc<RefCell<u64>> = Rc::new(RefCell::new(0));
+        let debounce_id = Rc::clone(&debounce_id);
+        let suggest_gen = Rc::clone(&suggest_gen);
+        let suppress_suggest = Rc::clone(&suppress_suggest);
 
         top_search_entry.connect_search_changed(move |entry| {
+            if suppress_suggest.get() {
+                return;
+            }
             if let Some(id) = debounce_id.borrow_mut().take() {
                 id.remove();
             }

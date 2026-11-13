@@ -3,7 +3,10 @@ use std::rc::Rc;
 
 use adw::prelude::*;
 use gtk4::gdk;
-use gtk4::{Box as GtkBox, Button, Label, ListBox, MediaFile, Picture, Scale, Spinner, ToggleButton};
+use gtk4::{
+    Box as GtkBox, Button, Label, ListBox, MediaFile, Picture, Scale, ScrolledWindow, Spinner,
+    ToggleButton,
+};
 use libadwaita as adw;
 
 use crate::backend::Backend;
@@ -49,9 +52,14 @@ pub struct AppState {
     // Sidebar lyrics & queue widgets
     pub lyrics_title_label: Label,
     pub lyrics_body_label: Label,
+    pub lyrics_box: GtkBox,
+    pub lyrics_scroll: ScrolledWindow,
+    pub synced_lyrics: Vec<(f64, Button)>,
+    pub active_lyric_idx: Option<usize>,
     pub lyrics_loaded_for: Option<String>,
     pub queue_list: ListBox,
     pub queue_empty_label: Label,
+    pub queue_title_label: Label,
     // Collection (favorites, recent, custom playlists) widgets
     pub favorites_list: ListBox,
     pub favorites_empty_label: Label,

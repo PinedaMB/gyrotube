@@ -461,7 +461,7 @@ pub fn build_track_row(
 
     let add_pl_popover = Popover::new();
     let add_pl_btn = MenuButton::builder()
-        .icon_name("playlist-add-symbolic")
+        .icon_name("folder-music-symbolic")
         .tooltip_text("Agregar a playlist")
         .valign(Align::Center)
         .popover(&add_pl_popover)

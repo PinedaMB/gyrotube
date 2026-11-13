@@ -404,6 +404,49 @@ pub fn save_search_history(history: &[String]) {
     save_json_file("search_history.json", history);
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct SyncedLyricLine {
+    pub time_secs: f64,
+    pub text: String,
+}
+
+#[derive(Debug, Clone)]
+pub enum LyricsData {
+    Synced(Vec<SyncedLyricLine>),
+    Plain(String),
+}
+
+pub fn parse_lrc(lrc: &str) -> Vec<SyncedLyricLine> {
+    let mut out = Vec::new();
+    for raw_line in lrc.lines() {
+        let mut rest = raw_line.trim();
+        let mut timestamps = Vec::new();
+        while let Some(stripped) = rest.strip_prefix('[') {
+            let Some(end) = stripped.find(']') else {
+                break;
+            };
+            let tag = &stripped[..end];
+            if let Some((min_s, sec_s)) = tag.split_once(':')
+                && let (Ok(mins), Ok(secs)) = (min_s.trim().parse::<f64>(), sec_s.trim().parse::<f64>())
+            {
+                timestamps.push(mins * 60.0 + secs);
+            }
+            rest = stripped[end + 1..].trim();
+        }
+        if timestamps.is_empty() || rest.is_empty() {
+            continue;
+        }
+        for t in timestamps {
+            out.push(SyncedLyricLine {
+                time_secs: t,
+                text: rest.to_string(),
+            });
+        }
+    }
+    out.sort_by(|a, b| a.time_secs.total_cmp(&b.time_secs));
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -464,5 +507,17 @@ mod tests {
             clean_track_title("DARE (feat. Shaun Ryder) (Official Audio)"),
             "DARE (feat. Shaun Ryder)"
         );
+    }
+
+    #[test]
+    fn parses_lrc_timestamps() {
+        let lrc = "[00:12.50] First line\n[01:02.00][01:10.25] Chorus\n[ti:Ignored]\n";
+        let lines = parse_lrc(lrc);
+        assert_eq!(lines.len(), 3);
+        assert!((lines[0].time_secs - 12.5).abs() < 0.01);
+        assert_eq!(lines[0].text, "First line");
+        assert!((lines[1].time_secs - 62.0).abs() < 0.01);
+        assert_eq!(lines[1].text, "Chorus");
+        assert!((lines[2].time_secs - 70.25).abs() < 0.01);
     }
 }

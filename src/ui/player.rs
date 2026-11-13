@@ -8,18 +8,20 @@ use gtk4::prelude::*;
 use gtk4::{Align, Box as GtkBox, Button, Image, Label, ListBoxRow, MenuButton, Orientation, Scale};
 
 use crate::backend::runtime;
-use crate::models::{format_duration, is_ytm_square_cover};
+use crate::models::{LyricsData, format_duration, is_ytm_square_cover};
 use crate::ui::state::{AppState, next_queue_index};
 use crate::ui::widgets::{
-    clear_list_box, load_player_cover, notify_track_changed, record_recent_track,
+    clamped_cover, clear_box, clear_list_box, load_cover_into_picture, load_player_cover,
+    notify_track_changed, record_recent_track,
 };
 
 pub fn refresh_queue_ui(state: Rc<RefCell<AppState>>) {
-    let (queue_list, queue_empty_label, queue, current_index) = {
+    let (queue_list, queue_empty_label, queue_title_label, queue, current_index) = {
         let s = state.borrow();
         (
             s.queue_list.clone(),
             s.queue_empty_label.clone(),
+            s.queue_title_label.clone(),
             s.queue.clone(),
             s.current_index,
         )
@@ -29,19 +31,21 @@ pub fn refresh_queue_ui(state: Rc<RefCell<AppState>>) {
     let is_empty = queue.is_empty();
     queue_empty_label.set_visible(is_empty);
     queue_list.set_visible(!is_empty);
+    if is_empty {
+        queue_title_label.set_label("Cola");
+    } else {
+        queue_title_label.set_label(&format!("Cola • {} pistas", queue.len()));
+    }
 
     for (idx, track) in queue.iter().enumerate() {
         let is_current = current_index == Some(idx);
-        let row_box = GtkBox::new(Orientation::Horizontal, 10);
+        let row_box = GtkBox::new(Orientation::Horizontal, 8);
         row_box.add_css_class("track-row");
 
-        let icon_name = if is_current {
-            "audio-volume-high-symbolic"
-        } else {
-            "audio-x-generic-symbolic"
-        };
-        let icon = Image::from_icon_name(icon_name);
-        icon.set_valign(Align::Center);
+        let (cover_frame, cover) = clamped_cover(36, 36, "cover-art");
+        if let Some(url) = &track.cover_url {
+            load_cover_into_picture(&cover, url, Rc::clone(&state));
+        }
 
         let title_label = Label::builder()
             .label(&track.title)
@@ -63,51 +67,113 @@ pub fn refresh_queue_ui(state: Rc<RefCell<AppState>>) {
 
         let text_box = GtkBox::new(Orientation::Vertical, 2);
         text_box.set_hexpand(true);
+        text_box.set_valign(Align::Center);
         text_box.append(&title_label);
         text_box.append(&artist_label);
 
-        let jump_btn = Button::builder()
-            .icon_name("media-playback-start-symbolic")
+        let duration_str = track
+            .duration_secs
+            .map(format_duration)
+            .unwrap_or_else(|| String::from("--:--"));
+        let duration_label = Label::builder()
+            .label(&duration_str)
+            .valign(Align::Center)
+            .css_classes(["dim-label", "caption", "numeric"])
+            .build();
+
+        let remove_btn = Button::builder()
+            .icon_name("list-remove-symbolic")
+            .tooltip_text("Quitar de la cola")
             .valign(Align::Center)
             .css_classes(["flat", "circular"])
             .build();
-
         {
             let state = Rc::clone(&state);
-            jump_btn.connect_clicked(move |_| {
-                play_queue_index(Rc::clone(&state), idx);
+            remove_btn.connect_clicked(move |_| {
+                {
+                    let mut s = state.borrow_mut();
+                    if idx < s.queue.len() {
+                        s.queue.remove(idx);
+                        if let Some(cur) = s.current_index {
+                            if idx < cur {
+                                s.current_index = Some(cur - 1);
+                            } else if idx == cur {
+                                if s.queue.is_empty() {
+                                    s.current_index = None;
+                                } else {
+                                    s.current_index = Some(cur.min(s.queue.len() - 1));
+                                }
+                            }
+                        }
+                        s.update_nav_buttons();
+                    }
+                }
+                refresh_queue_ui(Rc::clone(&state));
             });
         }
 
-        row_box.append(&icon);
+        if is_current {
+            let playing_icon = Image::builder()
+                .icon_name("audio-volume-high-symbolic")
+                .pixel_size(14)
+                .valign(Align::Center)
+                .css_classes(["playing-title"])
+                .build();
+            row_box.append(&playing_icon);
+        }
+        row_box.append(&cover_frame);
         row_box.append(&text_box);
-        row_box.append(&jump_btn);
+        row_box.append(&duration_label);
+        row_box.append(&remove_btn);
 
-        queue_list.append(&ListBoxRow::builder().child(&row_box).build());
+        let row = ListBoxRow::builder()
+            .child(&row_box)
+            .activatable(true)
+            .build();
+        if is_current {
+            row.add_css_class("chart-active-row");
+        }
+        row.set_cursor_from_name(Some("pointer"));
+        {
+            let state = Rc::clone(&state);
+            row.connect_activate(move |_| {
+                play_queue_index(Rc::clone(&state), idx);
+            });
+        }
+        queue_list.append(&row);
     }
 }
 
 pub fn load_current_lyrics(state: Rc<RefCell<AppState>>) {
     let (track, backend) = {
-        let s = state.borrow();
+        let mut s = state.borrow_mut();
         let Some(track) = s.current_track().cloned() else {
+            clear_box(&s.lyrics_box);
+            s.synced_lyrics.clear();
+            s.active_lyric_idx = None;
+            s.lyrics_loaded_for = None;
             s.lyrics_title_label.set_label("Letras");
             s.lyrics_body_label
                 .set_label("Reproduce una canción para ver su letra.");
+            s.lyrics_box.append(&s.lyrics_body_label);
             return;
         };
         if s.lyrics_loaded_for.as_deref() == Some(&track.id) {
             return;
         }
+        clear_box(&s.lyrics_box);
+        s.synced_lyrics.clear();
+        s.active_lyric_idx = None;
         s.lyrics_title_label.set_label(&track.title);
         s.lyrics_body_label.set_label("Cargando letra…");
+        s.lyrics_box.append(&s.lyrics_body_label);
         (track, s.backend.clone())
     };
 
     let (tx, rx) = async_channel::bounded(1);
-    let id = track.id.clone();
+    let track_for_req = track.clone();
     runtime().spawn(async move {
-        let res = backend.fetch_lyrics(&id).await;
+        let res = backend.fetch_synced_lyrics(&track_for_req).await;
         let _ = tx.send(res).await;
     });
 
@@ -115,18 +181,78 @@ pub fn load_current_lyrics(state: Rc<RefCell<AppState>>) {
         if let Ok(result) = rx.recv().await {
             let mut s = state.borrow_mut();
             if s.current_track().is_some_and(|cur| cur.id == track.id) {
+                clear_box(&s.lyrics_box);
+                s.synced_lyrics.clear();
+                s.active_lyric_idx = None;
                 match result {
-                    Ok(text) => {
+                    Ok(LyricsData::Synced(lines)) => {
+                        for line in lines {
+                            let lbl = Label::builder()
+                                .label(&line.text)
+                                .xalign(0.0)
+                                .wrap(true)
+                                .build();
+                            let btn = Button::builder()
+                                .child(&lbl)
+                                .css_classes(["flat", "lyric-line"])
+                                .build();
+                            let state_click = Rc::clone(&state);
+                            let time_secs = line.time_secs;
+                            btn.connect_clicked(move |_| {
+                                let s = state_click.borrow();
+                                let media = s.active_media().clone();
+                                let target_us = (time_secs * 1_000_000.0) as i64;
+                                media.seek(target_us);
+                                s.seek_scale.set_value(time_secs);
+                                s.time_label.set_label(&format_duration(time_secs as u32));
+                            });
+                            s.lyrics_box.append(&btn);
+                            s.synced_lyrics.push((time_secs, btn));
+                        }
+                        s.lyrics_loaded_for = Some(track.id);
+                    }
+                    Ok(LyricsData::Plain(text)) => {
                         s.lyrics_body_label.set_label(&text);
+                        s.lyrics_box.append(&s.lyrics_body_label);
                         s.lyrics_loaded_for = Some(track.id);
                     }
                     Err(err) => {
                         s.lyrics_body_label.set_label(&err);
+                        s.lyrics_box.append(&s.lyrics_body_label);
                     }
                 }
             }
         }
     });
+}
+
+fn update_synced_lyrics_position(s: &mut AppState, pos_secs_exact: f64) {
+    if s.synced_lyrics.is_empty() {
+        return;
+    }
+    let new_idx = s
+        .synced_lyrics
+        .iter()
+        .rposition(|(t, _)| *t <= pos_secs_exact + 0.15);
+    if new_idx != s.active_lyric_idx {
+        if let Some(old) = s.active_lyric_idx
+            && let Some((_, btn)) = s.synced_lyrics.get(old)
+        {
+            btn.remove_css_class("lyric-line-active");
+        }
+        if let Some(idx) = new_idx
+            && let Some((_, btn)) = s.synced_lyrics.get(idx)
+        {
+            btn.add_css_class("lyric-line-active");
+            if let Some(bounds) = btn.compute_bounds(&s.lyrics_box) {
+                let adj = s.lyrics_scroll.vadjustment();
+                let target = (bounds.y() as f64 - adj.page_size() * 0.35)
+                    .clamp(0.0, (adj.upper() - adj.page_size()).max(0.0));
+                adj.set_value(target);
+            }
+        }
+        s.active_lyric_idx = new_idx;
+    }
 }
 
 pub fn play_queue_index(state: Rc<RefCell<AppState>>, index: usize) {
@@ -735,6 +861,7 @@ pub fn wire_media_signals(
                         let pos_secs = (pos_us / 1_000_000) as f64;
                         s.seek_scale.set_value(pos_secs);
                         s.time_label.set_label(&format_duration(pos_secs as u32));
+                        update_synced_lyrics_position(&mut s, pos_us as f64 / 1_000_000.0);
                         if let Some(mpris) = &s.mpris {
                             mpris.set_position_us(pos_us);
                         }

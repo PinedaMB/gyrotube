@@ -7,8 +7,8 @@ use rustypipe::model::traits::YtEntity;
 use rustypipe::param::StreamFilter;
 
 use crate::models::{
-    Album, Artist, ArtistDetails, Genre, Playlist, SearchResults, StreamInfo, Track, cache_dir,
-    clean_track_title, is_ytm_square_cover, pick_cover,
+    Album, Artist, ArtistDetails, Genre, LyricsData, Playlist, SearchResults, StreamInfo, Track,
+    cache_dir, clean_track_title, is_ytm_square_cover, parse_lrc, pick_cover,
 };
 
 const HOME_CACHE_TTL: Duration = Duration::from_secs(15 * 60);
@@ -519,6 +519,85 @@ impl Backend {
             .bytes()
             .await?;
         Ok(bytes.to_vec())
+    }
+
+    pub async fn fetch_synced_lyrics(&self, track: &Track) -> Result<LyricsData, String> {
+        #[derive(serde::Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct LrcLibResp {
+            synced_lyrics: Option<String>,
+            plain_lyrics: Option<String>,
+        }
+
+        let artist_q = track.artist.split(',').next().unwrap_or(&track.artist).trim();
+        let mut params = vec![
+            ("artist_name", artist_q.to_string()),
+            ("track_name", track.title.clone()),
+        ];
+        if let Some(dur) = track.duration_secs {
+            params.push(("duration", dur.to_string()));
+        }
+
+        let mut plain_fallback: Option<String> = None;
+        if let Ok(resp) = self
+            .http
+            .get("https://lrclib.net/api/get")
+            .query(&params)
+            .timeout(Duration::from_secs(4))
+            .send()
+            .await
+            && resp.status().is_success()
+            && let Ok(parsed) = resp.json::<LrcLibResp>().await
+        {
+            if let Some(synced) = parsed.synced_lyrics {
+                let lines = parse_lrc(&synced);
+                if !lines.is_empty() {
+                    return Ok(LyricsData::Synced(lines));
+                }
+            }
+            plain_fallback = parsed.plain_lyrics;
+        }
+
+        if let Ok(resp) = self
+            .http
+            .get("https://lrclib.net/api/search")
+            .query(&[("q", format!("{} {}", artist_q, track.title))])
+            .timeout(Duration::from_secs(4))
+            .send()
+            .await
+            && resp.status().is_success()
+            && let Ok(list) = resp.json::<Vec<LrcLibResp>>().await
+        {
+            for item in list {
+                if let Some(synced) = item.synced_lyrics {
+                    let lines = parse_lrc(&synced);
+                    if !lines.is_empty() {
+                        return Ok(LyricsData::Synced(lines));
+                    }
+                }
+                if plain_fallback.is_none() {
+                    plain_fallback = item.plain_lyrics;
+                }
+            }
+        }
+
+        match self.fetch_lyrics(&track.id).await {
+            Ok(ytm_text)
+                if ytm_text != "No hay letra disponible para esta canción." =>
+            {
+                Ok(LyricsData::Plain(ytm_text))
+            }
+            _ => {
+                if let Some(plain) = plain_fallback
+                    && !plain.trim().is_empty()
+                {
+                    return Ok(LyricsData::Plain(plain));
+                }
+                Ok(LyricsData::Plain(String::from(
+                    "No hay letra disponible para esta canción.",
+                )))
+            }
+        }
     }
 
     pub async fn fetch_lyrics(&self, video_id: &str) -> Result<String, String> {
