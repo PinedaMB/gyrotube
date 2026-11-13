@@ -1,4 +1,5 @@
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock, RwLock};
+use std::time::{Duration, Instant};
 
 use rustypipe::client::RustyPipe;
 use rustypipe::model::MusicItem;
@@ -8,6 +9,8 @@ use crate::models::{
     Album, Artist, ArtistDetails, Genre, Playlist, SearchResults, StreamInfo, Track, cache_dir,
     clean_track_title, is_ytm_square_cover, pick_cover,
 };
+
+const HOME_CACHE_TTL: Duration = Duration::from_secs(15 * 60);
 
 static RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
 
@@ -20,6 +23,7 @@ pub fn runtime() -> &'static tokio::runtime::Runtime {
     })
 }
 
+#[derive(Clone)]
 pub struct HomeFeed {
     pub trending: Vec<Track>,
     pub top: Vec<Track>,
@@ -30,6 +34,8 @@ pub struct HomeFeed {
 pub struct Backend {
     rp: RustyPipe,
     http: reqwest::Client,
+    home_cache: Arc<RwLock<Option<(Instant, HomeFeed)>>>,
+    genres_cache: Arc<RwLock<Option<(Instant, Vec<Genre>)>>>,
 }
 
 impl Backend {
@@ -50,10 +56,25 @@ impl Backend {
         Self {
             rp: builder.build().unwrap_or_else(|_| RustyPipe::new()),
             http: reqwest::Client::new(),
+            home_cache: Arc::new(RwLock::new(None)),
+            genres_cache: Arc::new(RwLock::new(None)),
         }
     }
 
+    #[allow(dead_code)]
     pub async fn fetch_home_feed(&self) -> Result<HomeFeed, String> {
+        self.fetch_home_feed_cached(false).await
+    }
+
+    pub async fn fetch_home_feed_cached(&self, force_refresh: bool) -> Result<HomeFeed, String> {
+        if !force_refresh
+            && let Ok(guard) = self.home_cache.read()
+            && let Some((ts, feed)) = guard.as_ref()
+            && ts.elapsed() < HOME_CACHE_TTL
+        {
+            return Ok(feed.clone());
+        }
+
         let query = self.rp.query();
         let (charts_res, albums_res) =
             tokio::join!(query.music_charts(None), query.music_new_albums());
@@ -65,11 +86,15 @@ impl Backend {
             .map(Album::from)
             .collect();
 
-        Ok(HomeFeed {
+        let feed = HomeFeed {
             trending: charts.trending_tracks.iter().map(Track::from).collect(),
             top: charts.top_tracks.iter().map(Track::from).collect(),
             new_albums,
-        })
+        };
+        if let Ok(mut guard) = self.home_cache.write() {
+            *guard = Some((Instant::now(), feed.clone()));
+        }
+        Ok(feed)
     }
 
     pub async fn fetch_album_tracks(&self, album_id: &str) -> Result<(String, Vec<Track>), String> {
@@ -103,6 +128,18 @@ impl Backend {
     }
 
     pub async fn fetch_genres(&self) -> Result<Vec<Genre>, String> {
+        self.fetch_genres_cached(false).await
+    }
+
+    pub async fn fetch_genres_cached(&self, force_refresh: bool) -> Result<Vec<Genre>, String> {
+        if !force_refresh
+            && let Ok(guard) = self.genres_cache.read()
+            && let Some((ts, genres)) = guard.as_ref()
+            && ts.elapsed() < HOME_CACHE_TTL
+        {
+            return Ok(genres.clone());
+        }
+
         let genres = self
             .rp
             .query()
@@ -110,7 +147,11 @@ impl Backend {
             .await
             .map_err(|e| format!("Error al cargar géneros: {e}"))?;
 
-        Ok(genres.iter().map(Genre::from).collect())
+        let list: Vec<Genre> = genres.iter().map(Genre::from).collect();
+        if let Ok(mut guard) = self.genres_cache.write() {
+            *guard = Some((Instant::now(), list.clone()));
+        }
+        Ok(list)
     }
 
     pub async fn fetch_genre_playlists(

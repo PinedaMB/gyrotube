@@ -322,15 +322,15 @@ pub fn cache_dir() -> Option<PathBuf> {
         .map(|h| PathBuf::from(h).join(".cache/gyrotube"))
 }
 
-pub fn load_favorites() -> Vec<Track> {
-    let Some(path) = data_dir().map(|d| d.join("favorites.json")) else {
-        return Vec::new();
-    };
-    let Ok(raw) = std::fs::read_to_string(path) else {
-        return Vec::new();
-    };
-    let mut tracks: Vec<Track> = serde_json::from_str(&raw).unwrap_or_default();
-    for track in &mut tracks {
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct UserPlaylist {
+    pub id: String,
+    pub name: String,
+    pub tracks: Vec<Track>,
+}
+
+fn upgrade_tracks_covers(tracks: &mut [Track]) {
+    for track in tracks {
         if let Some(url) = &track.cover_url {
             track.cover_url = Some(upgrade_cover_url(url, 240));
         }
@@ -340,19 +340,68 @@ pub fn load_favorites() -> Vec<Track> {
             track.cover_large_url = Some(upgrade_cover_url(url, 800));
         }
     }
-    tracks
 }
 
-pub fn save_favorites(favorites: &[Track]) {
+fn load_json_file<T: serde::de::DeserializeOwned + Default>(filename: &str) -> T {
+    let Some(path) = data_dir().map(|d| d.join(filename)) else {
+        return T::default();
+    };
+    let Ok(raw) = std::fs::read_to_string(path) else {
+        return T::default();
+    };
+    serde_json::from_str(&raw).unwrap_or_default()
+}
+
+fn save_json_file<T: serde::Serialize + ?Sized>(filename: &str, value: &T) {
     let Some(dir) = data_dir() else {
         return;
     };
     if std::fs::create_dir_all(&dir).is_err() {
         return;
     }
-    if let Ok(json) = serde_json::to_string_pretty(favorites) {
-        let _ = std::fs::write(dir.join("favorites.json"), json);
+    if let Ok(json) = serde_json::to_string_pretty(value) {
+        let _ = std::fs::write(dir.join(filename), json);
     }
+}
+
+pub fn load_favorites() -> Vec<Track> {
+    let mut tracks: Vec<Track> = load_json_file("favorites.json");
+    upgrade_tracks_covers(&mut tracks);
+    tracks
+}
+
+pub fn save_favorites(favorites: &[Track]) {
+    save_json_file("favorites.json", favorites);
+}
+
+pub fn load_recent_tracks() -> Vec<Track> {
+    let mut tracks: Vec<Track> = load_json_file("recent.json");
+    upgrade_tracks_covers(&mut tracks);
+    tracks
+}
+
+pub fn save_recent_tracks(recent: &[Track]) {
+    save_json_file("recent.json", recent);
+}
+
+pub fn load_user_playlists() -> Vec<UserPlaylist> {
+    let mut playlists: Vec<UserPlaylist> = load_json_file("playlists.json");
+    for pl in &mut playlists {
+        upgrade_tracks_covers(&mut pl.tracks);
+    }
+    playlists
+}
+
+pub fn save_user_playlists(playlists: &[UserPlaylist]) {
+    save_json_file("playlists.json", playlists);
+}
+
+pub fn load_search_history() -> Vec<String> {
+    load_json_file("search_history.json")
+}
+
+pub fn save_search_history(history: &[String]) {
+    save_json_file("search_history.json", history);
 }
 
 #[cfg(test)]

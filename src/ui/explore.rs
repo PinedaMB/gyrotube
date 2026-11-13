@@ -1,0 +1,723 @@
+use std::cell::RefCell;
+use std::rc::Rc;
+
+use gtk4::gdk;
+use gtk4::glib;
+use gtk4::prelude::*;
+use gtk4::{
+    Align, Box as GtkBox, Button, ContentFit, CssProvider, FlowBox, Label, ListBox,
+    Orientation, Overflow, Picture, PolicyType, ScrolledWindow, SearchEntry, SelectionMode,
+    Spinner,
+};
+use libadwaita as adw;
+
+use crate::backend::runtime;
+use crate::models::{Artist, ArtistDetails, Genre, format_subscribers};
+use crate::ui::state::AppState;
+use crate::ui::widgets::{
+    build_album_card, build_carousel_section, build_playlist_card, clamped_cover, clear_box,
+    load_cover_into_picture, populate_track_list,
+};
+
+pub fn build_explore_page(
+    state: Rc<RefCell<AppState>>,
+) -> (ScrolledWindow, SearchEntry, Rc<dyn Fn(&str)>) {
+    let container = GtkBox::new(Orientation::Vertical, 16);
+    container.set_margin_top(18);
+    container.set_margin_bottom(24);
+    container.set_margin_start(20);
+    container.set_margin_end(20);
+
+    let search_entry = SearchEntry::builder()
+        .placeholder_text("Buscar canciones, artistas o álbumes en YouTube Music…")
+        .hexpand(true)
+        .build();
+
+    let spinner = Spinner::builder()
+        .halign(Align::Center)
+        .visible(false)
+        .build();
+
+    let status_label = Label::builder()
+        .visible(false)
+        .margin_top(18)
+        .css_classes(["dim-label"])
+        .build();
+
+    let (search_artists_section, search_artists_cards, _) = build_carousel_section("Artistas");
+    let (search_albums_section, search_albums_cards, _) = build_carousel_section("Álbumes");
+    let (search_playlists_section, search_playlists_cards, _) = build_carousel_section("Playlists");
+
+    let search_tracks_heading = Label::builder()
+        .label("Canciones")
+        .xalign(0.0)
+        .css_classes(["title-3"])
+        .visible(false)
+        .build();
+
+    let results_list = ListBox::builder()
+        .selection_mode(SelectionMode::None)
+        .css_classes(["boxed-list"])
+        .visible(false)
+        .build();
+
+    let search_results_section = GtkBox::new(Orientation::Vertical, 18);
+    search_results_section.set_visible(false);
+    search_results_section.append(&search_artists_section);
+    search_results_section.append(&search_albums_section);
+    search_results_section.append(&search_playlists_section);
+    search_results_section.append(&search_tracks_heading);
+    search_results_section.append(&results_list);
+
+    // Artist details sub-view
+    let artist_back_btn = Button::builder()
+        .icon_name("go-previous-symbolic")
+        .css_classes(["flat", "circular"])
+        .build();
+    let artist_name_label = Label::builder()
+        .label("Artista")
+        .xalign(0.0)
+        .ellipsize(gtk4::pango::EllipsizeMode::End)
+        .css_classes(["title-2"])
+        .build();
+    let artist_subs_label = Label::builder()
+        .label("")
+        .xalign(0.0)
+        .css_classes(["dim-label", "caption"])
+        .visible(false)
+        .build();
+    let artist_title_box = GtkBox::new(Orientation::Vertical, 2);
+    artist_title_box.set_hexpand(true);
+    artist_title_box.append(&artist_name_label);
+    artist_title_box.append(&artist_subs_label);
+
+    let artist_top_bar = GtkBox::new(Orientation::Horizontal, 10);
+    artist_top_bar.append(&artist_back_btn);
+    artist_top_bar.append(&artist_title_box);
+
+    let artist_banner = Picture::builder()
+        .height_request(180)
+        .content_fit(ContentFit::Cover)
+        .overflow(Overflow::Hidden)
+        .visible(false)
+        .build();
+    artist_banner.add_css_class("artist-banner");
+
+    let artist_desc_label = Label::builder()
+        .xalign(0.0)
+        .wrap(true)
+        .lines(4)
+        .ellipsize(gtk4::pango::EllipsizeMode::End)
+        .css_classes(["body", "dim-label"])
+        .visible(false)
+        .build();
+
+    let artist_tracks_heading = Label::builder()
+        .label("Canciones populares")
+        .xalign(0.0)
+        .css_classes(["title-3"])
+        .visible(false)
+        .build();
+    let artist_tracks_list = ListBox::builder()
+        .selection_mode(SelectionMode::None)
+        .css_classes(["boxed-list"])
+        .visible(false)
+        .build();
+
+    let (artist_albums_section, artist_albums_cards, _) = build_carousel_section("Álbumes");
+    let (artist_playlists_section, artist_playlists_cards, _) = build_carousel_section("Playlists");
+    let (artist_similar_section, artist_similar_cards, _) =
+        build_carousel_section("Artistas similares");
+
+    let artist_section = GtkBox::new(Orientation::Vertical, 16);
+    artist_section.set_visible(false);
+    artist_section.append(&artist_top_bar);
+    artist_section.append(&artist_banner);
+    artist_section.append(&artist_desc_label);
+    artist_section.append(&artist_tracks_heading);
+    artist_section.append(&artist_tracks_list);
+    artist_section.append(&artist_albums_section);
+    artist_section.append(&artist_playlists_section);
+    artist_section.append(&artist_similar_section);
+
+    // Genres & moods grid
+    let genres_title = Label::builder()
+        .label("Géneros y estados de ánimo")
+        .xalign(0.0)
+        .css_classes(["title-3"])
+        .build();
+    let genres_flow = FlowBox::builder()
+        .selection_mode(SelectionMode::None)
+        .column_spacing(10)
+        .row_spacing(10)
+        .min_children_per_line(2)
+        .max_children_per_line(5)
+        .homogeneous(true)
+        .build();
+
+    let genres_section = GtkBox::new(Orientation::Vertical, 12);
+    genres_section.append(&genres_title);
+    genres_section.append(&genres_flow);
+
+    // Genre playlists sub-view
+    let genre_back_btn = Button::builder()
+        .icon_name("go-previous-symbolic")
+        .css_classes(["flat", "circular"])
+        .build();
+    let genre_heading = Label::builder()
+        .label("Playlists")
+        .xalign(0.0)
+        .hexpand(true)
+        .css_classes(["title-3"])
+        .build();
+    let genre_header = GtkBox::new(Orientation::Horizontal, 8);
+    genre_header.append(&genre_back_btn);
+    genre_header.append(&genre_heading);
+
+    let playlists_flow = FlowBox::builder()
+        .selection_mode(SelectionMode::None)
+        .column_spacing(12)
+        .row_spacing(12)
+        .min_children_per_line(2)
+        .max_children_per_line(4)
+        .build();
+
+    let genre_playlists_section = GtkBox::new(Orientation::Vertical, 12);
+    genre_playlists_section.set_visible(false);
+    genre_playlists_section.append(&genre_header);
+    genre_playlists_section.append(&playlists_flow);
+
+    container.append(&search_entry);
+    container.append(&spinner);
+    container.append(&status_label);
+    container.append(&search_results_section);
+    container.append(&artist_section);
+    container.append(&genres_section);
+    container.append(&genre_playlists_section);
+
+    let clamp = adw::Clamp::builder()
+        .maximum_size(900)
+        .child(&container)
+        .build();
+
+    let scrolled = ScrolledWindow::builder()
+        .hscrollbar_policy(PolicyType::Never)
+        .child(&clamp)
+        .build();
+
+    // Load genres on startup
+    {
+        let backend = state.borrow().backend.clone();
+        let (tx, rx) = async_channel::bounded(1);
+        runtime().spawn(async move {
+            let res = backend.fetch_genres().await;
+            let _ = tx.send(res).await;
+        });
+
+        let state = Rc::clone(&state);
+        let genres_flow = genres_flow.clone();
+        let genres_section = genres_section.clone();
+        let genre_playlists_section = genre_playlists_section.clone();
+        let genre_heading = genre_heading.clone();
+        let playlists_flow = playlists_flow.clone();
+        let spinner = spinner.clone();
+
+        glib::spawn_future_local(async move {
+            if let Ok(Ok(genres)) = rx.recv().await {
+                for genre in genres {
+                    let btn = build_genre_button(
+                        &genre,
+                        Rc::clone(&state),
+                        &genres_section,
+                        &genre_playlists_section,
+                        &genre_heading,
+                        &playlists_flow,
+                        &spinner,
+                    );
+                    genres_flow.insert(&btn, -1);
+                }
+            }
+        });
+    }
+
+    {
+        let genres_section = genres_section.clone();
+        let genre_playlists_section = genre_playlists_section.clone();
+        genre_back_btn.connect_clicked(move |_| {
+            genre_playlists_section.set_visible(false);
+            genres_section.set_visible(true);
+        });
+    }
+
+    let artist_widgets = ArtistPageWidgets {
+        spinner: spinner.clone(),
+        status_label: status_label.clone(),
+        search_results_section: search_results_section.clone(),
+        genres_section: genres_section.clone(),
+        genre_playlists_section: genre_playlists_section.clone(),
+        artist_section: artist_section.clone(),
+        name_label: artist_name_label,
+        subs_label: artist_subs_label,
+        banner: artist_banner,
+        desc_label: artist_desc_label,
+        tracks_heading: artist_tracks_heading,
+        tracks_list: artist_tracks_list,
+        albums_section: artist_albums_section,
+        albums_cards: artist_albums_cards,
+        playlists_section: artist_playlists_section,
+        playlists_cards: artist_playlists_cards,
+        similar_section: artist_similar_section,
+        similar_cards: artist_similar_cards,
+    };
+
+    {
+        let search_entry = search_entry.clone();
+        let artist_section = artist_section.clone();
+        let search_results_section = search_results_section.clone();
+        let genres_section = genres_section.clone();
+        artist_back_btn.connect_clicked(move |_| {
+            artist_section.set_visible(false);
+            if search_entry.text().trim().is_empty() {
+                genres_section.set_visible(true);
+            } else {
+                search_results_section.set_visible(true);
+            }
+        });
+    }
+
+    let run_search: Rc<dyn Fn(&str)> = {
+        let state = Rc::clone(&state);
+        let spinner = spinner.clone();
+        let status_label = status_label.clone();
+        let search_results_section = search_results_section.clone();
+        let search_artists_section = search_artists_section.clone();
+        let search_artists_cards = search_artists_cards.clone();
+        let search_albums_section = search_albums_section.clone();
+        let search_albums_cards = search_albums_cards.clone();
+        let search_playlists_section = search_playlists_section.clone();
+        let search_playlists_cards = search_playlists_cards.clone();
+        let search_tracks_heading = search_tracks_heading.clone();
+        let results_list = results_list.clone();
+        let artist_section = artist_section.clone();
+        let genres_section = genres_section.clone();
+        let genre_playlists_section = genre_playlists_section.clone();
+        let artist_widgets = artist_widgets.clone();
+
+        Rc::new(move |raw_query: &str| {
+            let query = raw_query.trim().to_string();
+            if query.is_empty() {
+                search_results_section.set_visible(false);
+                artist_section.set_visible(false);
+                status_label.set_visible(false);
+                genre_playlists_section.set_visible(false);
+                genres_section.set_visible(true);
+                return;
+            }
+
+            genres_section.set_visible(false);
+            genre_playlists_section.set_visible(false);
+            artist_section.set_visible(false);
+            spinner.set_visible(true);
+            spinner.set_spinning(true);
+            status_label.set_visible(false);
+            search_results_section.set_visible(false);
+
+            let backend = state.borrow().backend.clone();
+            let (tx, rx) = async_channel::bounded(1);
+
+            let query_for_source = query.clone();
+            runtime().spawn(async move {
+                let res = backend.search_all(&query).await;
+                let _ = tx.send(res).await;
+            });
+
+            let state = Rc::clone(&state);
+            let spinner = spinner.clone();
+            let status_label = status_label.clone();
+            let search_results_section = search_results_section.clone();
+            let search_artists_section = search_artists_section.clone();
+            let search_artists_cards = search_artists_cards.clone();
+            let search_albums_section = search_albums_section.clone();
+            let search_albums_cards = search_albums_cards.clone();
+            let search_playlists_section = search_playlists_section.clone();
+            let search_playlists_cards = search_playlists_cards.clone();
+            let search_tracks_heading = search_tracks_heading.clone();
+            let results_list = results_list.clone();
+            let artist_widgets = artist_widgets.clone();
+
+            glib::spawn_future_local(async move {
+                if let Ok(result) = rx.recv().await {
+                    spinner.set_spinning(false);
+                    spinner.set_visible(false);
+                    match result {
+                        Ok(res)
+                            if res.artists.is_empty()
+                                && res.albums.is_empty()
+                                && res.playlists.is_empty()
+                                && res.tracks.is_empty() =>
+                        {
+                            status_label.set_label("No se encontraron resultados.");
+                            status_label.set_visible(true);
+                            search_results_section.set_visible(false);
+                        }
+                        Ok(res) => {
+                            clear_box(&search_artists_cards);
+                            for artist in &res.artists {
+                                search_artists_cards.append(&build_artist_card(
+                                    artist,
+                                    Rc::clone(&state),
+                                    artist_widgets.clone(),
+                                ));
+                            }
+                            search_artists_section.set_visible(!res.artists.is_empty());
+
+                            clear_box(&search_albums_cards);
+                            for album in &res.albums {
+                                search_albums_cards
+                                    .append(&build_album_card(album, Rc::clone(&state)));
+                            }
+                            search_albums_section.set_visible(!res.albums.is_empty());
+
+                            clear_box(&search_playlists_cards);
+                            for playlist in &res.playlists {
+                                search_playlists_cards
+                                    .append(&build_playlist_card(playlist, Rc::clone(&state)));
+                            }
+                            search_playlists_section.set_visible(!res.playlists.is_empty());
+
+                            if res.tracks.is_empty() {
+                                search_tracks_heading.set_visible(false);
+                                results_list.set_visible(false);
+                            } else {
+                                populate_track_list(
+                                    &results_list,
+                                    &res.tracks,
+                                    &format!("Búsqueda: {query_for_source}"),
+                                    Rc::clone(&state),
+                                );
+                                search_tracks_heading.set_visible(true);
+                                results_list.set_visible(true);
+                            }
+
+                            search_results_section.set_visible(true);
+                            status_label.set_visible(false);
+                        }
+                        Err(err) => {
+                            status_label.set_label(&err);
+                            status_label.set_visible(true);
+                            state.borrow().show_toast(&err);
+                        }
+                    }
+                }
+            });
+        })
+    };
+
+    {
+        let run_search = Rc::clone(&run_search);
+        search_entry.connect_activate(move |entry| {
+            run_search(&entry.text());
+        });
+    }
+    {
+        let search_results_section = search_results_section.clone();
+        let artist_section = artist_section.clone();
+        let status_label = status_label.clone();
+        let genres_section = genres_section.clone();
+        let genre_playlists_section = genre_playlists_section.clone();
+        search_entry.connect_search_changed(move |entry| {
+            if entry.text().trim().is_empty() {
+                search_results_section.set_visible(false);
+                artist_section.set_visible(false);
+                status_label.set_visible(false);
+                genre_playlists_section.set_visible(false);
+                genres_section.set_visible(true);
+            }
+        });
+    }
+
+    (scrolled, search_entry, run_search)
+}
+
+#[derive(Clone)]
+struct ArtistPageWidgets {
+    spinner: Spinner,
+    status_label: Label,
+    search_results_section: GtkBox,
+    genres_section: GtkBox,
+    genre_playlists_section: GtkBox,
+    artist_section: GtkBox,
+    name_label: Label,
+    subs_label: Label,
+    banner: Picture,
+    desc_label: Label,
+    tracks_heading: Label,
+    tracks_list: ListBox,
+    albums_section: GtkBox,
+    albums_cards: GtkBox,
+    playlists_section: GtkBox,
+    playlists_cards: GtkBox,
+    similar_section: GtkBox,
+    similar_cards: GtkBox,
+}
+
+fn open_artist_page(
+    artist_id: &str,
+    artist_name: &str,
+    ui: ArtistPageWidgets,
+    state: Rc<RefCell<AppState>>,
+) {
+    ui.search_results_section.set_visible(false);
+    ui.genres_section.set_visible(false);
+    ui.genre_playlists_section.set_visible(false);
+    ui.artist_section.set_visible(false);
+    ui.status_label.set_visible(false);
+    ui.spinner.set_visible(true);
+    ui.spinner.set_spinning(true);
+
+    let backend = state.borrow().backend.clone();
+    let (tx, rx) = async_channel::bounded(1);
+    let id = artist_id.to_string();
+    runtime().spawn(async move {
+        let res = backend.fetch_artist(&id).await;
+        let _ = tx.send(res).await;
+    });
+
+    let fallback_name = artist_name.to_string();
+    glib::spawn_future_local(async move {
+        if let Ok(result) = rx.recv().await {
+            ui.spinner.set_spinning(false);
+            ui.spinner.set_visible(false);
+            match result {
+                Ok(details) => {
+                    populate_artist_page(details, ui, state);
+                }
+                Err(err) => {
+                    ui.name_label.set_label(&fallback_name);
+                    ui.status_label.set_label(&err);
+                    ui.status_label.set_visible(true);
+                    state.borrow().show_toast(&err);
+                }
+            }
+        }
+    });
+}
+
+fn populate_artist_page(
+    details: ArtistDetails,
+    ui: ArtistPageWidgets,
+    state: Rc<RefCell<AppState>>,
+) {
+    ui.name_label.set_label(&details.name);
+    if let Some(subs) = details.subscriber_count {
+        ui.subs_label.set_label(&format_subscribers(subs));
+        ui.subs_label.set_visible(true);
+    } else {
+        ui.subs_label.set_visible(false);
+    }
+
+    if let Some(url) = &details.header_url {
+        ui.banner.set_paintable(None::<&gdk::Paintable>);
+        load_cover_into_picture(&ui.banner, url, Rc::clone(&state));
+        ui.banner.set_visible(true);
+    } else {
+        ui.banner.set_visible(false);
+    }
+
+    if let Some(desc) = details.description.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        ui.desc_label.set_label(desc);
+        ui.desc_label.set_visible(true);
+    } else {
+        ui.desc_label.set_visible(false);
+    }
+
+    if details.tracks.is_empty() {
+        ui.tracks_heading.set_visible(false);
+        ui.tracks_list.set_visible(false);
+    } else {
+        populate_track_list(
+            &ui.tracks_list,
+            &details.tracks,
+            &details.name,
+            Rc::clone(&state),
+        );
+        ui.tracks_heading.set_visible(true);
+        ui.tracks_list.set_visible(true);
+    }
+
+    clear_box(&ui.albums_cards);
+    for album in &details.albums {
+        ui.albums_cards
+            .append(&build_album_card(album, Rc::clone(&state)));
+    }
+    ui.albums_section.set_visible(!details.albums.is_empty());
+
+    clear_box(&ui.playlists_cards);
+    for playlist in &details.playlists {
+        ui.playlists_cards
+            .append(&build_playlist_card(playlist, Rc::clone(&state)));
+    }
+    ui.playlists_section.set_visible(!details.playlists.is_empty());
+
+    clear_box(&ui.similar_cards);
+    for similar in &details.similar_artists {
+        ui.similar_cards.append(&build_artist_card(
+            similar,
+            Rc::clone(&state),
+            ui.clone(),
+        ));
+    }
+    ui.similar_section
+        .set_visible(!details.similar_artists.is_empty());
+
+    ui.artist_section.set_visible(true);
+}
+
+fn build_artist_card(
+    artist: &Artist,
+    state: Rc<RefCell<AppState>>,
+    artist_widgets: ArtistPageWidgets,
+) -> Button {
+    let (avatar_frame, avatar) = clamped_cover(128, 128, "avatar-art");
+    if let Some(url) = &artist.avatar_url {
+        load_cover_into_picture(&avatar, url, Rc::clone(&state));
+    }
+
+    let name_label = Label::builder()
+        .label(&artist.name)
+        .halign(Align::Center)
+        .ellipsize(gtk4::pango::EllipsizeMode::End)
+        .max_width_chars(15)
+        .css_classes(["heading"])
+        .build();
+
+    let subs_text = artist
+        .subscriber_count
+        .map(format_subscribers)
+        .unwrap_or_else(|| String::from("Artista"));
+    let subs_label = Label::builder()
+        .label(&subs_text)
+        .halign(Align::Center)
+        .ellipsize(gtk4::pango::EllipsizeMode::End)
+        .max_width_chars(16)
+        .css_classes(["dim-label", "caption"])
+        .build();
+
+    let card_box = GtkBox::new(Orientation::Vertical, 6);
+    card_box.set_width_request(132);
+    card_box.append(&avatar_frame);
+    card_box.append(&name_label);
+    card_box.append(&subs_label);
+
+    let btn = Button::builder()
+        .child(&card_box)
+        .css_classes(["flat", "media-card"])
+        .build();
+
+    let artist_id = artist.id.clone();
+    let artist_name = artist.name.clone();
+    btn.connect_clicked(move |_| {
+        open_artist_page(
+            &artist_id,
+            &artist_name,
+            artist_widgets.clone(),
+            Rc::clone(&state),
+        );
+    });
+
+    btn
+}
+
+fn build_genre_button(
+    genre: &Genre,
+    state: Rc<RefCell<AppState>>,
+    genres_section: &GtkBox,
+    genre_playlists_section: &GtkBox,
+    genre_heading: &Label,
+    playlists_flow: &FlowBox,
+    spinner: &Spinner,
+) -> Button {
+    let dot = Label::builder()
+        .label("●")
+        .build();
+    let dot_css = CssProvider::new();
+    dot_css.load_from_string(&format!("label {{ color: {}; }}", genre.color_hex));
+    #[allow(deprecated)]
+    dot.style_context()
+        .add_provider(&dot_css, gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION);
+
+    let name_label = Label::builder()
+        .label(&genre.name)
+        .xalign(0.0)
+        .ellipsize(gtk4::pango::EllipsizeMode::End)
+        .build();
+
+    let inner = GtkBox::new(Orientation::Horizontal, 8);
+    inner.append(&dot);
+    inner.append(&name_label);
+
+    let btn = Button::builder()
+        .child(&inner)
+        .css_classes(["flat", "genre-chip"])
+        .build();
+
+    let genre_id = genre.id.clone();
+    let genre_name = genre.name.clone();
+    let genres_section = genres_section.clone();
+    let genre_playlists_section = genre_playlists_section.clone();
+    let genre_heading = genre_heading.clone();
+    let playlists_flow = playlists_flow.clone();
+    let spinner = spinner.clone();
+
+    btn.connect_clicked(move |_| {
+        genres_section.set_visible(false);
+        genre_playlists_section.set_visible(false);
+        spinner.set_visible(true);
+        spinner.set_spinning(true);
+
+        let backend = state.borrow().backend.clone();
+        let (tx, rx) = async_channel::bounded(1);
+        let id = genre_id.clone();
+        runtime().spawn(async move {
+            let res = backend.fetch_genre_playlists(&id).await;
+            let _ = tx.send(res).await;
+        });
+
+        let state = Rc::clone(&state);
+        let genre_playlists_section = genre_playlists_section.clone();
+        let genre_heading = genre_heading.clone();
+        let playlists_flow = playlists_flow.clone();
+        let spinner = spinner.clone();
+        let fallback_name = genre_name.clone();
+
+        glib::spawn_future_local(async move {
+            if let Ok(result) = rx.recv().await {
+                spinner.set_spinning(false);
+                spinner.set_visible(false);
+                match result {
+                    Ok((name, playlists)) => {
+                        while let Some(child) = playlists_flow.first_child() {
+                            playlists_flow.remove(&child);
+                        }
+                        genre_heading.set_label(if name.is_empty() {
+                            &fallback_name
+                        } else {
+                            &name
+                        });
+                        for pl in playlists {
+                            let card = build_playlist_card(&pl, Rc::clone(&state));
+                            playlists_flow.insert(&card, -1);
+                        }
+                        genre_playlists_section.set_visible(true);
+                    }
+                    Err(err) => {
+                        state.borrow().show_toast(&err);
+                    }
+                }
+            }
+        });
+    });
+
+    btn
+}
+

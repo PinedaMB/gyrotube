@@ -1,0 +1,325 @@
+.cover-art {
+    border-radius: 8px;
+    background-color: alpha(@window_fg_color, 0.08);
+}
+
+.avatar-art {
+    border-radius: 999px;
+    background-color: alpha(@window_fg_color, 0.08);
+}
+
+.artist-banner {
+    border-radius: 14px;
+    background-color: alpha(@window_fg_color, 0.06);
+}
+
+.cover-art-large {
+    border-radius: 16px;
+    background-color: alpha(@window_fg_color, 0.08);
+    box-shadow: 0 10px 28px alpha(black, 0.34);
+}
+
+.player-cover-glow {
+    padding: 8px;
+    border-radius: 22px;
+    background-image: radial-gradient(circle at 50% 50%, alpha(@accent_bg_color, 0.18), transparent 72%);
+}
+
+.sidebar-pane {
+    background-color: @sidebar_bg_color;
+    border-right: 1px solid alpha(@window_fg_color, 0.10);
+}
+
+.quality-pill {
+    font-size: 10px;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 6px;
+    background-color: alpha(@accent_bg_color, 0.18);
+    color: @accent_color;
+}
+
+.play-pill {
+    min-width: 56px;
+    min-height: 44px;
+    border-radius: 999px;
+}
+
+.media-card {
+    padding: 6px;
+    border-radius: 12px;
+    transition: background-color 150ms ease;
+}
+
+.media-card:hover {
+    background-color: alpha(@window_fg_color, 0.06);
+}
+
+.track-row {
+    padding: 6px 8px;
+}
+
+.chart-active-row {
+    background-color: alpha(@accent_bg_color, 0.12);
+}
+
+.playing-title {
+    color: @accent_color;
+    font-weight: bold;
+}
+
+.sidebar-tabs {
+    padding: 8px 12px 10px 12px;
+    border-top: 1px solid alpha(@window_fg_color, 0.08);
+}
+
+.genre-chip {
+    padding: 10px 14px;
+    border-radius: 10px;
+    font-weight: 600;
+    background-color: alpha(@window_fg_color, 0.07);
+}
+
+.brand-icon {
+    min-width: 26px;
+    min-height: 26px;
+    border-radius: 7px;
+    background: linear-gradient(135deg, #ff2a55, #d5002f);
+    color: white;
+}
+
+.brand-title {
+    font-weight: 700;
+    font-size: 15px;
+}
+
+.brand-badge {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 6px;
+    background-color: alpha(@window_fg_color, 0.08);
+    color: #82b1ff;
+}
+
+.header-search {
+    border-radius: 999px;
+    min-width: 320px;
+    min-height: 34px;
+    padding: 0 10px;
+}
+
+.search-popover-row {
+    padding: 6px 10px;
+    border-radius: 8px;
+}
+
+.profile-pill {
+    min-width: 32px;
+    min-height: 32px;
+    padding: 0;
+    border-radius: 999px;
+    background-color: #f3b8b2;
+    color: #5c1914;
+}
+
+.top-nav-bar {
+    padding: 4px 12px;
+    border-bottom: 1px solid alpha(@window_fg_color, 0.08);
+}
+
+.quick-card {
+    padding: 18px 20px;
+    border-radius: 14px;
+    background-color: alpha(@window_fg_color, 0.05);
+    border: 1px solid alpha(@window_fg_color, 0.08);
+    transition: background 180ms ease, border-color 180ms ease;
+}
+
+.quick-card-1:hover {
+    background-image: linear-gradient(135deg, alpha(@window_fg_color, 0.06) 35%, alpha(#e01b24, 0.16));
+    border-color: alpha(#e01b24, 0.35);
+}
+
+.quick-card-2:hover {
+    background-image: linear-gradient(135deg, alpha(@window_fg_color, 0.06) 35%, alpha(#3584e4, 0.16));
+    border-color: alpha(#3584e4, 0.35);
+}
+
+.quick-card-3:hover {
+    background-image: linear-gradient(135deg, alpha(@window_fg_color, 0.06) 35%, alpha(#c061cb, 0.16));
+    border-color: alpha(#c061cb, 0.35);
+}
+
+.quick-card-4:hover {
+    background-image: linear-gradient(135deg, alpha(@window_fg_color, 0.06) 35%, alpha(#2ec27e, 0.16));
+    border-color: alpha(#2ec27e, 0.35);
+}
+
+.quick-icon-badge {
+    min-width: 38px;
+    min-height: 38px;
+    border-radius: 10px;
+    color: #ffffff;
+}
+
+.quick-badge-1 {
+    background-color: #e01b24;
+}
+
+.quick-badge-2 {
+    background-color: #3584e4;
+}
+
+.quick-badge-3 {
+    background-color: #c061cb;
+}
+
+.quick-badge-4 {
+    background-color: #2ec27e;
+}
+
+.quick-num {
+    font-size: 0.9em;
+    font-weight: 600;
+    opacity: 0.45;
+}
+
+.pill-switch-group {
+    padding: 3px;
+    border-radius: 999px;
+    background-color: alpha(@window_fg_color, 0.06);
+    border: 1px solid alpha(@window_fg_color, 0.08);
+}
+
+.pill-switch {
+    border-radius: 999px;
+    padding: 4px 14px;
+    min-height: 28px;
+    font-weight: 600;
+    font-size: 0.88em;
+    background: transparent;
+}
+
+.pill-switch:checked {
+    background-color: alpha(@window_fg_color, 0.14);
+}
+
+.chart-header-row {
+    padding: 8px 16px;
+    border-bottom: 1px solid alpha(@window_fg_color, 0.08);
+    font-size: 0.78em;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    opacity: 0.6;
+}
+
+.chart-rank {
+    min-width: 24px;
+    font-weight: 700;
+    opacity: 0.55;
+}
+
+.album-featured-card {
+    padding: 12px;
+    border-radius: 14px;
+    background-color: alpha(@window_fg_color, 0.05);
+    border: 1px solid alpha(@window_fg_color, 0.08);
+    transition: background-color 150ms ease, border-color 150ms ease;
+}
+
+.album-featured-card:hover {
+    background-color: alpha(@window_fg_color, 0.09);
+    border-color: alpha(@window_fg_color, 0.16);
+}
+
+.album-featured-card:hover .album-title {
+    color: @accent_color;
+}
+
+.album-year-badge {
+    padding: 2px 8px;
+    border-radius: 6px;
+    font-size: 0.72em;
+    font-weight: 700;
+    background-color: alpha(black, 0.65);
+    color: #ffffff;
+}
+
+.album-play-overlay {
+    min-width: 40px;
+    min-height: 40px;
+    border-radius: 999px;
+    background-color: #e01b24;
+    color: #ffffff;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.45);
+    opacity: 0;
+    transition: opacity 150ms ease, transform 150ms ease;
+    transform: translateY(4px);
+}
+
+.album-featured-card:hover .album-play-overlay {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+.bento-card {
+    padding: 0;
+    min-height: 175px;
+    border-radius: 14px;
+    background-color: alpha(@window_fg_color, 0.05);
+    border: 1px solid alpha(@window_fg_color, 0.08);
+    transition: background-color 180ms ease, border-color 180ms ease;
+}
+
+.bento-card:hover {
+    border-color: alpha(@window_fg_color, 0.22);
+}
+
+.bento-overlay {
+    border-radius: 14px;
+}
+
+.bento-card-bg {
+    opacity: 0.22;
+    transition: opacity 220ms ease;
+}
+
+.bento-card:hover .bento-card-bg {
+    opacity: 0.34;
+}
+
+.bento-card-scrim {
+    padding: 18px;
+}
+
+.bento-pill {
+    padding: 3px 10px;
+    border-radius: 999px;
+    font-size: 0.78em;
+    font-weight: 700;
+    background-color: alpha(@window_bg_color, 0.68);
+    border: 1px solid alpha(@window_fg_color, 0.12);
+}
+
+.bento-cta {
+    font-weight: 600;
+    font-size: 0.9em;
+}
+
+.station-play-btn {
+    min-width: 30px;
+    min-height: 30px;
+    border-radius: 999px;
+    background-color: alpha(@window_bg_color, 0.72);
+    border: 1px solid alpha(@window_fg_color, 0.14);
+}
+
+.station-play-btn:hover {
+    background-color: alpha(@window_fg_color, 0.18);
+}
+
+.skeleton-box {
+    border-radius: 12px;
+    background-color: alpha(@window_fg_color, 0.06);
+}
