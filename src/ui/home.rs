@@ -469,7 +469,7 @@ pub fn build_home_page(
         "03",
         "Estados de ánimo",
         "Explorar géneros y ritmos",
-        "compass2-symbolic",
+        "system-search-symbolic",
         3,
     );
     let card_collection = build_quick_card(

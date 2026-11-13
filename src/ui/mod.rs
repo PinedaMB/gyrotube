@@ -338,17 +338,62 @@ pub fn build_ui(app: &adw::Application) {
 
     // --- RIGHT PANE: Main Content ---
     let content_view_stack = adw::ViewStack::new();
-    let content_switcher = adw::ViewSwitcher::builder()
-        .stack(&content_view_stack)
-        .policy(adw::ViewSwitcherPolicy::Wide)
-        .halign(Align::Center)
-        .build();
+    let make_nav_tab = |icon_name: &str, text: &str, active: bool| -> ToggleButton {
+        let inner = GtkBox::new(Orientation::Horizontal, 6);
+        inner.append(&Image::from_icon_name(icon_name));
+        inner.append(&Label::new(Some(text)));
+        let btn = ToggleButton::builder()
+            .child(&inner)
+            .active(active)
+            .css_classes(["flat", "pill-switch"])
+            .build();
+        btn.set_cursor_from_name(Some("pointer"));
+        btn
+    };
+    let nav_tab_home = make_nav_tab("go-home-symbolic", "Inicio", true);
+    let nav_tab_explore = make_nav_tab("system-search-symbolic", "Explorar", false);
+    let nav_tab_collection = make_nav_tab("library-music-symbolic", "Colección", false);
+    nav_tab_explore.set_group(Some(&nav_tab_home));
+    nav_tab_collection.set_group(Some(&nav_tab_home));
+
+    let nav_pill_group = GtkBox::new(Orientation::Horizontal, 4);
+    nav_pill_group.add_css_class("pill-switch-group");
+    nav_pill_group.set_halign(Align::Center);
+    nav_pill_group.append(&nav_tab_home);
+    nav_pill_group.append(&nav_tab_explore);
+    nav_pill_group.append(&nav_tab_collection);
 
     let top_nav_bar = GtkBox::new(Orientation::Horizontal, 8);
     top_nav_bar.add_css_class("top-nav-bar");
     top_nav_bar.set_halign(Align::Fill);
-    content_switcher.set_hexpand(true);
-    top_nav_bar.append(&content_switcher);
+    nav_pill_group.set_hexpand(true);
+    top_nav_bar.append(&nav_pill_group);
+
+    for (tab, page) in [
+        (&nav_tab_home, "home"),
+        (&nav_tab_explore, "explore"),
+        (&nav_tab_collection, "collection"),
+    ] {
+        let stack = content_view_stack.clone();
+        tab.connect_toggled(move |btn| {
+            if btn.is_active() {
+                stack.set_visible_child_name(page);
+            }
+        });
+    }
+    {
+        let nav_tab_home = nav_tab_home.clone();
+        let nav_tab_explore = nav_tab_explore.clone();
+        let nav_tab_collection = nav_tab_collection.clone();
+        content_view_stack.connect_visible_child_name_notify(move |stack| {
+            match stack.visible_child_name().as_deref() {
+                Some("home") => nav_tab_home.set_active(true),
+                Some("explore") => nav_tab_explore.set_active(true),
+                Some("collection") => nav_tab_collection.set_active(true),
+                _ => {}
+            }
+        });
+    }
 
     // --- UNIFIED CUSTOM TOP HEADER BAR ---
     let sidebar_toggle_btn = ToggleButton::builder()
@@ -538,7 +583,7 @@ pub fn build_ui(app: &adw::Application) {
         &explore_page,
         Some("explore"),
         "Explorar",
-        "compass2-symbolic",
+        "system-search-symbolic",
     );
     content_view_stack.add_titled_with_icon(
         &collection_page,
@@ -547,8 +592,8 @@ pub fn build_ui(app: &adw::Application) {
         "library-music-symbolic",
     );
 
-    // Quick search bar in header forwards to Explore search + shows recent searches popover
-    let search_popover = Popover::builder().autohide(false).build();
+    // Quick search bar in header forwards to Explore search + shows recent & debounced suggestions
+    let search_popover = Popover::builder().autohide(false).can_focus(false).build();
     search_popover.set_parent(&top_search_entry);
     let run_header_search: Rc<dyn Fn(&str)> = {
         let content_view_stack = content_view_stack.clone();
@@ -573,22 +618,13 @@ pub fn build_ui(app: &adw::Application) {
             trigger_explore_search(trimmed);
         })
     };
-    {
-        let run_header_search = Rc::clone(&run_header_search);
-        top_search_entry.connect_activate(move |entry| {
-            let text = entry.text().to_string();
-            run_header_search(&text);
-        });
-    }
-    {
-        let state = Rc::clone(&state);
+    let show_search_popover = {
         let search_popover = search_popover.clone();
         let top_entry_ref = top_search_entry.clone();
         let run_header_search = Rc::clone(&run_header_search);
-        let focus_ctrl = gtk4::EventControllerFocus::new();
-        focus_ctrl.connect_enter(move |_| {
-            let history = state.borrow().search_history.clone();
-            if history.is_empty() {
+        move |heading_text: &str, icon_name: &str, items: Vec<String>| {
+            if items.is_empty() {
+                search_popover.popdown();
                 return;
             }
             let box_hist = GtkBox::new(Orientation::Vertical, 4);
@@ -596,17 +632,28 @@ pub fn build_ui(app: &adw::Application) {
             box_hist.set_margin_bottom(6);
             box_hist.set_margin_start(6);
             box_hist.set_margin_end(6);
+            box_hist.set_width_request(300);
             box_hist.append(
                 &Label::builder()
-                    .label("Búsquedas recientes")
+                    .label(heading_text)
                     .xalign(0.0)
                     .margin_start(6)
                     .css_classes(["dim-label", "caption"])
                     .build(),
             );
-            for term in history {
+            for term in items {
+                let row = GtkBox::new(Orientation::Horizontal, 8);
+                row.append(&Image::from_icon_name(icon_name));
+                row.append(
+                    &Label::builder()
+                        .label(&term)
+                        .xalign(0.0)
+                        .hexpand(true)
+                        .ellipsize(gtk4::pango::EllipsizeMode::End)
+                        .build(),
+                );
                 let item = Button::builder()
-                    .label(&term)
+                    .child(&row)
                     .css_classes(["flat", "search-popover-row"])
                     .build();
                 let top_entry = top_entry_ref.clone();
@@ -620,8 +667,102 @@ pub fn build_ui(app: &adw::Application) {
             }
             search_popover.set_child(Some(&box_hist));
             search_popover.popup();
+        }
+    };
+    {
+        let run_header_search = Rc::clone(&run_header_search);
+        top_search_entry.connect_activate(move |entry| {
+            let text = entry.text().to_string();
+            run_header_search(&text);
+        });
+    }
+    {
+        let search_popover = search_popover.clone();
+        top_search_entry.connect_stop_search(move |_| {
+            search_popover.popdown();
+        });
+    }
+    {
+        let state = Rc::clone(&state);
+        let show_search_popover = show_search_popover.clone();
+        let top_entry_ref = top_search_entry.clone();
+        let focus_ctrl = gtk4::EventControllerFocus::new();
+        focus_ctrl.connect_enter(move |_| {
+            if top_entry_ref.text().trim().is_empty() {
+                let history = state.borrow().search_history.clone();
+                show_search_popover("Búsquedas recientes", "document-open-recent-symbolic", history);
+            }
         });
         top_search_entry.add_controller(focus_ctrl);
+    }
+    {
+        let state = Rc::clone(&state);
+        let show_search_popover = show_search_popover.clone();
+        let search_popover = search_popover.clone();
+        let debounce_id: Rc<RefCell<Option<glib::SourceId>>> = Rc::new(RefCell::new(None));
+        let suggest_gen: Rc<RefCell<u64>> = Rc::new(RefCell::new(0));
+
+        top_search_entry.connect_search_changed(move |entry| {
+            if let Some(id) = debounce_id.borrow_mut().take() {
+                id.remove();
+            }
+            let current_gen = {
+                let mut g = suggest_gen.borrow_mut();
+                *g += 1;
+                *g
+            };
+
+            let text = entry.text().trim().to_string();
+            if text.is_empty() {
+                let history = state.borrow().search_history.clone();
+                show_search_popover("Búsquedas recientes", "document-open-recent-symbolic", history);
+                return;
+            }
+            if text.chars().count() < 2 {
+                search_popover.popdown();
+                return;
+            }
+
+            let state = Rc::clone(&state);
+            let show_search_popover = show_search_popover.clone();
+            let suggest_gen_ref = Rc::clone(&suggest_gen);
+            let debounce_id_ref = Rc::clone(&debounce_id);
+            let entry_clone = entry.clone();
+
+            let id = glib::timeout_add_local_once(
+                std::time::Duration::from_millis(320),
+                move || {
+                    *debounce_id_ref.borrow_mut() = None;
+                    if *suggest_gen_ref.borrow() != current_gen {
+                        return;
+                    }
+                    let backend = state.borrow().backend.clone();
+                    let query = text.clone();
+                    let (tx, rx) = async_channel::bounded(1);
+                    crate::backend::runtime().spawn(async move {
+                        let res = backend.search_suggestions(&query).await;
+                        let _ = tx.send(res).await;
+                    });
+
+                    let show_search_popover = show_search_popover.clone();
+                    let suggest_gen_ref = Rc::clone(&suggest_gen_ref);
+                    let entry_clone = entry_clone.clone();
+                    glib::spawn_future_local(async move {
+                        if let Ok(Ok(terms)) = rx.recv().await
+                            && *suggest_gen_ref.borrow() == current_gen
+                            && !entry_clone.text().trim().is_empty()
+                        {
+                            show_search_popover(
+                                "Sugerencias",
+                                "system-search-symbolic",
+                                terms,
+                            );
+                        }
+                    });
+                },
+            );
+            *debounce_id.borrow_mut() = Some(id);
+        });
     }
     for (btn, page) in [
         (&nav_home_btn, "home"),
@@ -840,7 +981,7 @@ pub fn build_ui(app: &adw::Application) {
     };
     state.borrow_mut().mpris = Some(mpris);
 
-    // Global keyboard shortcuts (Ctrl+F, Ctrl+L, Ctrl+Left/Right, Space)
+    // Global keyboard shortcuts (Ctrl+F, Ctrl+L, Ctrl+Left/Right, Alt+1/2/3, Space)
     {
         let key_ctrl = gtk4::EventControllerKey::new();
         let top_search_entry = top_search_entry.clone();
@@ -849,9 +990,23 @@ pub fn build_ui(app: &adw::Application) {
         let play_pause_btn = play_pause_btn.clone();
         let prev_btn = prev_btn.clone();
         let next_btn = next_btn.clone();
+        let stack_nav = content_view_stack.clone();
         let win_ref = window.clone();
         key_ctrl.connect_key_pressed(move |_, key, _, mods| {
             let ctrl = mods.contains(gdk::ModifierType::CONTROL_MASK);
+            let alt = mods.contains(gdk::ModifierType::ALT_MASK);
+            if alt && key == gdk::Key::_1 {
+                stack_nav.set_visible_child_name("home");
+                return glib::Propagation::Stop;
+            }
+            if alt && key == gdk::Key::_2 {
+                stack_nav.set_visible_child_name("explore");
+                return glib::Propagation::Stop;
+            }
+            if alt && key == gdk::Key::_3 {
+                stack_nav.set_visible_child_name("collection");
+                return glib::Propagation::Stop;
+            }
             if ctrl && (key == gdk::Key::f || key == gdk::Key::F) {
                 top_search_entry.grab_focus();
                 return glib::Propagation::Stop;

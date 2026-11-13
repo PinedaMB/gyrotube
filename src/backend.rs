@@ -3,6 +3,7 @@ use std::time::{Duration, Instant};
 
 use rustypipe::client::RustyPipe;
 use rustypipe::model::MusicItem;
+use rustypipe::model::traits::YtEntity;
 use rustypipe::param::StreamFilter;
 
 use crate::models::{
@@ -199,6 +200,30 @@ impl Backend {
             .map_err(|e| format!("Error al iniciar radio: {e}"))?;
 
         Ok(radio.items.iter().map(Track::from).collect())
+    }
+
+    pub async fn search_suggestions(&self, query_str: &str) -> Result<Vec<String>, String> {
+        let mut terms = match self.rp.query().music_search_suggestion(query_str).await {
+            Ok(res) => {
+                let mut t: Vec<String> = res.terms.into_iter().take(8).collect();
+                if t.is_empty() {
+                    for item in res.items.into_iter().take(6) {
+                        if !item.name().trim().is_empty() {
+                            t.push(item.name().to_string());
+                        }
+                    }
+                }
+                t
+            }
+            Err(_) => Vec::new(),
+        };
+
+        if terms.is_empty()
+            && let Ok(fallback) = self.rp.query().search_suggestion(query_str).await
+        {
+            terms = fallback.into_iter().take(8).collect();
+        }
+        Ok(terms)
     }
 
     pub async fn search_all(&self, query_str: &str) -> Result<SearchResults, String> {
