@@ -96,7 +96,13 @@ const APP_CSS: &str = r#"
 
 struct AppState {
     backend: Backend,
-    media_file: MediaFile,
+    decks: [MediaFile; 2],
+    active_deck: usize,
+    user_volume: f64,
+    crossfade_enabled: bool,
+    crossfade_active: bool,
+    crossfade_generation: u64,
+    crossfade_triggered_for: Option<u64>,
     queue: Vec<Track>,
     favorites: Vec<Track>,
     current_index: Option<usize>,
@@ -136,6 +142,14 @@ struct AppState {
 }
 
 impl AppState {
+    fn active_media(&self) -> &MediaFile {
+        &self.decks[self.active_deck]
+    }
+
+    fn standby_media(&self) -> &MediaFile {
+        &self.decks[1 - self.active_deck]
+    }
+
     fn show_toast(&self, msg: &str) {
         let toast = adw::Toast::new(msg);
         toast.set_timeout(3);
@@ -164,7 +178,7 @@ pub fn build_ui(app: &adw::Application) {
     load_css();
 
     let backend = Backend::new();
-    let media_file = MediaFile::new();
+    let decks = [MediaFile::new(), MediaFile::new()];
     let toast_overlay = adw::ToastOverlay::new();
 
     // --- LEFT PANE: Dedicated Player / Lyrics / Queue Sidebar ---
@@ -269,11 +283,19 @@ pub fn build_ui(app: &adw::Application) {
         .css_classes(["flat", "circular"])
         .build();
 
-    let action_icons_row = GtkBox::new(Orientation::Horizontal, 18);
+    let crossfade_btn = ToggleButton::builder()
+        .label("CF")
+        .active(true)
+        .tooltip_text("Crossfade automático (4 s)")
+        .css_classes(["flat", "circular", "caption"])
+        .build();
+
+    let action_icons_row = GtkBox::new(Orientation::Horizontal, 16);
     action_icons_row.set_halign(Align::Center);
     action_icons_row.append(&volume_btn);
     action_icons_row.append(&player_fav_btn);
     action_icons_row.append(&player_radio_btn);
+    action_icons_row.append(&crossfade_btn);
 
     // Seek bar + time / quality row
     let seek_scale = Scale::with_range(Orientation::Horizontal, 0.0, 100.0, 1.0);
@@ -508,7 +530,13 @@ pub fn build_ui(app: &adw::Application) {
 
     let state = Rc::new(RefCell::new(AppState {
         backend: backend.clone(),
-        media_file: media_file.clone(),
+        decks: decks.clone(),
+        active_deck: 0,
+        user_volume: 1.0,
+        crossfade_enabled: true,
+        crossfade_active: false,
+        crossfade_generation: 0,
+        crossfade_triggered_for: None,
         queue: Vec::new(),
         favorites: load_favorites(),
         current_index: None,
@@ -623,12 +651,21 @@ pub fn build_ui(app: &adw::Application) {
     // Clear queue
     {
         let state = Rc::clone(&state);
+        crossfade_btn.connect_toggled(move |btn| {
+            let mut s = state.borrow_mut();
+            s.crossfade_enabled = btn.is_active();
+        });
+    }
+    {
+        let state = Rc::clone(&state);
         queue_clear_btn.connect_clicked(move |_| {
-            {
+            let decks = {
                 let mut s = state.borrow_mut();
                 s.queue.clear();
                 s.current_index = None;
-                s.media_file.pause();
+                s.crossfade_active = false;
+                s.crossfade_generation = s.crossfade_generation.wrapping_add(1);
+                s.crossfade_triggered_for = None;
                 s.play_pause_btn.set_sensitive(false);
                 s.seek_scale.set_sensitive(false);
                 s.player_fav_btn.set_sensitive(false);
@@ -636,6 +673,12 @@ pub fn build_ui(app: &adw::Application) {
                 s.player_title.set_label("Nada reproduciéndose");
                 s.player_artist.set_label("Selecciona una canción");
                 s.player_source_label.set_label("Sin reproducción");
+                s.decks.clone()
+            };
+            decks[0].pause();
+            decks[1].pause();
+            {
+                let s = state.borrow();
                 s.player_cover.set_paintable(None::<&gdk::Paintable>);
                 s.time_label.set_label("0:00");
                 s.duration_label.set_label("0:00");
@@ -709,10 +752,16 @@ pub fn build_ui(app: &adw::Application) {
         let state_mpris = Rc::clone(&state);
         let win_weak = window.downgrade();
         MprisController::spawn(move |cmd| match cmd {
-            MprisCommand::Play => state_mpris.borrow().media_file.play(),
-            MprisCommand::Pause => state_mpris.borrow().media_file.pause(),
+            MprisCommand::Play => {
+                let media = state_mpris.borrow().active_media().clone();
+                media.play();
+            }
+            MprisCommand::Pause => {
+                let media = state_mpris.borrow().active_media().clone();
+                media.pause();
+            }
             MprisCommand::PlayPause => {
-                let media = &state_mpris.borrow().media_file;
+                let media = state_mpris.borrow().active_media().clone();
                 if media.is_playing() {
                     media.pause();
                 } else {
@@ -720,9 +769,10 @@ pub fn build_ui(app: &adw::Application) {
                 }
             }
             MprisCommand::Stop => {
-                let s = state_mpris.borrow();
-                s.media_file.pause();
-                s.media_file.seek(0);
+                let decks = state_mpris.borrow().decks.clone();
+                decks[0].pause();
+                decks[1].pause();
+                state_mpris.borrow().active_media().seek(0);
             }
             MprisCommand::Next => {
                 let target = next_queue_index(&state_mpris.borrow());
@@ -740,19 +790,25 @@ pub fn build_ui(app: &adw::Application) {
                 }
             }
             MprisCommand::SeekOffsetUs(offset_us) => {
-                let s = state_mpris.borrow();
-                let cur = s.media_file.timestamp().max(0);
+                let (media, mpris) = {
+                    let s = state_mpris.borrow();
+                    (s.active_media().clone(), s.mpris.clone())
+                };
+                let cur = media.timestamp().max(0);
                 let target = (cur + offset_us).max(0);
-                s.media_file.seek(target);
-                if let Some(m) = &s.mpris {
+                media.seek(target);
+                if let Some(m) = mpris {
                     m.emit_seeked(target);
                 }
             }
             MprisCommand::SetPositionUs(pos_us) => {
-                let s = state_mpris.borrow();
+                let (media, mpris) = {
+                    let s = state_mpris.borrow();
+                    (s.active_media().clone(), s.mpris.clone())
+                };
                 let target = pos_us.max(0);
-                s.media_file.seek(target);
-                if let Some(m) = &s.mpris {
+                media.seek(target);
+                if let Some(m) = mpris {
                     m.emit_seeked(target);
                 }
             }
@@ -2271,7 +2327,7 @@ fn load_current_lyrics(state: Rc<RefCell<AppState>>) {
 }
 
 fn play_queue_index(state: Rc<RefCell<AppState>>, index: usize) {
-    let (track, backend, current_gen, media_file, player_cover, player_fav_btn, is_fav) = {
+    let (track, backend, current_gen, decks, player_cover, player_fav_btn, is_fav) = {
         let mut s = state.borrow_mut();
         let Some(track) = s.queue.get(index).cloned() else {
             return;
@@ -2279,6 +2335,9 @@ fn play_queue_index(state: Rc<RefCell<AppState>>, index: usize) {
         s.current_index = Some(index);
         s.loading_generation = s.loading_generation.wrapping_add(1);
         let current_gen = s.loading_generation;
+        s.crossfade_active = false;
+        s.crossfade_generation = s.crossfade_generation.wrapping_add(1);
+        s.crossfade_triggered_for = None;
         s.lyrics_loaded_for = None;
 
         let source_label = track
@@ -2324,14 +2383,15 @@ fn play_queue_index(state: Rc<RefCell<AppState>>, index: usize) {
             track,
             s.backend.clone(),
             current_gen,
-            s.media_file.clone(),
+            s.decks.clone(),
             s.player_cover.clone(),
             s.player_fav_btn.clone(),
             is_fav,
         )
     };
 
-    media_file.pause();
+    decks[0].pause();
+    decks[1].pause();
 
     if player_fav_btn.is_active() != is_fav {
         player_fav_btn.set_active(is_fav);
@@ -2407,9 +2467,8 @@ fn play_queue_index(state: Rc<RefCell<AppState>>, index: usize) {
                         None
                     };
                     Some((
-                        s.media_file.clone(),
+                        s.active_media().clone(),
                         stream.url,
-                        stream.is_local_file,
                         s.backend.clone(),
                         next_id,
                     ))
@@ -2424,12 +2483,8 @@ fn play_queue_index(state: Rc<RefCell<AppState>>, index: usize) {
             }
         };
 
-        if let Some((media_file, url, is_local_file, backend, next_id)) = stream_to_play {
-            let file = if is_local_file {
-                gio::File::for_path(&url)
-            } else {
-                gio::File::for_uri(&url)
-            };
+        if let Some((media_file, path, backend, next_id)) = stream_to_play {
+            let file = gio::File::for_path(&path);
             media_file.pause();
             media_file.set_file(Some(&file));
             if media_file.is_prepared() {
@@ -2441,6 +2496,197 @@ fn play_queue_index(state: Rc<RefCell<AppState>>, index: usize) {
                     backend.prefetch_audio(&next_video_id).await;
                 });
             }
+        }
+    });
+}
+
+fn start_crossfade_to(state: Rc<RefCell<AppState>>, next_index: usize) {
+    let (track, backend, cf_gen) = {
+        let s = state.borrow();
+        let Some(track) = s.queue.get(next_index).cloned() else {
+            return;
+        };
+        (track, s.backend.clone(), s.crossfade_generation)
+    };
+
+    let (tx, rx) = async_channel::bounded(1);
+    let video_id = track.id.clone();
+    runtime().spawn(async move {
+        let res = backend.resolve_audio_stream(&video_id).await;
+        let _ = tx.send(res).await;
+    });
+
+    glib::spawn_future_local(async move {
+        let Ok(Ok(stream)) = rx.recv().await else {
+            return;
+        };
+
+        let setup = {
+            let mut s = state.borrow_mut();
+            if s.crossfade_generation != cf_gen || !s.crossfade_enabled || !s.active_media().is_playing() {
+                return;
+            }
+            if s.queue.get(next_index).is_none_or(|t| t.id != track.id) {
+                return;
+            }
+
+            let old_deck = s.active_deck;
+            let new_deck = 1 - old_deck;
+            s.active_deck = new_deck;
+            s.crossfade_active = true;
+            s.current_index = Some(next_index);
+            s.loading_generation = s.loading_generation.wrapping_add(1);
+            let current_gen = s.loading_generation;
+            s.crossfade_triggered_for = None;
+            s.lyrics_loaded_for = None;
+            s.pending_autoplay = true;
+
+            let source_label = track
+                .album
+                .clone()
+                .unwrap_or_else(|| s.source_name.clone());
+            s.player_source_label.set_label(&source_label);
+            s.player_title.set_label(&track.title);
+            s.player_artist.set_label(&track.artist);
+            s.quality_label.set_label(&stream.quality_label);
+            s.seek_scale.set_value(0.0);
+            s.time_label.set_label("0:00");
+            s.duration_label.set_label(
+                &track
+                    .duration_secs
+                    .map(format_duration)
+                    .unwrap_or_else(|| String::from("0:00")),
+            );
+            let is_fav = s.is_favorite(&track.id);
+            s.player_fav_btn.set_icon_name(if is_fav {
+                "starred-symbolic"
+            } else {
+                "non-starred-symbolic"
+            });
+            s.update_nav_buttons();
+            if let Some(mpris) = &s.mpris {
+                mpris.update_track(&track);
+            }
+
+            let next_prefetch = if !s.shuffle {
+                s.queue.get(next_index + 1).map(|t| t.id.clone())
+            } else {
+                None
+            };
+
+            (
+                old_deck,
+                new_deck,
+                s.decks[new_deck].clone(),
+                s.player_cover.clone(),
+                s.player_fav_btn.clone(),
+                is_fav,
+                current_gen,
+                s.backend.clone(),
+                next_prefetch,
+            )
+        };
+
+        let (
+            old_deck,
+            new_deck,
+            new_media,
+            player_cover,
+            player_fav_btn,
+            is_fav,
+            current_gen,
+            backend,
+            next_prefetch,
+        ) = setup;
+
+        if player_fav_btn.is_active() != is_fav {
+            player_fav_btn.set_active(is_fav);
+        }
+
+        if let Some(url) = track.cover_large_url.as_deref().or(track.cover_url.as_deref()) {
+            if is_ytm_square_cover(url) {
+                load_player_cover(&player_cover, url, current_gen, Rc::clone(&state));
+            } else {
+                let (cov_tx, cov_rx) = async_channel::bounded(1);
+                let backend_cov = backend.clone();
+                let track_cov = track.clone();
+                runtime().spawn(async move {
+                    let _ = cov_tx.send(backend_cov.resolve_ytm_cover(&track_cov).await).await;
+                });
+                let state_cov = Rc::clone(&state);
+                let player_cover_cov = player_cover.clone();
+                let fallback_url = url.to_string();
+                glib::spawn_future_local(async move {
+                    if let Ok(resolved) = cov_rx.recv().await
+                        && state_cov.borrow().loading_generation == current_gen
+                    {
+                        let final_url = resolved.as_deref().unwrap_or(&fallback_url);
+                        load_player_cover(&player_cover_cov, final_url, current_gen, state_cov);
+                    }
+                });
+            }
+        }
+
+        refresh_queue_ui(Rc::clone(&state));
+
+        let file = gio::File::for_path(&stream.url);
+        new_media.pause();
+        new_media.set_file(Some(&file));
+        new_media.set_volume(0.0);
+        if new_media.is_prepared() {
+            state.borrow_mut().pending_autoplay = false;
+            new_media.play();
+        }
+
+        run_crossfade_ramp(Rc::clone(&state), cf_gen, old_deck, new_deck);
+
+        if let Some(next_video_id) = next_prefetch {
+            runtime().spawn(async move {
+                backend.prefetch_audio(&next_video_id).await;
+            });
+        }
+    });
+}
+
+fn run_crossfade_ramp(
+    state: Rc<RefCell<AppState>>,
+    cf_gen: u64,
+    old_deck: usize,
+    new_deck: usize,
+) {
+    const TOTAL_STEPS: u32 = 80; // 80 * 50ms = 4.0 seconds
+    let mut step: u32 = 0;
+
+    glib::timeout_add_local(std::time::Duration::from_millis(50), move || {
+        step += 1;
+        let t = (step as f64 / TOTAL_STEPS as f64).min(1.0);
+
+        let (active, user_vol, old_media, new_media) = {
+            let mut s = state.borrow_mut();
+            if s.crossfade_generation != cf_gen || !s.crossfade_active {
+                return glib::ControlFlow::Break;
+            }
+            let done = step >= TOTAL_STEPS;
+            if done {
+                s.crossfade_active = false;
+            }
+            (
+                !done,
+                s.user_volume,
+                s.decks[old_deck].clone(),
+                s.decks[new_deck].clone(),
+            )
+        };
+
+        old_media.set_volume(user_vol * (1.0 - t));
+        new_media.set_volume(user_vol * t);
+
+        if !active {
+            old_media.pause();
+            new_media.set_volume(user_vol);
+            glib::ControlFlow::Break
+        } else {
+            glib::ControlFlow::Continue
         }
     });
 }
@@ -2554,14 +2800,27 @@ fn wire_media_signals(
     volume_scale: &Scale,
     volume_btn: &MenuButton,
 ) {
-    let media_file = state.borrow().media_file.clone();
+    let decks = state.borrow().decks.clone();
 
     {
-        let media = media_file.clone();
+        let state = Rc::clone(&state);
         let volume_btn = volume_btn.clone();
         volume_scale.connect_value_changed(move |scale| {
             let val = scale.value();
-            media.set_volume(val);
+            let target_media = {
+                let mut s = state.borrow_mut();
+                s.user_volume = val;
+                if s.crossfade_active {
+                    None
+                } else {
+                    Some(s.active_media().clone())
+                }
+            };
+            if let Some(media) = target_media
+                && media.file().is_some()
+            {
+                media.set_volume(val);
+            }
             let icon = if val <= 0.01 {
                 "audio-volume-muted-symbolic"
             } else if val < 0.35 {
@@ -2579,11 +2838,15 @@ fn wire_media_signals(
         let state = Rc::clone(&state);
         let play_pause_btn = state.borrow().play_pause_btn.clone();
         play_pause_btn.connect_clicked(move |_| {
-            let media = &state.borrow().media_file;
-            if media.is_playing() {
-                media.pause();
+            let (active, standby) = {
+                let s = state.borrow();
+                (s.active_media().clone(), s.standby_media().clone())
+            };
+            if active.is_playing() {
+                active.pause();
+                standby.pause();
             } else {
-                media.play();
+                active.play();
             }
         });
     }
@@ -2613,78 +2876,134 @@ fn wire_media_signals(
         });
     }
 
-    {
-        let state = Rc::clone(&state);
-        media_file.connect_prepared_notify(move |media| {
-            if media.is_prepared() {
-                let should_play = {
-                    let mut s = state.borrow_mut();
-                    if s.pending_autoplay {
-                        s.pending_autoplay = false;
-                        true
+    for (deck_idx, media_file) in decks.into_iter().enumerate() {
+        {
+            let state = Rc::clone(&state);
+            media_file.connect_prepared_notify(move |media| {
+                if media.is_prepared() {
+                    let (should_play, target_vol) = {
+                        let mut s = state.borrow_mut();
+                        if s.active_deck == deck_idx {
+                            let vol = if s.crossfade_active { None } else { Some(s.user_volume) };
+                            let play = if s.pending_autoplay {
+                                s.pending_autoplay = false;
+                                true
+                            } else {
+                                false
+                            };
+                            (play, vol)
+                        } else {
+                            (false, None)
+                        }
+                    };
+                    if let Some(vol) = target_vol {
+                        media.set_volume(vol);
+                    }
+                    if should_play {
+                        media.play();
+                    }
+                }
+            });
+        }
+
+        {
+            let state = Rc::clone(&state);
+            media_file.connect_playing_notify(move |media| {
+                let s = state.borrow();
+                if s.active_deck != deck_idx {
+                    return;
+                }
+                let playing = media.is_playing();
+                let icon = if playing {
+                    "media-playback-pause-symbolic"
+                } else {
+                    "media-playback-start-symbolic"
+                };
+                s.play_pause_btn.set_icon_name(icon);
+                if let Some(mpris) = &s.mpris {
+                    mpris.set_status(playing, s.current_index.is_none());
+                }
+            });
+        }
+
+        {
+            let state = Rc::clone(&state);
+            media_file.connect_duration_notify(move |media| {
+                let s = state.borrow();
+                if s.active_deck != deck_idx {
+                    return;
+                }
+                let dur_us = media.duration();
+                if dur_us > 0 {
+                    let dur_secs = (dur_us / 1_000_000) as f64;
+                    s.seek_scale.set_range(0.0, dur_secs);
+                    s.duration_label.set_label(&format_duration(dur_secs as u32));
+                }
+            });
+        }
+
+        {
+            let state = Rc::clone(&state);
+            media_file.connect_timestamp_notify(move |media| {
+                let s = state.borrow();
+                if s.active_deck != deck_idx {
+                    return;
+                }
+                let pos_us = media.timestamp();
+                if pos_us >= 0 {
+                    let pos_secs = (pos_us / 1_000_000) as f64;
+                    s.seek_scale.set_value(pos_secs);
+                    s.time_label.set_label(&format_duration(pos_secs as u32));
+                }
+            });
+        }
+
+        {
+            let state = Rc::clone(&state);
+            media_file.connect_ended_notify(move |media| {
+                if !media.is_ended() {
+                    return;
+                }
+                let target = {
+                    let s = state.borrow();
+                    if s.active_deck != deck_idx {
+                        None
                     } else {
-                        false
+                        next_queue_index(&s)
                     }
                 };
-                if should_play {
-                    media.play();
+                if let Some(idx) = target {
+                    play_queue_index(Rc::clone(&state), idx);
                 }
-            }
-        });
+            });
+        }
+
+        {
+            let state = Rc::clone(&state);
+            media_file.connect_error_notify(move |media| {
+                if let Some(err) = media.error() {
+                    let s = state.borrow();
+                    if s.active_deck == deck_idx {
+                        s.show_toast(&format!("Error de reproducción: {err}"));
+                    }
+                }
+            });
+        }
     }
 
     {
         let state = Rc::clone(&state);
-        media_file.connect_playing_notify(move |media| {
-            let playing = media.is_playing();
-            let icon = if playing {
-                "media-playback-pause-symbolic"
-            } else {
-                "media-playback-start-symbolic"
-            };
-            let s = state.borrow();
-            s.play_pause_btn.set_icon_name(icon);
-            if let Some(mpris) = &s.mpris {
-                mpris.set_status(playing, s.current_index.is_none());
-            }
-        });
-    }
-
-    {
-        let state = Rc::clone(&state);
-        media_file.connect_duration_notify(move |media| {
-            let dur_us = media.duration();
-            if dur_us > 0 {
-                let dur_secs = (dur_us / 1_000_000) as f64;
-                let s = state.borrow();
-                s.seek_scale.set_range(0.0, dur_secs);
-                s.duration_label.set_label(&format_duration(dur_secs as u32));
-            }
-        });
-    }
-
-    {
-        let state = Rc::clone(&state);
-        media_file.connect_timestamp_notify(move |media| {
-            let pos_us = media.timestamp();
-            if pos_us >= 0 {
-                let pos_secs = (pos_us / 1_000_000) as f64;
-                let s = state.borrow();
-                s.seek_scale.set_value(pos_secs);
-                s.time_label.set_label(&format_duration(pos_secs as u32));
-            }
-        });
-    }
-
-    {
-        let state = Rc::clone(&state);
-        let media = media_file.clone();
         let seek_scale = state.borrow().seek_scale.clone();
         seek_scale.connect_change_value(move |_, _, val| {
             if val >= 0.0 {
                 let target_us = (val * 1_000_000.0) as i64;
+                let (media, mpris) = {
+                    let mut s = state.borrow_mut();
+                    s.crossfade_triggered_for = None;
+                    (s.active_media().clone(), s.mpris.clone())
+                };
                 media.seek(target_us);
-                if let Some(mpris) = &state.borrow().mpris {
+                if let Some(mpris) = mpris {
                     mpris.set_position_us(target_us);
                     mpris.emit_seeked(target_us);
                 }
@@ -2693,53 +3012,55 @@ fn wire_media_signals(
         });
     }
 
-    // Periodic 250ms sync with GStreamer position & duration
+    // Periodic 250ms sync with GStreamer position, duration, and crossfade trigger
     {
         let state = Rc::clone(&state);
         glib::timeout_add_local(std::time::Duration::from_millis(250), move || {
-            let s = state.borrow();
-            if s.media_file.is_playing() {
-                let dur_us = s.media_file.duration();
-                if dur_us > 0 {
-                    let dur_secs = (dur_us / 1_000_000) as f64;
-                    s.seek_scale.set_range(0.0, dur_secs);
-                    s.duration_label.set_label(&format_duration(dur_secs as u32));
-                }
-                let pos_us = s.media_file.timestamp();
-                if pos_us >= 0 {
-                    let pos_secs = (pos_us / 1_000_000) as f64;
-                    s.seek_scale.set_value(pos_secs);
-                    s.time_label.set_label(&format_duration(pos_secs as u32));
-                    if let Some(mpris) = &s.mpris {
-                        mpris.set_position_us(pos_us);
+            let crossfade_target = {
+                let mut s = state.borrow_mut();
+                let media = s.active_media().clone();
+                if media.is_playing() {
+                    let dur_us = media.duration();
+                    if dur_us > 0 {
+                        let dur_secs = (dur_us / 1_000_000) as f64;
+                        s.seek_scale.set_range(0.0, dur_secs);
+                        s.duration_label.set_label(&format_duration(dur_secs as u32));
                     }
+                    let pos_us = media.timestamp();
+                    if pos_us >= 0 {
+                        let pos_secs = (pos_us / 1_000_000) as f64;
+                        s.seek_scale.set_value(pos_secs);
+                        s.time_label.set_label(&format_duration(pos_secs as u32));
+                        if let Some(mpris) = &s.mpris {
+                            mpris.set_position_us(pos_us);
+                        }
+                    }
+
+                    if s.crossfade_enabled
+                        && !s.crossfade_active
+                        && dur_us > 12_000_000
+                        && pos_us > 0
+                        && s.crossfade_triggered_for != Some(s.loading_generation)
+                    {
+                        let remaining_us = dur_us - pos_us;
+                        if (500_000..=4_500_000).contains(&remaining_us) {
+                            s.crossfade_triggered_for = Some(s.loading_generation);
+                            next_queue_index(&s)
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                } else {
+                    None
                 }
+            };
+
+            if let Some(next_idx) = crossfade_target {
+                start_crossfade_to(Rc::clone(&state), next_idx);
             }
             glib::ControlFlow::Continue
-        });
-    }
-
-    {
-        let state = Rc::clone(&state);
-        media_file.connect_ended_notify(move |media| {
-            if !media.is_ended() {
-                return;
-            }
-            let target = next_queue_index(&state.borrow());
-            if let Some(idx) = target {
-                play_queue_index(Rc::clone(&state), idx);
-            }
-        });
-    }
-
-    {
-        let state = Rc::clone(&state);
-        media_file.connect_error_notify(move |media| {
-            if let Some(err) = media.error() {
-                state
-                    .borrow()
-                    .show_toast(&format!("Error de reproducción: {err}"));
-            }
         });
     }
 }
