@@ -27,7 +27,7 @@ pub fn build_explore_page(
 ) -> (ScrolledWindow, Rc<dyn Fn(&str)>) {
     let container = GtkBox::new(Orientation::Vertical, 16);
     container.set_margin_top(18);
-    container.set_margin_bottom(24);
+    container.set_margin_bottom(88);
     container.set_margin_start(20);
     container.set_margin_end(20);
 

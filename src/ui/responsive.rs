@@ -61,6 +61,7 @@ pub fn setup_responsive(t: ResponsiveTargets) {
         let sv_ref = t.split_view.clone();
         let rev_ref = t.bottom_drawer_revealer.clone();
         let is_mobile_ref = Rc::clone(&is_mobile);
+        let state_ref = Rc::clone(&t.state);
         move || {
             let mobile = is_mobile_ref.get();
             let player_visible = if mobile {
@@ -68,7 +69,11 @@ pub fn setup_responsive(t: ResponsiveTargets) {
             } else {
                 sv_ref.shows_sidebar()
             };
-            let show_mini = !player_visible;
+            let has_track = state_ref
+                .try_borrow()
+                .map(|s| s.current_index.is_some())
+                .unwrap_or(true);
+            let show_mini = !player_visible && has_track;
             mini_bar.set_visible(show_mini && !mobile);
             mobile_bar.set_visible(show_mini && mobile);
         }
@@ -192,6 +197,12 @@ pub fn setup_responsive(t: ResponsiveTargets) {
         t.split_view.connect_collapsed_notify(move |_| {
             sync_on_collapse();
         });
+
+        let update_on_track = update_mini_bar.clone();
+        t.state
+            .borrow_mut()
+            .on_track_changed
+            .push(Rc::new(move || update_on_track()));
 
         update_mini_bar();
     }

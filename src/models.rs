@@ -404,12 +404,24 @@ pub fn save_search_history(history: &[String]) {
     save_json_file("search_history.json", history);
 }
 
+fn default_volume() -> f64 {
+    1.0
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct SessionState {
     pub sidebar_collapsed: bool,
     pub queue: Vec<Track>,
     pub current_index: Option<usize>,
     pub source_name: String,
+    #[serde(default = "default_volume")]
+    pub user_volume: f64,
+    #[serde(default)]
+    pub shuffle: bool,
+    #[serde(default)]
+    pub repeat: bool,
+    #[serde(default)]
+    pub position_secs: f64,
 }
 
 pub fn load_session_state() -> SessionState {

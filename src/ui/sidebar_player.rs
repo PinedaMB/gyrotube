@@ -393,6 +393,7 @@ pub fn build_sidebar_player() -> SidebarPlayerWidgets {
     sidebar_toolbar.set_content(Some(&sidebar_stack));
     sidebar_toolbar.add_bottom_bar(&sidebar_tabs);
     sidebar_toolbar.add_css_class("sidebar-pane");
+    sidebar_toolbar.add_css_class("ambient-player");
 
     for (tab, page) in [
         (&tab_player, "player"),
@@ -525,14 +526,46 @@ pub fn build_mini_bar(
         mini_next_btn.connect_clicked(move |_| nxt_btn.emit_clicked());
     }
 
-    let bar = GtkBox::builder()
+    let mini_progress = gtk4::ProgressBar::builder()
+        .fraction(0.0)
+        .css_classes(["mini-progress"])
+        .build();
+    {
+        let adj = state.borrow().seek_scale.adjustment();
+        let update_prog = {
+            let pb = mini_progress.clone();
+            let adj_ref = adj.clone();
+            move || {
+                let upper = adj_ref.upper();
+                let frac = if upper > 0.0 {
+                    (adj_ref.value() / upper).clamp(0.0, 1.0)
+                } else {
+                    0.0
+                };
+                pb.set_fraction(frac);
+            }
+        };
+        update_prog();
+        let u1 = update_prog.clone();
+        adj.connect_value_changed(move |_| u1());
+        adj.connect_upper_notify(move |_| update_prog());
+    }
+
+    let row = GtkBox::builder()
         .orientation(Orientation::Horizontal)
         .spacing(6)
+        .build();
+    row.append(&open_btn);
+    row.append(&mini_play_btn);
+    row.append(&mini_next_btn);
+
+    let bar = GtkBox::builder()
+        .orientation(Orientation::Vertical)
+        .spacing(4)
         .visible(false)
         .build();
-    bar.append(&open_btn);
-    bar.append(&mini_play_btn);
-    bar.append(&mini_next_btn);
+    bar.append(&row);
+    bar.append(&mini_progress);
     (bar, open_btn)
 }
 

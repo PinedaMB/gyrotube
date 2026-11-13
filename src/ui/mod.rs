@@ -159,7 +159,7 @@ pub fn build_ui(app: &adw::Application) {
         backend: backend.clone(),
         decks: decks.clone(),
         active_deck: 0,
-        user_volume: 1.0,
+        user_volume: saved_session.user_volume.clamp(0.0, 1.0),
         crossfade_enabled: true,
         crossfade_active: false,
         crossfade_generation: 0,
@@ -171,8 +171,8 @@ pub fn build_ui(app: &adw::Application) {
         search_history: load_search_history(),
         current_index: saved_session.current_index,
         source_name: initial_source_name,
-        shuffle: false,
-        repeat: false,
+        shuffle: saved_session.shuffle,
+        repeat: saved_session.repeat,
         cover_cache: HashMap::new(),
         toast_overlay: toast_overlay.clone(),
         player_source_label: sb.player_source_label.clone(),
@@ -215,8 +215,14 @@ pub fn build_ui(app: &adw::Application) {
         pending_autoplay: false,
         sidebar_collapsed: initial_sidebar_collapsed,
         loading_generation: 0,
+        preloading_id: None,
         on_track_changed: Vec::new(),
     }));
+
+    sb.volume_scale
+        .set_value(saved_session.user_volume.clamp(0.0, 1.0));
+    sb.shuffle_btn.set_active(saved_session.shuffle);
+    sb.repeat_btn.set_active(saved_session.repeat);
 
     // Lyrics scroll & resync
     {
@@ -310,7 +316,7 @@ pub fn build_ui(app: &adw::Application) {
     let (main_overlay, bottom_drawer_revealer) =
         build_main_overlay(&split_view, &mini_player_bar);
 
-    restore_last_track(Rc::clone(&state));
+    restore_last_track(Rc::clone(&state), saved_session.position_secs);
 
     let main_toolbar = adw::ToolbarView::new();
     main_toolbar.add_top_bar(&hdr.header_bar);
@@ -354,6 +360,14 @@ pub fn build_ui(app: &adw::Application) {
     );
 
     wire_mpris(&state, &window);
+
+    {
+        let state_close = Rc::clone(&state);
+        window.connect_close_request(move |_| {
+            state_close.borrow().save_session();
+            glib::Propagation::Proceed
+        });
+    }
 
     install_shortcuts(ShortcutTargets {
         window: window.clone(),
@@ -475,18 +489,23 @@ fn wire_sidebar_actions(
             {
                 let s = state.borrow();
                 s.player_cover.set_paintable(None::<&gdk::Paintable>);
+                crate::ui::widgets::update_ambient_color(None);
                 s.time_label.set_label("0:00");
                 s.duration_label.set_label("0:00");
                 s.quality_label.set_label("YTM");
                 s.update_nav_buttons();
+                s.save_session();
             }
             refresh_queue_ui(Rc::clone(&state));
+            crate::ui::widgets::notify_track_changed(Rc::clone(&state));
         });
     }
     {
         let state = Rc::clone(state);
         sb.shuffle_btn.connect_toggled(move |btn| {
-            state.borrow_mut().shuffle = btn.is_active();
+            let mut s = state.borrow_mut();
+            s.shuffle = btn.is_active();
+            s.save_session();
         });
     }
     {
@@ -495,6 +514,7 @@ fn wire_sidebar_actions(
             let mut s = state.borrow_mut();
             s.repeat = btn.is_active();
             s.update_nav_buttons();
+            s.save_session();
         });
     }
     {

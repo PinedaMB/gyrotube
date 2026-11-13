@@ -1,12 +1,14 @@
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
+use adw::prelude::*;
 use gtk4::gdk;
 use gtk4::glib;
 use gtk4::prelude::*;
 use gtk4::{
-    Align, Box as GtkBox, Button, ContentFit, Image, Label, ListBox, ListBoxRow, MenuButton,
-    Orientation, Overflow, Picture, PolicyType, Popover, ScrolledWindow, ToggleButton, Widget,
+    Align, Box as GtkBox, Button, ContentFit, CssProvider, Image, Label, ListBox, ListBoxRow,
+    MenuButton, Orientation, Overflow, Picture, PolicyType, Popover, ScrolledWindow,
+    SelectionMode, ToggleButton, Widget,
 };
 use libadwaita as adw;
 
@@ -420,19 +422,133 @@ fn build_media_card(
     btn
 }
 
+fn show_collection_preview_dialog(
+    title: String,
+    cover_url: Option<String>,
+    tracks: Vec<Track>,
+    state: Rc<RefCell<AppState>>,
+) {
+    let dialog = adw::Dialog::builder()
+        .title(&title)
+        .content_width(480)
+        .content_height(560)
+        .build();
+
+    let (cover_frame, cover_pic) = clamped_cover(88, 88, "cover-art");
+    if let Some(url) = cover_url.as_deref() {
+        load_cover_into_picture(&cover_pic, url, Rc::clone(&state));
+    }
+
+    let title_lbl = Label::builder()
+        .label(&title)
+        .xalign(0.0)
+        .wrap(true)
+        .css_classes(["title-3"])
+        .build();
+    let count_lbl = Label::builder()
+        .label(format!("{} canciones", tracks.len()))
+        .xalign(0.0)
+        .css_classes(["dim-label", "caption"])
+        .build();
+
+    let play_all_btn = Button::builder()
+        .label("Reproducir todo")
+        .css_classes(["suggested-action", "pill"])
+        .build();
+    let add_queue_btn = Button::builder()
+        .label("Añadir a la cola")
+        .css_classes(["pill"])
+        .build();
+
+    let btns_row = GtkBox::new(Orientation::Horizontal, 8);
+    btns_row.append(&play_all_btn);
+    btns_row.append(&add_queue_btn);
+
+    let meta_col = GtkBox::new(Orientation::Vertical, 6);
+    meta_col.set_hexpand(true);
+    meta_col.set_valign(Align::Center);
+    meta_col.append(&title_lbl);
+    meta_col.append(&count_lbl);
+    meta_col.append(&btns_row);
+
+    let hero = GtkBox::new(Orientation::Horizontal, 14);
+    hero.set_margin_top(12);
+    hero.set_margin_bottom(12);
+    hero.set_margin_start(16);
+    hero.set_margin_end(16);
+    hero.append(&cover_frame);
+    hero.append(&meta_col);
+
+    let track_list = ListBox::builder()
+        .selection_mode(SelectionMode::None)
+        .css_classes(["boxed-list"])
+        .margin_start(16)
+        .margin_end(16)
+        .margin_bottom(16)
+        .build();
+    populate_track_list(&track_list, &tracks, &title, Rc::clone(&state));
+
+    let body = GtkBox::new(Orientation::Vertical, 4);
+    body.append(&hero);
+    body.append(&track_list);
+
+    let scroller = ScrolledWindow::builder()
+        .hscrollbar_policy(PolicyType::Never)
+        .vexpand(true)
+        .child(&body)
+        .build();
+
+    let toolbar = adw::ToolbarView::new();
+    toolbar.add_top_bar(&adw::HeaderBar::new());
+    toolbar.set_content(Some(&scroller));
+    dialog.set_child(Some(&toolbar));
+
+    {
+        let state = Rc::clone(&state);
+        let tracks = tracks.clone();
+        let source = title.clone();
+        let dlg = dialog.clone();
+        play_all_btn.connect_clicked(move |_| {
+            {
+                let mut s = state.borrow_mut();
+                s.queue = tracks.clone();
+                s.source_name = source.clone();
+            }
+            play_queue_index(Rc::clone(&state), 0);
+            dlg.close();
+        });
+    }
+    {
+        let state = Rc::clone(&state);
+        let tracks = tracks.clone();
+        let dlg = dialog.clone();
+        add_queue_btn.connect_clicked(move |_| {
+            let count = tracks.len();
+            {
+                let mut s = state.borrow_mut();
+                s.queue.extend(tracks.clone());
+                s.update_nav_buttons();
+                s.save_session();
+                s.show_toast(&format!("{count} canciones añadidas a la cola"));
+            }
+            refresh_queue_ui(Rc::clone(&state));
+            dlg.close();
+        });
+    }
+
+    let parent: Widget = state.borrow().toast_overlay.clone().upcast();
+    dialog.present(Some(&parent));
+}
+
 fn handle_fetched_queue(
     result: Result<(String, Vec<Track>), String>,
+    cover_url: Option<String>,
     empty_msg: &str,
     state: Rc<RefCell<AppState>>,
 ) {
     match result {
         Ok((source, tracks)) if !tracks.is_empty() => {
-            {
-                let mut s = state.borrow_mut();
-                s.queue = tracks;
-                s.source_name = source;
-            }
-            play_queue_index(state, 0);
+            show_collection_preview_dialog(source, cover_url, tracks, state);
         }
         Ok(_) => state.borrow().show_toast(empty_msg),
         Err(err) => state.borrow().show_toast(&err),
@@ -459,17 +575,24 @@ pub fn build_album_card(album: &Album, state: Rc<RefCell<AppState>>) -> Button {
 
     let album_id = album.id.clone();
     let album_title = album.title.clone();
+    let album_cover = album.cover_url.clone();
     btn.connect_clicked(move |_| {
         let backend = state.borrow().backend.clone();
         state
             .borrow()
             .show_toast(&format!("Cargando álbum: {album_title}"));
         let id = album_id.clone();
+        let cover = album_cover.clone();
         let state = Rc::clone(&state);
         spawn_bg(
             move || async move { backend.fetch_album_tracks(&id).await },
             move |result| {
-                handle_fetched_queue(result, "El álbum no tiene pistas disponibles.", state);
+                handle_fetched_queue(
+                    result,
+                    cover,
+                    "El álbum no tiene pistas disponibles.",
+                    state,
+                );
             },
         );
     });
@@ -489,17 +612,19 @@ pub fn build_playlist_card(playlist: &Playlist, state: Rc<RefCell<AppState>>) ->
 
     let playlist_id = playlist.id.clone();
     let playlist_name = playlist.name.clone();
+    let playlist_cover = playlist.cover_url.clone();
     btn.connect_clicked(move |_| {
         let backend = state.borrow().backend.clone();
         state
             .borrow()
             .show_toast(&format!("Cargando playlist: {playlist_name}"));
         let id = playlist_id.clone();
+        let cover = playlist_cover.clone();
         let state = Rc::clone(&state);
         spawn_bg(
             move || async move { backend.fetch_playlist_tracks(&id).await },
             move |result| {
-                handle_fetched_queue(result, "La playlist está vacía.", state);
+                handle_fetched_queue(result, cover, "La playlist está vacía.", state);
             },
         );
     });
@@ -842,6 +967,73 @@ pub fn load_cover_into_picture(picture: &Picture, url: &str, state: Rc<RefCell<A
     });
 }
 
+thread_local! {
+    static AMBIENT_PROVIDER: std::cell::OnceCell<CssProvider> = const { std::cell::OnceCell::new() };
+}
+
+pub fn update_ambient_color(texture: Option<&gdk::Texture>) {
+    let provider = AMBIENT_PROVIDER.with(|cell| {
+        cell.get_or_init(|| {
+            let p = CssProvider::new();
+            if let Some(display) = gdk::Display::default() {
+                gtk4::style_context_add_provider_for_display(
+                    &display,
+                    &p,
+                    gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION + 1,
+                );
+            }
+            p
+        })
+        .clone()
+    });
+
+    let Some(tex) = texture else {
+        provider.load_from_string("");
+        return;
+    };
+
+    let w = tex.width().max(1) as usize;
+    let h = tex.height().max(1) as usize;
+    let stride = w * 4;
+    let mut buf = vec![0u8; stride * h];
+    tex.download(&mut buf, stride);
+
+    let step_x = (w / 16).max(1);
+    let step_y = (h / 16).max(1);
+    let (mut sum_r, mut sum_g, mut sum_b, mut total_w) = (0u64, 0u64, 0u64, 0u64);
+    for y in (0..h).step_by(step_y) {
+        for x in (0..w).step_by(step_x) {
+            let idx = y * stride + x * 4;
+            let (b, g, r, a) = (buf[idx] as u64, buf[idx + 1] as u64, buf[idx + 2] as u64, buf[idx + 3] as u64);
+            if a < 128 {
+                continue;
+            }
+            let luma = r + g + b;
+            if luma < 50 || luma > 700 {
+                continue;
+            }
+            let max_c = r.max(g).max(b);
+            let min_c = r.min(g).min(b);
+            let weight = (max_c - min_c) + 16;
+            sum_r += r * weight;
+            sum_g += g * weight;
+            sum_b += b * weight;
+            total_w += weight;
+        }
+    }
+
+    if total_w == 0 {
+        provider.load_from_string("");
+        return;
+    }
+    let r = (sum_r / total_w).min(255);
+    let g = (sum_g / total_w).min(255);
+    let b = (sum_b / total_w).min(255);
+    provider.load_from_string(&format!(
+        ".ambient-player {{ background-image: radial-gradient(circle at 50% 28%, rgba({r}, {g}, {b}, 0.24), transparent 72%); }}"
+    ));
+}
+
 pub fn load_player_cover(
     picture: &Picture,
     url: &str,
@@ -853,6 +1045,7 @@ pub fn load_player_cover(
         let s = state.borrow();
         if s.loading_generation == expected_gen {
             picture.set_paintable(Some(&texture));
+            update_ambient_color(Some(&texture));
             s.player_cover_spinner.set_spinning(false);
             s.player_cover_spinner.set_visible(false);
         }
@@ -885,6 +1078,9 @@ pub fn load_player_cover(
         if s.loading_generation == expected_gen {
             if let Some(texture) = maybe_tex {
                 picture.set_paintable(Some(&texture));
+                update_ambient_color(Some(&texture));
+            } else {
+                update_ambient_color(None);
             }
             s.player_cover_spinner.set_spinning(false);
             s.player_cover_spinner.set_visible(false);

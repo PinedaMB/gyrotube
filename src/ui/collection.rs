@@ -16,7 +16,7 @@ use crate::ui::widgets::{clear_box, populate_track_list};
 pub fn build_collection_page(state: Rc<RefCell<AppState>>) -> ScrolledWindow {
     let container = GtkBox::new(Orientation::Vertical, 22);
     container.set_margin_top(18);
-    container.set_margin_bottom(28);
+    container.set_margin_bottom(88);
     container.set_margin_start(20);
     container.set_margin_end(20);
 

@@ -423,11 +423,13 @@ pub fn play_queue_index(state: Rc<RefCell<AppState>>, index: usize) {
                     s.play_pause_btn.set_sensitive(true);
                     s.seek_scale.set_sensitive(true);
                     s.pending_autoplay = true;
-                    let next_id = if !s.shuffle {
-                        s.queue.get(index + 1).map(|t| t.id.clone())
-                    } else {
-                        None
-                    };
+                    let next_id = next_queue_index(&s)
+                        .and_then(|ni| s.queue.get(ni))
+                        .map(|t| t.id.clone())
+                        .filter(|id| s.preloading_id.as_deref() != Some(id.as_str()));
+                    if let Some(ref id) = next_id {
+                        s.preloading_id = Some(id.clone());
+                    }
                     Some((
                         s.active_media().clone(),
                         stream.url,
@@ -671,6 +673,7 @@ pub fn wire_media_signals(
             let target_media = {
                 let mut s = state.borrow_mut();
                 s.user_volume = val;
+                s.save_session();
                 if s.crossfade_active {
                     None
                 } else {
@@ -935,7 +938,7 @@ pub fn wire_media_signals(
     }
 }
 
-pub fn restore_last_track(state: Rc<RefCell<AppState>>) {
+pub fn restore_last_track(state: Rc<RefCell<AppState>>, position_secs: f64) {
     let (track, player_cover, cached_stream, current_gen) = {
         let mut s = state.borrow_mut();
         let Some(idx) = s.current_index else {
@@ -959,10 +962,16 @@ pub fn restore_last_track(state: Rc<RefCell<AppState>>) {
         });
         s.player_radio_btn.set_sensitive(true);
         s.prev_btn.set_sensitive(idx > 0);
-        s.next_btn.set_sensitive(idx + 1 < s.queue.len());
+        s.next_btn
+            .set_sensitive(idx + 1 < s.queue.len() || (s.repeat && !s.queue.is_empty()));
         if let Some(dur) = track.duration_secs {
             s.duration_label.set_label(&format_duration(dur));
             s.seek_scale.set_range(0.0, dur as f64);
+        }
+        if position_secs > 1.0 {
+            s.seek_scale.set_value(position_secs);
+            s.time_label
+                .set_label(&format_duration(position_secs as u32));
         }
         s.pending_autoplay = false;
         (track, s.player_cover.clone(), cached, s.loading_generation)
@@ -975,6 +984,17 @@ pub fn restore_last_track(state: Rc<RefCell<AppState>>) {
         let s = state.borrow();
         s.quality_label.set_label(&stream.quality_label);
         let media = s.active_media().clone();
+        if position_secs > 1.0 {
+            let pending_seek = Rc::new(std::cell::Cell::new(Some(position_secs)));
+            let pending_ref = Rc::clone(&pending_seek);
+            media.connect_prepared_notify(move |m| {
+                if m.is_prepared()
+                    && let Some(pos) = pending_ref.take()
+                {
+                    m.seek((pos * 1_000_000.0) as i64);
+                }
+            });
+        }
         media.set_file(Some(&gio::File::for_path(&stream.url)));
     }
     refresh_queue_ui(Rc::clone(&state));

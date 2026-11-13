@@ -181,12 +181,19 @@ pub fn wire_search_popover(
         })
     };
 
+    let active_items: Rc<RefCell<Vec<(Button, String)>>> = Rc::new(RefCell::new(Vec::new()));
+    let selected_idx: Rc<Cell<Option<usize>>> = Rc::new(Cell::new(None));
+
     let show_search_popover = {
         let search_popover = search_popover.clone();
         let top_entry_ref = top_search_entry.clone();
         let run_header_search = Rc::clone(&run_header_search);
         let suppress_suggest = Rc::clone(&suppress_suggest);
+        let active_items = Rc::clone(&active_items);
+        let selected_idx = Rc::clone(&selected_idx);
         move |heading_text: &str, icon_name: &str, items: Vec<String>| {
+            active_items.borrow_mut().clear();
+            selected_idx.set(None);
             if items.is_empty() {
                 search_popover.popdown();
                 return;
@@ -232,6 +239,7 @@ pub fn wire_search_popover(
                     suppress.set(false);
                     run_fn(&term_clone);
                 });
+                active_items.borrow_mut().push((item.clone(), term));
                 box_hist.append(&item);
             }
             search_popover.set_child(Some(&box_hist));
@@ -316,10 +324,61 @@ pub fn wire_search_popover(
 
     {
         let run_header_search = Rc::clone(&run_header_search);
+        let active_items = Rc::clone(&active_items);
+        let selected_idx = Rc::clone(&selected_idx);
+        let search_popover_act = search_popover.clone();
+        let suppress_act = Rc::clone(&suppress_suggest);
         top_search_entry.connect_activate(move |entry| {
+            if search_popover_act.is_visible()
+                && let Some(idx) = selected_idx.get()
+                && let Some((_, term)) = active_items.borrow().get(idx).cloned()
+            {
+                suppress_act.set(true);
+                entry.set_text(&term);
+                suppress_act.set(false);
+                run_header_search(&term);
+                return;
+            }
             let text = entry.text().to_string();
             run_header_search(&text);
         });
+    }
+    {
+        let key_ctrl = gtk4::EventControllerKey::new();
+        let active_items = Rc::clone(&active_items);
+        let selected_idx = Rc::clone(&selected_idx);
+        let search_popover_key = search_popover.clone();
+        key_ctrl.connect_key_pressed(move |_, key, _, _| {
+            if !search_popover_key.is_visible() {
+                return glib::Propagation::Proceed;
+            }
+            let items = active_items.borrow();
+            let len = items.len();
+            if len == 0 {
+                return glib::Propagation::Proceed;
+            }
+            let next_idx = match key {
+                gtk4::gdk::Key::Down => Some(match selected_idx.get() {
+                    None => 0,
+                    Some(i) => (i + 1) % len,
+                }),
+                gtk4::gdk::Key::Up => Some(match selected_idx.get() {
+                    None | Some(0) => len - 1,
+                    Some(i) => i - 1,
+                }),
+                _ => return glib::Propagation::Proceed,
+            };
+            for (i, (btn, _)) in items.iter().enumerate() {
+                if Some(i) == next_idx {
+                    btn.add_css_class("search-row-selected");
+                } else {
+                    btn.remove_css_class("search-row-selected");
+                }
+            }
+            selected_idx.set(next_idx);
+            glib::Propagation::Stop
+        });
+        top_search_entry.add_controller(key_ctrl);
     }
     {
         let search_popover = search_popover.clone();

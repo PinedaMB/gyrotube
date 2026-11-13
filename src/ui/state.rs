@@ -77,16 +77,22 @@ pub struct AppState {
     pub pending_autoplay: bool,
     pub sidebar_collapsed: bool,
     pub loading_generation: u64,
+    pub preloading_id: Option<String>,
     pub on_track_changed: Vec<Rc<dyn Fn()>>,
 }
 
 impl AppState {
     pub fn save_session(&self) {
+        let pos_secs = self.active_media().timestamp().max(0) as f64 / 1_000_000.0;
         save_session_state(&SessionState {
             sidebar_collapsed: self.sidebar_collapsed,
             queue: self.queue.clone(),
             current_index: self.current_index,
             source_name: self.source_name.clone(),
+            user_volume: self.user_volume,
+            shuffle: self.shuffle,
+            repeat: self.repeat,
+            position_secs: pos_secs,
         });
     }
     pub fn active_media(&self) -> &MediaFile {
