@@ -5,8 +5,9 @@ use gtk4::gdk;
 use gtk4::glib;
 use gtk4::prelude::*;
 use gtk4::{
-    Align, Box as GtkBox, Button, ContentFit, Image, Label, ListBox, ListBoxRow, MenuButton,
-    Orientation, Overflow, Picture, PolicyType, Popover, ScrolledWindow, ToggleButton,
+    Align, Box as GtkBox, Button, ContentFit, FlowBox, Image, Label, ListBox, ListBoxRow,
+    MenuButton, Orientation, Overflow, Picture, PolicyType, Popover, ScrolledWindow, SelectionMode,
+    ToggleButton, Widget,
 };
 use libadwaita as adw;
 
@@ -147,6 +148,106 @@ pub fn build_carousel_section(title: &str) -> (GtkBox, GtkBox, ScrolledWindow) {
     section.set_visible(false);
 
     (section, cards_box, scroller)
+}
+
+pub fn build_paged_carousel_section(title: &str) -> (GtkBox, adw::Carousel) {
+    let header_box = GtkBox::new(Orientation::Horizontal, 8);
+    let title_label = Label::builder()
+        .label(title)
+        .xalign(0.0)
+        .hexpand(true)
+        .css_classes(["title-3"])
+        .build();
+
+    let prev_btn = Button::builder()
+        .icon_name("go-previous-symbolic")
+        .css_classes(["circular", "flat"])
+        .build();
+    let next_btn = Button::builder()
+        .icon_name("go-next-symbolic")
+        .css_classes(["circular", "flat"])
+        .build();
+    prev_btn.set_cursor_from_name(Some("pointer"));
+    next_btn.set_cursor_from_name(Some("pointer"));
+
+    header_box.append(&title_label);
+    header_box.append(&prev_btn);
+    header_box.append(&next_btn);
+
+    let carousel = adw::Carousel::builder()
+        .spacing(12)
+        .allow_mouse_drag(true)
+        .allow_scroll_wheel(false)
+        .build();
+    let dots = adw::CarouselIndicatorDots::builder()
+        .carousel(&carousel)
+        .build();
+
+    {
+        let carousel = carousel.clone();
+        prev_btn.connect_clicked(move |_| {
+            let n = carousel.n_pages();
+            if n == 0 {
+                return;
+            }
+            let pos = (carousel.position().round() as u32).saturating_sub(1);
+            let page = carousel.nth_page(pos);
+            carousel.scroll_to(&page, true);
+        });
+    }
+    {
+        let carousel = carousel.clone();
+        next_btn.connect_clicked(move |_| {
+            let n = carousel.n_pages();
+            if n == 0 {
+                return;
+            }
+            let pos = ((carousel.position().round() as u32) + 1).min(n - 1);
+            let page = carousel.nth_page(pos);
+            carousel.scroll_to(&page, true);
+        });
+    }
+
+    let section = GtkBox::new(Orientation::Vertical, 10);
+    section.set_visible(false);
+    section.append(&header_box);
+    section.append(&carousel);
+    section.append(&dots);
+
+    (section, carousel)
+}
+
+pub fn populate_paged_carousel(
+    carousel: &adw::Carousel,
+    section: &GtkBox,
+    cards: Vec<Widget>,
+) {
+    while carousel.n_pages() > 0 {
+        let page = carousel.nth_page(0);
+        carousel.remove(&page);
+    }
+    const PER_PAGE: usize = 3;
+    let has_items = !cards.is_empty();
+    for chunk in cards.chunks(PER_PAGE) {
+        let page_row = GtkBox::builder()
+            .orientation(Orientation::Horizontal)
+            .spacing(12)
+            .homogeneous(true)
+            .hexpand(true)
+            .valign(Align::Start)
+            .build();
+        for card in chunk {
+            card.set_hexpand(true);
+            page_row.append(card);
+        }
+        for _ in chunk.len()..PER_PAGE {
+            let spacer = GtkBox::new(Orientation::Vertical, 0);
+            spacer.set_hexpand(true);
+            page_row.append(&spacer);
+        }
+        carousel.append(&page_row);
+    }
+    section.set_visible(has_items);
 }
 
 pub fn build_album_card(album: &Album, state: Rc<RefCell<AppState>>) -> Button {

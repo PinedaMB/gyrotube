@@ -8,9 +8,62 @@
     background-color: alpha(@window_fg_color, 0.08);
 }
 
-.artist-banner {
-    border-radius: 14px;
-    background-color: alpha(@window_fg_color, 0.06);
+.artist-hero {
+    border-radius: 16px;
+    background: linear-gradient(135deg, #1b2832 0%, #16181d 60%, #101216 100%);
+    box-shadow: 0 10px 30px alpha(black, 0.35);
+}
+
+.artist-hero-scrim {
+    background: linear-gradient(
+        to top,
+        alpha(#0d0f12, 0.94) 0%,
+        alpha(#0d0f12, 0.62) 48%,
+        alpha(#0d0f12, 0.18) 100%
+    );
+}
+
+.artist-hero-back {
+    background-color: alpha(#000000, 0.45);
+    color: #ffffff;
+    min-width: 34px;
+    min-height: 34px;
+}
+
+.artist-hero-back:hover {
+    background-color: alpha(#000000, 0.72);
+}
+
+.artist-verified-badge {
+    color: rgba(255, 255, 255, 0.9);
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.artist-verified-icon {
+    color: @accent_color;
+}
+
+.artist-hero-title {
+    font-size: 32px;
+    font-weight: 800;
+    color: #ffffff;
+    text-shadow: 0 2px 12px alpha(black, 0.55);
+}
+
+.artist-hero-subs {
+    font-size: 13px;
+    color: rgba(255, 255, 255, 0.78);
+}
+
+.artist-secondary-btn {
+    background-color: alpha(#ffffff, 0.12);
+    color: #ffffff;
+    border: 1px solid alpha(#ffffff, 0.22);
+}
+
+.artist-secondary-btn:hover {
+    background-color: alpha(#ffffff, 0.22);
 }
 
 .cover-art-large {

@@ -643,8 +643,8 @@ pub fn build_ui(app: &adw::Application) {
 
     // Build right-pane pages
     let home_page = build_home_page(Rc::clone(&state), content_view_stack.clone());
-    let (explore_page, explore_search_entry, trigger_explore_search) =
-        build_explore_page(Rc::clone(&state));
+    let (explore_page, trigger_explore_search) =
+        build_explore_page(Rc::clone(&state), top_search_entry.clone());
     let collection_page = build_collection_page(Rc::clone(&state));
     refresh_favorites_ui(Rc::clone(&state));
     refresh_recent_ui(Rc::clone(&state));
@@ -722,7 +722,6 @@ pub fn build_ui(app: &adw::Application) {
 
     let run_header_search: Rc<dyn Fn(&str)> = {
         let content_view_stack = content_view_stack.clone();
-        let explore_search_entry = explore_search_entry.clone();
         let state = Rc::clone(&state);
         let search_popover = search_popover.clone();
         let debounce_id = Rc::clone(&debounce_id);
@@ -744,7 +743,6 @@ pub fn build_ui(app: &adw::Application) {
                 save_search_history(&s.search_history);
             }
             search_popover.popdown();
-            explore_search_entry.set_text(trimmed);
             content_view_stack.set_visible_child_name("explore");
             trigger_explore_search(trimmed);
         })
