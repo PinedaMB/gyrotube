@@ -341,8 +341,41 @@
     background-color: alpha(@window_fg_color, 0.06);
 }
 
+.lyrics-card {
+    background-color: alpha(@window_fg_color, 0.04);
+    border: 1px solid alpha(@window_fg_color, 0.06);
+    border-radius: 12px;
+    padding: 14px 14px;
+}
+
+.lyrics-plain {
+    font-size: 14.5px;
+    line-height: 1.65;
+    color: alpha(@window_fg_color, 0.88);
+}
+
+.lyrics-badge-synced {
+    font-size: 11px;
+    font-weight: 700;
+    padding: 3px 9px;
+    border-radius: 999px;
+    color: @accent_color;
+    background-color: alpha(@accent_bg_color, 0.18);
+}
+
+.lyrics-badge-plain {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 3px 9px;
+    border-radius: 999px;
+    color: alpha(@window_fg_color, 0.65);
+    background-color: alpha(@window_fg_color, 0.08);
+}
+
 .lyric-line {
-    padding: 7px 10px;
+    font-size: 15px;
+    line-height: 1.45;
+    padding: 8px 10px;
     border-radius: 8px;
     opacity: 0.55;
     transition: opacity 160ms ease, background-color 160ms ease;
@@ -354,8 +387,9 @@
 }
 
 .lyric-line-active {
+    font-size: 16px;
     opacity: 1.0;
     font-weight: 700;
     color: @accent_color;
-    background-color: alpha(@accent_bg_color, 0.14);
+    background-color: alpha(@accent_bg_color, 0.16);
 }

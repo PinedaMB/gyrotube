@@ -153,6 +153,8 @@ pub fn load_current_lyrics(state: Rc<RefCell<AppState>>) {
             s.active_lyric_idx = None;
             s.lyrics_loaded_for = None;
             s.lyrics_title_label.set_label("Letras");
+            s.lyrics_artist_label.set_visible(false);
+            s.lyrics_sync_badge.set_visible(false);
             s.lyrics_body_label
                 .set_label("Reproduce una canción para ver su letra.");
             s.lyrics_box.append(&s.lyrics_body_label);
@@ -165,6 +167,9 @@ pub fn load_current_lyrics(state: Rc<RefCell<AppState>>) {
         s.synced_lyrics.clear();
         s.active_lyric_idx = None;
         s.lyrics_title_label.set_label(&track.title);
+        s.lyrics_artist_label.set_label(&track.artist);
+        s.lyrics_artist_label.set_visible(!track.artist.is_empty());
+        s.lyrics_sync_badge.set_visible(false);
         s.lyrics_body_label.set_label("Cargando letra…");
         s.lyrics_box.append(&s.lyrics_body_label);
         (track, s.backend.clone())
@@ -186,6 +191,10 @@ pub fn load_current_lyrics(state: Rc<RefCell<AppState>>) {
                 s.active_lyric_idx = None;
                 match result {
                     Ok(LyricsData::Synced(lines)) => {
+                        s.lyrics_sync_badge.set_label("● Sincronizada");
+                        s.lyrics_sync_badge.remove_css_class("lyrics-badge-plain");
+                        s.lyrics_sync_badge.add_css_class("lyrics-badge-synced");
+                        s.lyrics_sync_badge.set_visible(true);
                         for line in lines {
                             let lbl = Label::builder()
                                 .label(&line.text)
@@ -212,11 +221,16 @@ pub fn load_current_lyrics(state: Rc<RefCell<AppState>>) {
                         s.lyrics_loaded_for = Some(track.id);
                     }
                     Ok(LyricsData::Plain(text)) => {
+                        s.lyrics_sync_badge.set_label("Estática");
+                        s.lyrics_sync_badge.remove_css_class("lyrics-badge-synced");
+                        s.lyrics_sync_badge.add_css_class("lyrics-badge-plain");
+                        s.lyrics_sync_badge.set_visible(true);
                         s.lyrics_body_label.set_label(&text);
                         s.lyrics_box.append(&s.lyrics_body_label);
                         s.lyrics_loaded_for = Some(track.id);
                     }
                     Err(err) => {
+                        s.lyrics_sync_badge.set_visible(false);
                         s.lyrics_body_label.set_label(&err);
                         s.lyrics_box.append(&s.lyrics_body_label);
                     }

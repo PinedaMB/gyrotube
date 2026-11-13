@@ -243,25 +243,50 @@ pub fn build_ui(app: &adw::Application) {
     let lyrics_title_label = Label::builder()
         .label("Letras")
         .xalign(0.0)
+        .ellipsize(gtk4::pango::EllipsizeMode::End)
         .css_classes(["title-4"])
         .build();
+    let lyrics_artist_label = Label::builder()
+        .label("")
+        .xalign(0.0)
+        .ellipsize(gtk4::pango::EllipsizeMode::End)
+        .visible(false)
+        .css_classes(["caption", "dim-label"])
+        .build();
+    let lyrics_sync_badge = Label::builder()
+        .label("")
+        .visible(false)
+        .halign(Align::Start)
+        .build();
+
+    let lyrics_title_col = GtkBox::new(Orientation::Vertical, 2);
+    lyrics_title_col.set_hexpand(true);
+    lyrics_title_col.append(&lyrics_title_label);
+    lyrics_title_col.append(&lyrics_artist_label);
+
+    let lyrics_header = GtkBox::new(Orientation::Horizontal, 8);
+    lyrics_header.set_valign(Align::Center);
+    lyrics_header.append(&lyrics_title_col);
+    lyrics_header.append(&lyrics_sync_badge);
+
     let lyrics_body_label = Label::builder()
         .label("Reproduce una canción para ver su letra.")
         .xalign(0.0)
         .yalign(0.0)
         .wrap(true)
         .selectable(true)
-        .css_classes(["body"])
+        .css_classes(["lyrics-plain"])
         .build();
     let lyrics_lines_box = GtkBox::new(Orientation::Vertical, 2);
+    lyrics_lines_box.add_css_class("lyrics-card");
     lyrics_lines_box.append(&lyrics_body_label);
 
     let lyrics_box = GtkBox::new(Orientation::Vertical, 12);
     lyrics_box.set_margin_top(14);
     lyrics_box.set_margin_bottom(14);
-    lyrics_box.set_margin_start(16);
-    lyrics_box.set_margin_end(16);
-    lyrics_box.append(&lyrics_title_label);
+    lyrics_box.set_margin_start(14);
+    lyrics_box.set_margin_end(14);
+    lyrics_box.append(&lyrics_header);
     lyrics_box.append(&lyrics_lines_box);
 
     let lyrics_scroll = ScrolledWindow::builder()
@@ -551,6 +576,8 @@ pub fn build_ui(app: &adw::Application) {
         time_label,
         duration_label,
         lyrics_title_label,
+        lyrics_artist_label,
+        lyrics_sync_badge,
         lyrics_body_label,
         lyrics_box: lyrics_lines_box,
         lyrics_scroll,

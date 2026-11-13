@@ -539,15 +539,16 @@ impl Backend {
         }
 
         let mut plain_fallback: Option<String> = None;
-        if let Ok(resp) = self
-            .http
-            .get("https://lrclib.net/api/get")
-            .query(&params)
-            .timeout(Duration::from_secs(4))
-            .send()
-            .await
+        if let Ok(url) = reqwest::Url::parse_with_params("https://lrclib.net/api/get", &params)
+            && let Ok(resp) = self
+                .http
+                .get(url)
+                .timeout(Duration::from_secs(4))
+                .send()
+                .await
             && resp.status().is_success()
-            && let Ok(parsed) = resp.json::<LrcLibResp>().await
+            && let Ok(bytes) = resp.bytes().await
+            && let Ok(parsed) = serde_json::from_slice::<LrcLibResp>(&bytes)
         {
             if let Some(synced) = parsed.synced_lyrics {
                 let lines = parse_lrc(&synced);
@@ -558,15 +559,18 @@ impl Backend {
             plain_fallback = parsed.plain_lyrics;
         }
 
-        if let Ok(resp) = self
+        if let Ok(url) = reqwest::Url::parse_with_params(
+            "https://lrclib.net/api/search",
+            &[("q", format!("{} {}", artist_q, track.title))],
+        ) && let Ok(resp) = self
             .http
-            .get("https://lrclib.net/api/search")
-            .query(&[("q", format!("{} {}", artist_q, track.title))])
+            .get(url)
             .timeout(Duration::from_secs(4))
             .send()
             .await
             && resp.status().is_success()
-            && let Ok(list) = resp.json::<Vec<LrcLibResp>>().await
+            && let Ok(bytes) = resp.bytes().await
+            && let Ok(list) = serde_json::from_slice::<Vec<LrcLibResp>>(&bytes)
         {
             for item in list {
                 if let Some(synced) = item.synced_lyrics {

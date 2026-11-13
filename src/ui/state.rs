@@ -51,6 +51,8 @@ pub struct AppState {
     pub duration_label: Label,
     // Sidebar lyrics & queue widgets
     pub lyrics_title_label: Label,
+    pub lyrics_artist_label: Label,
+    pub lyrics_sync_badge: Label,
     pub lyrics_body_label: Label,
     pub lyrics_box: GtkBox,
     pub lyrics_scroll: ScrolledWindow,
