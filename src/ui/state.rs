@@ -40,6 +40,7 @@ pub struct AppState {
     pub player_cover_spinner: Spinner,
     pub player_title: Label,
     pub player_artist: Label,
+    pub player_album_label: Label,
     pub player_fav_btn: ToggleButton,
     pub player_radio_btn: Button,
     pub quality_label: Label,

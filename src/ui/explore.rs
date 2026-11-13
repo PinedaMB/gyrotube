@@ -18,13 +18,20 @@ use crate::ui::state::AppState;
 use crate::ui::widgets::{
     PagedCarousel, build_album_card, build_carousel_section, build_paged_carousel_section,
     build_playlist_card, clamped_cover, clear_box, load_cover_into_picture,
-    populate_paged_carousel, populate_track_list,
+    populate_paged_carousel, populate_track_list, show_collection_preview_dialog, spawn_bg,
 };
+
+#[derive(Clone)]
+pub struct ExploreActions {
+    pub search: Rc<dyn Fn(&str)>,
+    pub open_artist: Rc<dyn Fn(&str)>,
+    pub open_album: Rc<dyn Fn(&str, &str)>,
+}
 
 pub fn build_explore_page(
     state: Rc<RefCell<AppState>>,
     top_search_entry: SearchEntry,
-) -> (ScrolledWindow, Rc<dyn Fn(&str)>) {
+) -> (ScrolledWindow, ExploreActions) {
     let container = GtkBox::new(Orientation::Vertical, 16);
     container.set_margin_top(18);
     container.set_margin_bottom(88);
@@ -607,7 +614,106 @@ pub fn build_explore_page(
         });
     }
 
-    (scrolled, run_search)
+    let open_artist: Rc<dyn Fn(&str)> = {
+        let state = Rc::clone(&state);
+        let artist_widgets = artist_widgets.clone();
+        let run_search = Rc::clone(&run_search);
+        Rc::new(move |artist_name: &str| {
+            let name = artist_name.trim().to_string();
+            if name.is_empty() {
+                return;
+            }
+            artist_widgets.search_results_section.set_visible(false);
+            artist_widgets.genres_section.set_visible(false);
+            artist_widgets.genre_playlists_section.set_visible(false);
+            artist_widgets.artist_section.set_visible(false);
+            artist_widgets.status_label.set_visible(false);
+            artist_widgets.spinner.set_visible(true);
+            artist_widgets.spinner.set_spinning(true);
+
+            let backend = state.borrow().backend.clone();
+            let query = name.clone();
+            let state_cb = Rc::clone(&state);
+            let aw = artist_widgets.clone();
+            let fallback_search = Rc::clone(&run_search);
+            spawn_bg(
+                move || async move { backend.search_all(&query).await },
+                move |res| {
+                    aw.spinner.set_spinning(false);
+                    aw.spinner.set_visible(false);
+                    if let Ok(sr) = res
+                        && let Some(artist) = sr
+                            .artists
+                            .iter()
+                            .find(|a| a.name.eq_ignore_ascii_case(&name))
+                            .or_else(|| sr.artists.first())
+                    {
+                        open_artist_page(&artist.id, &artist.name, aw, state_cb);
+                    } else {
+                        fallback_search(&name);
+                    }
+                },
+            );
+        })
+    };
+
+    let open_album: Rc<dyn Fn(&str, &str)> = {
+        let state = Rc::clone(&state);
+        let run_search = Rc::clone(&run_search);
+        Rc::new(move |album_name: &str, artist_name: &str| {
+            let album = album_name.trim().to_string();
+            if album.is_empty() {
+                return;
+            }
+            let query = if artist_name.trim().is_empty() {
+                album.clone()
+            } else {
+                format!("{album} {artist_name}")
+            };
+            state
+                .borrow()
+                .show_toast(&format!("Buscando álbum: {album}"));
+            let backend = state.borrow().backend.clone();
+            let state_cb = Rc::clone(&state);
+            let fallback_search = Rc::clone(&run_search);
+            let album_fallback = album.clone();
+            spawn_bg(
+                move || async move {
+                    let sr = backend.search_all(&query).await?;
+                    let matched = sr
+                        .albums
+                        .iter()
+                        .find(|a| a.title.eq_ignore_ascii_case(&album))
+                        .or_else(|| sr.albums.first())
+                        .cloned();
+                    if let Some(a) = matched {
+                        let (title, tracks) = backend.fetch_album_tracks(&a.id).await?;
+                        Ok(Some((title, a.cover_url, tracks)))
+                    } else {
+                        Ok(None)
+                    }
+                },
+                move |res: Result<Option<(String, Option<String>, Vec<crate::models::Track>)>, String>| {
+                    match res {
+                        Ok(Some((title, cover, tracks))) if !tracks.is_empty() => {
+                            show_collection_preview_dialog(title, cover, tracks, state_cb);
+                        }
+                        Ok(_) => fallback_search(&album_fallback),
+                        Err(err) => state_cb.borrow().show_toast(&err),
+                    }
+                },
+            );
+        })
+    };
+
+    (
+        scrolled,
+        ExploreActions {
+            search: run_search,
+            open_artist,
+            open_album,
+        },
+    )
 }
 
 #[derive(Clone)]

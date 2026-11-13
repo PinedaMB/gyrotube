@@ -656,7 +656,7 @@ pub fn build_home_page(
         .valign(Align::Start)
         .homogeneous(true)
         .min_children_per_line(1)
-        .max_children_per_line(4)
+        .max_children_per_line(3)
         .row_spacing(12)
         .column_spacing(12)
         .selection_mode(SelectionMode::None)
@@ -871,9 +871,11 @@ pub fn build_home_page(
                             "audio-headphones-symbolic",
                             "media-optical-symbolic",
                             "starred-symbolic",
+                            "emblem-music-symbolic",
+                            "radio-symbolic",
                         ];
                         let mut count = 0usize;
-                        for (idx, genre) in genres.into_iter().take(4).enumerate() {
+                        for (idx, genre) in genres.into_iter().take(6).enumerate() {
                             let color = &genre.color_hex;
 
                             let bg_picture = Picture::builder()
@@ -908,6 +910,7 @@ pub fn build_home_page(
                             let title = Label::builder()
                                 .label(&genre.name)
                                 .xalign(0.0)
+                                .max_width_chars(18)
                                 .ellipsize(gtk4::pango::EllipsizeMode::End)
                                 .css_classes(["title-3"])
                                 .build();
@@ -917,6 +920,7 @@ pub fn build_home_page(
                                 .xalign(0.0)
                                 .wrap(true)
                                 .lines(2)
+                                .max_width_chars(24)
                                 .ellipsize(gtk4::pango::EllipsizeMode::End)
                                 .css_classes(["dim-label", "caption"])
                                 .build();
@@ -970,15 +974,18 @@ pub fn build_home_page(
                             content_box.append(&mid_box);
                             content_box.append(&bottom_row);
 
+                            let bg_spacer = GtkBox::new(Orientation::Vertical, 0);
                             let overlay = gtk4::Overlay::new();
                             overlay.add_css_class("bento-overlay");
                             overlay.set_overflow(Overflow::Hidden);
-                            overlay.set_child(Some(&bg_picture));
+                            overlay.set_child(Some(&bg_spacer));
+                            overlay.add_overlay(&bg_picture);
                             overlay.add_overlay(&content_box);
                             overlay.set_measure_overlay(&content_box, true);
 
                             let btn = Button::builder()
                                 .child(&overlay)
+                                .width_request(200)
                                 .hexpand(true)
                                 .css_classes(["flat", "bento-card"])
                                 .build();

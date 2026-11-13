@@ -422,7 +422,71 @@ fn build_media_card(
     btn
 }
 
-fn show_collection_preview_dialog(
+pub fn set_artist_links(label: &Label, artists: &str) {
+    let trimmed = artists.trim();
+    if trimmed.is_empty() {
+        label.set_markup("Artista desconocido");
+        return;
+    }
+    let mut markup = String::new();
+    for (i, comma_part) in trimmed.split(", ").enumerate() {
+        if i > 0 {
+            markup.push_str(", ");
+        }
+        for (j, amp_part) in comma_part.split(" & ").enumerate() {
+            if j > 0 {
+                markup.push_str(" &amp; ");
+            }
+            let name = amp_part.trim();
+            if !name.is_empty() {
+                let esc = glib::markup_escape_text(name);
+                markup.push_str(&format!("<a href=\"{esc}\">{esc}</a>"));
+            }
+        }
+    }
+    label.set_markup(&markup);
+}
+
+pub fn set_album_link(label: &Label, album: Option<&str>) {
+    if let Some(name) = album.map(str::trim).filter(|s| !s.is_empty()) {
+        let esc = glib::markup_escape_text(name);
+        label.set_markup(&format!("Álbum: <a href=\"{esc}\">{esc}</a>"));
+        label.set_visible(true);
+    } else {
+        label.set_text("");
+        label.set_visible(false);
+    }
+}
+
+pub fn set_source_link(label: &Label, album: Option<&str>, fallback: &str) {
+    if let Some(name) = album.map(str::trim).filter(|s| !s.is_empty()) {
+        let esc = glib::markup_escape_text(name);
+        label.set_markup(&format!("<a href=\"{esc}\">{esc}</a>"));
+    } else {
+        label.set_text(fallback);
+    }
+}
+
+/// Strips `<a ...>` / `</a>` markup tags and unescapes XML entities for plain-text labels.
+pub fn strip_link_markup(markup: &str) -> String {
+    let mut out = String::with_capacity(markup.len());
+    let mut in_tag = false;
+    for ch in markup.chars() {
+        match ch {
+            '<' => in_tag = true,
+            '>' if in_tag => in_tag = false,
+            _ if !in_tag => out.push(ch),
+            _ => {}
+        }
+    }
+    out.replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&apos;", "'")
+        .replace("&amp;", "&")
+}
+
+pub fn show_collection_preview_dialog(
     title: String,
     cover_url: Option<String>,
     tracks: Vec<Track>,

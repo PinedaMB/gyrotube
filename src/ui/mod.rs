@@ -180,6 +180,7 @@ pub fn build_ui(app: &adw::Application) {
         player_cover_spinner: sb.player_cover_spinner.clone(),
         player_title: sb.player_title.clone(),
         player_artist: sb.player_artist.clone(),
+        player_album_label: sb.player_album_label.clone(),
         player_fav_btn: sb.player_fav_btn.clone(),
         player_radio_btn: sb.player_radio_btn.clone(),
         quality_label: sb.quality_label.clone(),
@@ -253,7 +254,7 @@ pub fn build_ui(app: &adw::Application) {
 
     // Build right-pane pages
     let (home_page, quick_grid) = build_home_page(Rc::clone(&state), content_view_stack.clone());
-    let (explore_page, trigger_explore_search) =
+    let (explore_page, explore_actions) =
         build_explore_page(Rc::clone(&state), hdr.search_entry.clone());
     let collection_page = build_collection_page(Rc::clone(&state));
     refresh_favorites_ui(Rc::clone(&state));
@@ -279,7 +280,7 @@ pub fn build_ui(app: &adw::Application) {
         Rc::clone(&state),
         &hdr.search_entry,
         &content_view_stack,
-        trigger_explore_search,
+        Rc::clone(&explore_actions.search),
     );
 
     // Wire sidebar actions (queue save/clear, radio, lyrics, shuffle/repeat, fav)
@@ -315,6 +316,44 @@ pub fn build_ui(app: &adw::Application) {
 
     let (main_overlay, bottom_drawer_revealer) =
         build_main_overlay(&split_view, &mini_player_bar);
+
+    {
+        let open_artist = Rc::clone(&explore_actions.open_artist);
+        let stack = content_view_stack.clone();
+        let drawer = bottom_drawer_revealer.clone();
+        let sv = split_view.clone();
+        sb.player_artist.connect_activate_link(move |_, uri| {
+            drawer.set_reveal_child(false);
+            if sv.is_collapsed() {
+                sv.set_show_sidebar(false);
+            }
+            stack.set_visible_child_name("explore");
+            open_artist(uri);
+            glib::Propagation::Stop
+        });
+
+        for album_label in [&sb.player_album_label, &sb.player_source_label] {
+            let open_album = Rc::clone(&explore_actions.open_album);
+            let state_cb = Rc::clone(&state);
+            let drawer = bottom_drawer_revealer.clone();
+            let sv = split_view.clone();
+            album_label.connect_activate_link(move |_, uri| {
+                drawer.set_reveal_child(false);
+                if sv.is_collapsed() {
+                    sv.set_show_sidebar(false);
+                }
+                let artist = {
+                    let s = state_cb.borrow();
+                    s.current_index
+                        .and_then(|i| s.queue.get(i))
+                        .map(|t| t.artist.clone())
+                        .unwrap_or_default()
+                };
+                open_album(uri, &artist);
+                glib::Propagation::Stop
+            });
+        }
+    }
 
     restore_last_track(Rc::clone(&state), saved_session.position_secs);
 
@@ -480,8 +519,9 @@ fn wire_sidebar_actions(
                 s.player_fav_btn.set_sensitive(false);
                 s.player_radio_btn.set_sensitive(false);
                 s.player_title.set_label("Nada reproduciéndose");
-                s.player_artist.set_label("Selecciona una canción");
-                s.player_source_label.set_label("Sin reproducción");
+                s.player_artist.set_text("Selecciona una canción");
+                s.player_album_label.set_visible(false);
+                s.player_source_label.set_text("Sin reproducción");
                 s.decks.clone()
             };
             decks[0].pause();

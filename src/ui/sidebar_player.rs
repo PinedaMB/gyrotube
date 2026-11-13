@@ -22,6 +22,7 @@ pub struct SidebarPlayerWidgets {
     pub player_cover_spinner: Spinner,
     pub player_title: Label,
     pub player_artist: Label,
+    pub player_album_label: Label,
     pub player_fav_btn: ToggleButton,
     pub player_radio_btn: Button,
     pub seek_scale: Scale,
@@ -55,8 +56,9 @@ pub fn build_sidebar_player() -> SidebarPlayerWidgets {
     let player_source_label = Label::builder()
         .label("Sin reproducción")
         .xalign(0.0)
+        .use_markup(true)
         .ellipsize(gtk4::pango::EllipsizeMode::End)
-        .css_classes(["heading", "caption"])
+        .css_classes(["heading", "caption", "player-link"])
         .build();
 
     let context_text = GtkBox::new(Orientation::Vertical, 1);
@@ -110,9 +112,20 @@ pub fn build_sidebar_player() -> SidebarPlayerWidgets {
     let player_artist = Label::builder()
         .label("Selecciona una canción")
         .halign(Align::Center)
+        .use_markup(true)
         .ellipsize(gtk4::pango::EllipsizeMode::End)
         .max_width_chars(30)
-        .css_classes(["dim-label"])
+        .css_classes(["dim-label", "player-link"])
+        .build();
+
+    let player_album_label = Label::builder()
+        .label("")
+        .halign(Align::Center)
+        .use_markup(true)
+        .visible(false)
+        .ellipsize(gtk4::pango::EllipsizeMode::End)
+        .max_width_chars(32)
+        .css_classes(["caption", "dim-label", "player-link"])
         .build();
 
     let volume_scale = Scale::with_range(Orientation::Vertical, 0.0, 1.0, 0.05);
@@ -236,6 +249,7 @@ pub fn build_sidebar_player() -> SidebarPlayerWidgets {
     player_view.append(&player_cover_overlay);
     player_view.append(&player_title);
     player_view.append(&player_artist);
+    player_view.append(&player_album_label);
     player_view.append(&action_icons_row);
     player_view.append(&seek_scale);
     player_view.append(&time_row);
@@ -418,6 +432,7 @@ pub fn build_sidebar_player() -> SidebarPlayerWidgets {
         player_cover_spinner,
         player_title,
         player_artist,
+        player_album_label,
         player_fav_btn,
         player_radio_btn,
         seek_scale,
@@ -490,6 +505,9 @@ pub fn build_mini_bar(
             .build();
         s.player_artist
             .bind_property("label", &artist, "label")
+            .transform_to(|_, val: String| {
+                Some(crate::ui::widgets::strip_link_markup(&val).to_value())
+            })
             .sync_create()
             .build();
         s.play_pause_btn

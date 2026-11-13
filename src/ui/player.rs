@@ -300,14 +300,15 @@ pub fn play_queue_index(state: Rc<RefCell<AppState>>, index: usize) {
         s.crossfade_triggered_for = None;
         s.lyrics_loaded_for = None;
 
-        let source_label = track
-            .album
-            .clone()
-            .unwrap_or_else(|| s.source_name.clone());
-        s.player_source_label.set_label(&source_label);
+        crate::ui::widgets::set_source_link(
+            &s.player_source_label,
+            track.album.as_deref(),
+            &s.source_name,
+        );
         s.player_title.set_label(&track.title);
         s.player_artist
-            .set_label(&format!("Cargando • {}", track.artist));
+            .set_text(&format!("Cargando • {}", track.artist));
+        crate::ui::widgets::set_album_link(&s.player_album_label, track.album.as_deref());
         s.play_pause_btn.set_sensitive(false);
         s.play_spinner.set_spinning(true);
         s.play_pause_btn.set_child(Some(&s.play_spinner));
@@ -405,7 +406,7 @@ pub fn play_queue_index(state: Rc<RefCell<AppState>>, index: usize) {
                 if s.loading_generation == current_gen {
                     s.play_spinner.set_spinning(false);
                     s.play_pause_btn.set_icon_name("media-playback-start-symbolic");
-                    s.player_artist.set_label(&track.artist);
+                    crate::ui::widgets::set_artist_links(&s.player_artist, &track.artist);
                     s.quality_label.set_label("ERR");
                     s.show_toast("No se pudo resolver el flujo de audio.");
                 }
@@ -417,7 +418,7 @@ pub fn play_queue_index(state: Rc<RefCell<AppState>>, index: usize) {
             s.play_spinner.set_spinning(false);
             match result {
                 Ok(stream) => {
-                    s.player_artist.set_label(&track.artist);
+                    crate::ui::widgets::set_artist_links(&s.player_artist, &track.artist);
                     s.quality_label.set_label(&stream.quality_label);
                     s.play_pause_btn.set_icon_name("media-playback-start-symbolic");
                     s.play_pause_btn.set_sensitive(true);
@@ -439,7 +440,7 @@ pub fn play_queue_index(state: Rc<RefCell<AppState>>, index: usize) {
                 }
                 Err(err) => {
                     s.play_pause_btn.set_icon_name("media-playback-start-symbolic");
-                    s.player_artist.set_label(&track.artist);
+                    crate::ui::widgets::set_artist_links(&s.player_artist, &track.artist);
                     s.quality_label.set_label("ERR");
                     s.show_toast(&err);
                     None
@@ -505,13 +506,14 @@ fn start_crossfade_to(state: Rc<RefCell<AppState>>, next_index: usize) {
             s.lyrics_loaded_for = None;
             s.pending_autoplay = true;
 
-            let source_label = track
-                .album
-                .clone()
-                .unwrap_or_else(|| s.source_name.clone());
-            s.player_source_label.set_label(&source_label);
+            crate::ui::widgets::set_source_link(
+                &s.player_source_label,
+                track.album.as_deref(),
+                &s.source_name,
+            );
             s.player_title.set_label(&track.title);
-            s.player_artist.set_label(&track.artist);
+            crate::ui::widgets::set_artist_links(&s.player_artist, &track.artist);
+            crate::ui::widgets::set_album_link(&s.player_album_label, track.album.as_deref());
             s.quality_label.set_label(&stream.quality_label);
             s.seek_scale.set_value(0.0);
             s.time_label.set_label("0:00");
@@ -950,9 +952,14 @@ pub fn restore_last_track(state: Rc<RefCell<AppState>>, position_secs: f64) {
         };
         let is_fav = s.favorites.iter().any(|t| t.id == track.id);
         let cached = s.backend.cached_stream(&track.id);
-        s.player_source_label.set_label(&s.source_name);
+        crate::ui::widgets::set_source_link(
+            &s.player_source_label,
+            track.album.as_deref(),
+            &s.source_name,
+        );
         s.player_title.set_label(&track.title);
-        s.player_artist.set_label(&track.artist);
+        crate::ui::widgets::set_artist_links(&s.player_artist, &track.artist);
+        crate::ui::widgets::set_album_link(&s.player_album_label, track.album.as_deref());
         s.player_fav_btn.set_sensitive(true);
         s.player_fav_btn.set_active(is_fav);
         s.player_fav_btn.set_icon_name(if is_fav {
