@@ -267,6 +267,39 @@ pub fn format_duration(secs: u32) -> String {
     format!("{mins}:{rem:02}")
 }
 
+pub fn is_ytm_square_cover(url: &str) -> bool {
+    url.contains("googleusercontent.com/") || url.contains("ggpht.com/")
+}
+
+pub fn clean_track_title(title: &str) -> String {
+    let mut out = title.trim().to_string();
+    for (open, close) in [('(', ')'), ('[', ']')] {
+        loop {
+            let Some(start) = out.rfind(open) else {
+                break;
+            };
+            let Some(end_rel) = out[start..].find(close) else {
+                break;
+            };
+            let end = start + end_rel;
+            if end + 1 != out.len() {
+                break;
+            }
+            let inner = out[start + 1..end].to_ascii_lowercase();
+            let is_video_tag = inner.contains("official")
+                || inner.contains("audio")
+                || inner.contains("video")
+                || inner.contains("lyric")
+                || inner.contains("visualizer");
+            if !is_video_tag {
+                break;
+            }
+            out = out[..start].trim_end().to_string();
+        }
+    }
+    out
+}
+
 fn data_dir() -> Option<PathBuf> {
     if let Ok(xdg) = std::env::var("XDG_DATA_HOME")
         && !xdg.is_empty()
@@ -366,5 +399,21 @@ mod tests {
         assert_eq!(format_subscribers(850), "850 suscriptores");
         assert_eq!(format_subscribers(12_500), "12.5 K suscriptores");
         assert_eq!(format_subscribers(4_200_000), "4.2 M suscriptores");
+    }
+
+    #[test]
+    fn cleans_youtube_video_tags_from_title() {
+        assert_eq!(
+            clean_track_title("Don't Stop Believin' (Official Audio)"),
+            "Don't Stop Believin'"
+        );
+        assert_eq!(
+            clean_track_title("Feel Good Inc. (Official Video) [HD]"),
+            "Feel Good Inc. (Official Video) [HD]"
+        );
+        assert_eq!(
+            clean_track_title("DARE (feat. Shaun Ryder) (Official Audio)"),
+            "DARE (feat. Shaun Ryder)"
+        );
     }
 }

@@ -6,7 +6,7 @@ use rustypipe::param::StreamFilter;
 
 use crate::models::{
     Album, Artist, ArtistDetails, Genre, Playlist, SearchResults, StreamInfo, Track, cache_dir,
-    pick_cover,
+    clean_track_title, is_ytm_square_cover, pick_cover,
 };
 
 static RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
@@ -421,6 +421,17 @@ impl Backend {
             .map_err(|e| format!("Error al leer portada: {e}"))?;
 
         Ok(bytes.to_vec())
+    }
+
+    pub async fn resolve_ytm_cover(&self, track: &Track) -> Option<String> {
+        let clean_title = clean_track_title(&track.title);
+        let query = format!("{clean_title} {}", track.artist);
+        let res = self.rp.query().music_search_tracks(&query).await.ok()?;
+        res.items
+            .items
+            .iter()
+            .map(Track::from)
+            .find_map(|t| t.cover_large_url.filter(|u| is_ytm_square_cover(u)))
     }
 }
 

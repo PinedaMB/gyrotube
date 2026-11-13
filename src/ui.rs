@@ -16,7 +16,7 @@ use libadwaita as adw;
 use crate::backend::{Backend, runtime};
 use crate::models::{
     Album, Artist, ArtistDetails, Genre, Playlist, Track, format_duration, format_subscribers,
-    load_favorites, save_favorites,
+    is_ytm_square_cover, load_favorites, save_favorites,
 };
 use crate::mpris::{MprisCommand, MprisController};
 
@@ -108,12 +108,14 @@ struct AppState {
     // Sidebar player widgets
     player_source_label: Label,
     player_cover: Picture,
+    player_cover_spinner: Spinner,
     player_title: Label,
     player_artist: Label,
     player_fav_btn: ToggleButton,
     player_radio_btn: Button,
     quality_label: Label,
     play_pause_btn: Button,
+    play_spinner: Spinner,
     prev_btn: Button,
     next_btn: Button,
     seek_scale: Scale,
@@ -206,9 +208,20 @@ pub fn build_ui(app: &adw::Application) {
 
     // Large Album Art
     let (player_cover_frame, player_cover) = clamped_cover(250, 280, "cover-art-large");
-    player_cover_frame.set_halign(Align::Center);
-    player_cover_frame.set_valign(Align::Center);
-    player_cover_frame.set_vexpand(true);
+    let player_cover_spinner = Spinner::builder()
+        .halign(Align::Center)
+        .valign(Align::Center)
+        .width_request(36)
+        .height_request(36)
+        .visible(false)
+        .build();
+    let player_cover_overlay = gtk4::Overlay::builder()
+        .child(&player_cover_frame)
+        .halign(Align::Center)
+        .valign(Align::Center)
+        .vexpand(true)
+        .build();
+    player_cover_overlay.add_overlay(&player_cover_spinner);
 
     // Track title & artist
     let player_title = Label::builder()
@@ -303,6 +316,11 @@ pub fn build_ui(app: &adw::Application) {
         .css_classes(["flat", "circular"])
         .build();
 
+    let play_spinner = Spinner::builder()
+        .halign(Align::Center)
+        .valign(Align::Center)
+        .build();
+
     let play_pause_btn = Button::builder()
         .icon_name("media-playback-start-symbolic")
         .sensitive(false)
@@ -336,7 +354,7 @@ pub fn build_ui(app: &adw::Application) {
     player_view.set_margin_end(18);
     player_view.set_vexpand(true);
     player_view.append(&context_row);
-    player_view.append(&player_cover_frame);
+    player_view.append(&player_cover_overlay);
     player_view.append(&player_title);
     player_view.append(&player_artist);
     player_view.append(&action_icons_row);
@@ -501,12 +519,14 @@ pub fn build_ui(app: &adw::Application) {
         toast_overlay: toast_overlay.clone(),
         player_source_label,
         player_cover,
+        player_cover_spinner,
         player_title,
         player_artist,
         player_fav_btn: player_fav_btn.clone(),
         player_radio_btn: player_radio_btn.clone(),
         quality_label,
         play_pause_btn,
+        play_spinner,
         prev_btn,
         next_btn,
         seek_scale,
@@ -2270,6 +2290,11 @@ fn play_queue_index(state: Rc<RefCell<AppState>>, index: usize) {
         s.player_artist
             .set_label(&format!("Cargando • {}", track.artist));
         s.play_pause_btn.set_sensitive(false);
+        s.play_spinner.set_spinning(true);
+        s.play_pause_btn.set_child(Some(&s.play_spinner));
+        s.player_cover.set_paintable(None::<&gdk::Paintable>);
+        s.player_cover_spinner.set_visible(true);
+        s.player_cover_spinner.set_spinning(true);
         s.seek_scale.set_sensitive(false);
         s.seek_scale.set_value(0.0);
         s.time_label.set_label("0:00");
@@ -2313,9 +2338,32 @@ fn play_queue_index(state: Rc<RefCell<AppState>>, index: usize) {
     }
 
     if let Some(url) = track.cover_large_url.as_deref().or(track.cover_url.as_deref()) {
-        load_cover_into_picture(&player_cover, url, Rc::clone(&state));
+        if is_ytm_square_cover(url) {
+            load_player_cover(&player_cover, url, current_gen, Rc::clone(&state));
+        } else {
+            let (cov_tx, cov_rx) = async_channel::bounded(1);
+            let backend_cov = backend.clone();
+            let track_cov = track.clone();
+            runtime().spawn(async move {
+                let _ = cov_tx.send(backend_cov.resolve_ytm_cover(&track_cov).await).await;
+            });
+
+            let state_cov = Rc::clone(&state);
+            let player_cover_cov = player_cover.clone();
+            let fallback_url = url.to_string();
+            glib::spawn_future_local(async move {
+                if let Ok(resolved) = cov_rx.recv().await
+                    && state_cov.borrow().loading_generation == current_gen
+                {
+                    let final_url = resolved.as_deref().unwrap_or(&fallback_url);
+                    load_player_cover(&player_cover_cov, final_url, current_gen, state_cov);
+                }
+            });
+        }
     } else {
-        player_cover.set_paintable(None::<&gdk::Paintable>);
+        let s = state.borrow();
+        s.player_cover_spinner.set_spinning(false);
+        s.player_cover_spinner.set_visible(false);
     }
 
     refresh_queue_ui(Rc::clone(&state));
@@ -2333,6 +2381,8 @@ fn play_queue_index(state: Rc<RefCell<AppState>>, index: usize) {
             let mut s = state.borrow_mut();
             let Ok(result) = recv_res else {
                 if s.loading_generation == current_gen {
+                    s.play_spinner.set_spinning(false);
+                    s.play_pause_btn.set_icon_name("media-playback-start-symbolic");
                     s.player_artist.set_label(&track.artist);
                     s.quality_label.set_label("ERR");
                     s.show_toast("No se pudo resolver el flujo de audio.");
@@ -2342,16 +2392,19 @@ fn play_queue_index(state: Rc<RefCell<AppState>>, index: usize) {
             if s.loading_generation != current_gen {
                 return;
             }
+            s.play_spinner.set_spinning(false);
             match result {
                 Ok(stream) => {
                     s.player_artist.set_label(&track.artist);
                     s.quality_label.set_label(&stream.quality_label);
+                    s.play_pause_btn.set_icon_name("media-playback-start-symbolic");
                     s.play_pause_btn.set_sensitive(true);
                     s.seek_scale.set_sensitive(true);
                     s.pending_autoplay = true;
                     Some((s.media_file.clone(), stream.url))
                 }
                 Err(err) => {
+                    s.play_pause_btn.set_icon_name("media-playback-start-symbolic");
                     s.player_artist.set_label(&track.artist);
                     s.quality_label.set_label("ERR");
                     s.show_toast(&err);
@@ -2422,6 +2475,56 @@ fn load_cover_into_picture(picture: &Picture, url: &str, state: Rc<RefCell<AppSt
                 state.borrow_mut().cover_cache.insert(url_key, texture.clone());
                 picture.set_paintable(Some(&texture));
             }
+        }
+    });
+}
+
+fn load_player_cover(
+    picture: &Picture,
+    url: &str,
+    expected_gen: u64,
+    state: Rc<RefCell<AppState>>,
+) {
+    let cached = state.borrow().cover_cache.get(url).cloned();
+    if let Some(texture) = cached {
+        let s = state.borrow();
+        if s.loading_generation == expected_gen {
+            picture.set_paintable(Some(&texture));
+            s.player_cover_spinner.set_spinning(false);
+            s.player_cover_spinner.set_visible(false);
+        }
+        return;
+    }
+
+    let backend = state.borrow().backend.clone();
+    let url_owned = url.to_string();
+    let (tx, rx) = async_channel::bounded(1);
+
+    runtime().spawn(async move {
+        let res = backend.fetch_image_bytes(&url_owned).await;
+        let _ = tx.send(res).await;
+    });
+
+    let picture = picture.clone();
+    let url_key = url.to_string();
+    glib::spawn_future_local(async move {
+        let maybe_tex = match rx.recv().await {
+            Ok(Ok(bytes)) => gdk::Texture::from_bytes(&glib::Bytes::from_owned(bytes)).ok(),
+            _ => None,
+        };
+        if let Some(texture) = &maybe_tex {
+            state
+                .borrow_mut()
+                .cover_cache
+                .insert(url_key, texture.clone());
+        }
+        let s = state.borrow();
+        if s.loading_generation == expected_gen {
+            if let Some(texture) = maybe_tex {
+                picture.set_paintable(Some(&texture));
+            }
+            s.player_cover_spinner.set_spinning(false);
+            s.player_cover_spinner.set_visible(false);
         }
     });
 }
