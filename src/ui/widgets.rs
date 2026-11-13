@@ -1,13 +1,12 @@
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use gtk4::gdk;
 use gtk4::glib;
 use gtk4::prelude::*;
 use gtk4::{
-    Align, Box as GtkBox, Button, ContentFit, FlowBox, Image, Label, ListBox, ListBoxRow,
-    MenuButton, Orientation, Overflow, Picture, PolicyType, Popover, ScrolledWindow, SelectionMode,
-    ToggleButton, Widget,
+    Align, Box as GtkBox, Button, ContentFit, Image, Label, ListBox, ListBoxRow, MenuButton,
+    Orientation, Overflow, Picture, PolicyType, Popover, ScrolledWindow, ToggleButton, Widget,
 };
 use libadwaita as adw;
 
@@ -150,7 +149,54 @@ pub fn build_carousel_section(title: &str) -> (GtkBox, GtkBox, ScrolledWindow) {
     (section, cards_box, scroller)
 }
 
-pub fn build_paged_carousel_section(title: &str) -> (GtkBox, adw::Carousel) {
+#[derive(Clone)]
+pub struct PagedCarousel {
+    pub carousel: adw::Carousel,
+    viewport: ScrolledWindow,
+    cards: Rc<RefCell<Vec<Widget>>>,
+    last_per_page: Rc<Cell<usize>>,
+}
+
+fn calc_carousel_per_page(width: i32) -> usize {
+    if width <= 0 {
+        return 4;
+    }
+    ((width + 12) / 188).clamp(1, 6) as usize
+}
+
+fn relayout_paged_carousel(pc: &PagedCarousel, per_page: usize) {
+    while pc.carousel.n_pages() > 0 {
+        let page = pc.carousel.nth_page(0);
+        if let Ok(page_box) = page.clone().downcast::<GtkBox>() {
+            clear_box(&page_box);
+        }
+        pc.carousel.remove(&page);
+    }
+
+    let cards = pc.cards.borrow();
+    for chunk in cards.chunks(per_page) {
+        let page_row = GtkBox::builder()
+            .orientation(Orientation::Horizontal)
+            .spacing(12)
+            .homogeneous(true)
+            .hexpand(true)
+            .valign(Align::Start)
+            .build();
+        for card in chunk {
+            card.set_hexpand(true);
+            page_row.append(card);
+        }
+        for _ in chunk.len()..per_page {
+            let spacer = GtkBox::new(Orientation::Vertical, 0);
+            spacer.set_hexpand(true);
+            page_row.append(&spacer);
+        }
+        pc.carousel.append(&page_row);
+    }
+    pc.last_per_page.set(per_page);
+}
+
+pub fn build_paged_carousel_section(title: &str) -> (GtkBox, PagedCarousel) {
     let header_box = GtkBox::new(Orientation::Horizontal, 8);
     let title_label = Label::builder()
         .label(title)
@@ -176,8 +222,15 @@ pub fn build_paged_carousel_section(title: &str) -> (GtkBox, adw::Carousel) {
 
     let carousel = adw::Carousel::builder()
         .spacing(12)
+        .hexpand(true)
         .allow_mouse_drag(true)
         .allow_scroll_wheel(false)
+        .build();
+    let viewport = ScrolledWindow::builder()
+        .hscrollbar_policy(PolicyType::External)
+        .vscrollbar_policy(PolicyType::Never)
+        .hexpand(true)
+        .child(&carousel)
         .build();
     let dots = adw::CarouselIndicatorDots::builder()
         .carousel(&carousel)
@@ -208,44 +261,53 @@ pub fn build_paged_carousel_section(title: &str) -> (GtkBox, adw::Carousel) {
         });
     }
 
+    let pc = PagedCarousel {
+        carousel: carousel.clone(),
+        viewport: viewport.clone(),
+        cards: Rc::new(RefCell::new(Vec::new())),
+        last_per_page: Rc::new(Cell::new(0)),
+    };
+
+    {
+        let pc_tick = pc.clone();
+        let last_width = Cell::new(0i32);
+        viewport.add_tick_callback(move |vp, _| {
+            let w = vp.width();
+            if w > 0 && w != last_width.get() {
+                last_width.set(w);
+                let per_page = calc_carousel_per_page(w);
+                if per_page != pc_tick.last_per_page.get() && !pc_tick.cards.borrow().is_empty() {
+                    relayout_paged_carousel(&pc_tick, per_page);
+                }
+            }
+            glib::ControlFlow::Continue
+        });
+    }
+
     let section = GtkBox::new(Orientation::Vertical, 10);
     section.set_visible(false);
     section.append(&header_box);
-    section.append(&carousel);
+    section.append(&viewport);
     section.append(&dots);
 
-    (section, carousel)
+    (section, pc)
 }
 
-pub fn populate_paged_carousel(
-    carousel: &adw::Carousel,
-    section: &GtkBox,
-    cards: Vec<Widget>,
-) {
-    while carousel.n_pages() > 0 {
-        let page = carousel.nth_page(0);
-        carousel.remove(&page);
+pub fn populate_paged_carousel(pc: &PagedCarousel, section: &GtkBox, cards: Vec<Widget>) {
+    while pc.carousel.n_pages() > 0 {
+        let page = pc.carousel.nth_page(0);
+        if let Ok(page_box) = page.clone().downcast::<GtkBox>() {
+            clear_box(&page_box);
+        }
+        pc.carousel.remove(&page);
     }
-    const PER_PAGE: usize = 3;
     let has_items = !cards.is_empty();
-    for chunk in cards.chunks(PER_PAGE) {
-        let page_row = GtkBox::builder()
-            .orientation(Orientation::Horizontal)
-            .spacing(12)
-            .homogeneous(true)
-            .hexpand(true)
-            .valign(Align::Start)
-            .build();
-        for card in chunk {
-            card.set_hexpand(true);
-            page_row.append(card);
-        }
-        for _ in chunk.len()..PER_PAGE {
-            let spacer = GtkBox::new(Orientation::Vertical, 0);
-            spacer.set_hexpand(true);
-            page_row.append(&spacer);
-        }
-        carousel.append(&page_row);
+    *pc.cards.borrow_mut() = cards;
+    if has_items {
+        let per_page = calc_carousel_per_page(pc.viewport.width());
+        relayout_paged_carousel(pc, per_page);
+    } else {
+        pc.last_per_page.set(0);
     }
     section.set_visible(has_items);
 }

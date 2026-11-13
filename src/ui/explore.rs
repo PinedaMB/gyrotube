@@ -16,9 +16,9 @@ use crate::models::{Artist, ArtistDetails, Genre, Track, format_subscribers};
 use crate::ui::player::play_queue_index;
 use crate::ui::state::AppState;
 use crate::ui::widgets::{
-    build_album_card, build_carousel_section, build_paged_carousel_section, build_playlist_card,
-    clamped_cover, clear_box, load_cover_into_picture, populate_paged_carousel,
-    populate_track_list,
+    PagedCarousel, build_album_card, build_carousel_section, build_paged_carousel_section,
+    build_playlist_card, clamped_cover, clear_box, load_cover_into_picture,
+    populate_paged_carousel, populate_track_list,
 };
 
 pub fn build_explore_page(
@@ -630,11 +630,11 @@ struct ArtistPageWidgets {
     tracks_toggle_btn: Button,
     tracks_expanded: Rc<Cell<bool>>,
     albums_section: GtkBox,
-    albums_carousel: adw::Carousel,
+    albums_carousel: PagedCarousel,
     playlists_section: GtkBox,
-    playlists_carousel: adw::Carousel,
+    playlists_carousel: PagedCarousel,
     similar_section: GtkBox,
-    similar_carousel: adw::Carousel,
+    similar_carousel: PagedCarousel,
 }
 
 fn open_artist_page(

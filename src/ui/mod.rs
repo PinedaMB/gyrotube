@@ -18,6 +18,7 @@ use gtk4::{
     SelectionMode, Spinner, Stack, StackTransitionType, ToggleButton,
 };
 use libadwaita as adw;
+use adw::prelude::AdwApplicationWindowExt;
 
 use crate::backend::Backend;
 use crate::models::{
@@ -71,8 +72,17 @@ pub fn build_ui(app: &adw::Application) {
     );
     context_text.append(&player_source_label);
 
+    let sidebar_collapse_btn = Button::builder()
+        .icon_name("go-previous-symbolic")
+        .tooltip_text("Ocultar reproductor")
+        .css_classes(["flat", "circular"])
+        .build();
+    sidebar_collapse_btn.set_cursor_from_name(Some("pointer"));
+
     let context_row = GtkBox::new(Orientation::Horizontal, 10);
+    context_row.add_css_class("sidebar-top-bar");
     context_row.append(&context_text);
+    context_row.append(&sidebar_collapse_btn);
 
     // Large Album Art
     let (player_cover_frame, player_cover) = clamped_cover(250, 280, "cover-art-large");
@@ -230,7 +240,6 @@ pub fn build_ui(app: &adw::Application) {
     player_view.set_margin_start(18);
     player_view.set_margin_end(18);
     player_view.set_vexpand(true);
-    player_view.append(&context_row);
     player_view.append(&player_cover_overlay);
     player_view.append(&player_title);
     player_view.append(&player_artist);
@@ -376,7 +385,11 @@ pub fn build_ui(app: &adw::Application) {
     tab_lyrics.set_group(Some(&tab_player));
     tab_queue.set_group(Some(&tab_player));
 
-    let sidebar_tabs = GtkBox::new(Orientation::Horizontal, 6);
+    tab_player.set_hexpand(true);
+    tab_lyrics.set_hexpand(true);
+    tab_queue.set_hexpand(true);
+
+    let sidebar_tabs = GtkBox::new(Orientation::Horizontal, 4);
     sidebar_tabs.set_homogeneous(true);
     sidebar_tabs.add_css_class("sidebar-tabs");
     sidebar_tabs.append(&tab_player);
@@ -384,6 +397,7 @@ pub fn build_ui(app: &adw::Application) {
     sidebar_tabs.append(&tab_queue);
 
     let sidebar_toolbar = adw::ToolbarView::new();
+    sidebar_toolbar.add_top_bar(&context_row);
     sidebar_toolbar.set_content(Some(&sidebar_stack));
     sidebar_toolbar.add_bottom_bar(&sidebar_tabs);
     sidebar_toolbar.add_css_class("sidebar-pane");
@@ -448,13 +462,6 @@ pub fn build_ui(app: &adw::Application) {
     }
 
     // --- UNIFIED CUSTOM TOP HEADER BAR ---
-    let sidebar_toggle_btn = ToggleButton::builder()
-        .icon_name("sidebar-show-symbolic")
-        .active(true)
-        .tooltip_text("Mostrar u ocultar reproductor")
-        .css_classes(["flat", "circular"])
-        .build();
-
     let brand_icon = Image::builder()
         .icon_name("media-playback-start-symbolic")
         .pixel_size(14)
@@ -478,14 +485,19 @@ pub fn build_ui(app: &adw::Application) {
 
     let brand_box = GtkBox::new(Orientation::Horizontal, 8);
     brand_box.set_valign(Align::Center);
-    brand_box.append(&sidebar_toggle_btn);
     brand_box.append(&brand_icon_box);
     brand_box.append(&brand_title);
     brand_box.append(&brand_badge);
 
     let top_search_entry = SearchEntry::builder()
         .placeholder_text("Buscar canciones, álbumes, artistas…")
+        .width_chars(8)
+        .hexpand(true)
         .css_classes(["header-search"])
+        .build();
+    let top_search_clamp = adw::Clamp::builder()
+        .maximum_size(360)
+        .child(&top_search_entry)
         .build();
 
     let nav_home_btn = Button::builder()
@@ -519,7 +531,8 @@ pub fn build_ui(app: &adw::Application) {
         .build();
 
     let main_header = adw::HeaderBar::builder()
-        .title_widget(&top_search_entry)
+        .centering_policy(adw::CenteringPolicy::Loose)
+        .title_widget(&top_search_clamp)
         .build();
     main_header.pack_start(&brand_box);
     main_header.pack_end(&profile_btn);
@@ -714,7 +727,7 @@ pub fn build_ui(app: &adw::Application) {
     );
 
     // Quick search bar in header forwards to Explore search + shows recent & debounced suggestions
-    let search_popover = Popover::builder().autohide(true).can_focus(false).build();
+    let search_popover = Popover::builder().autohide(false).can_focus(false).build();
     search_popover.set_parent(&top_search_entry);
     let debounce_id: Rc<RefCell<Option<glib::SourceId>>> = Rc::new(RefCell::new(None));
     let suggest_gen: Rc<RefCell<u64>> = Rc::new(RefCell::new(0));
@@ -722,6 +735,7 @@ pub fn build_ui(app: &adw::Application) {
 
     let run_header_search: Rc<dyn Fn(&str)> = {
         let content_view_stack = content_view_stack.clone();
+        let top_entry_focus = top_search_entry.clone();
         let state = Rc::clone(&state);
         let search_popover = search_popover.clone();
         let debounce_id = Rc::clone(&debounce_id);
@@ -743,6 +757,9 @@ pub fn build_ui(app: &adw::Application) {
                 save_search_history(&s.search_history);
             }
             search_popover.popdown();
+            if let Some(root) = top_entry_focus.root() {
+                root.set_focus(None::<&gtk4::Widget>);
+            }
             content_view_stack.set_visible_child_name("explore");
             trigger_explore_search(trimmed);
         })
@@ -784,6 +801,8 @@ pub fn build_ui(app: &adw::Application) {
                 );
                 let item = Button::builder()
                     .child(&row)
+                    .can_focus(false)
+                    .focus_on_click(false)
                     .css_classes(["flat", "search-popover-row"])
                     .build();
                 let top_entry = top_entry_ref.clone();
@@ -799,7 +818,9 @@ pub fn build_ui(app: &adw::Application) {
                 box_hist.append(&item);
             }
             search_popover.set_child(Some(&box_hist));
-            search_popover.popup();
+            if !search_popover.is_visible() {
+                search_popover.popup();
+            }
         }
     };
     {
@@ -820,11 +841,23 @@ pub fn build_ui(app: &adw::Application) {
         let show_search_popover = show_search_popover.clone();
         let top_entry_ref = top_search_entry.clone();
         let focus_ctrl = gtk4::EventControllerFocus::new();
+        let top_entry_enter = top_entry_ref.clone();
         focus_ctrl.connect_enter(move |_| {
-            if top_entry_ref.text().trim().is_empty() {
+            if top_entry_enter.text().trim().is_empty() {
                 let history = state.borrow().search_history.clone();
                 show_search_popover("Búsquedas recientes", "document-open-recent-symbolic", history);
             }
+        });
+        let popover_leave = search_popover.clone();
+        let top_entry_leave = top_entry_ref.clone();
+        focus_ctrl.connect_leave(move |_| {
+            let pop = popover_leave.clone();
+            let entry = top_entry_leave.clone();
+            glib::timeout_add_local_once(std::time::Duration::from_millis(120), move || {
+                if !entry.has_focus() {
+                    pop.popdown();
+                }
+            });
         });
         top_search_entry.add_controller(focus_ctrl);
     }
@@ -837,7 +870,7 @@ pub fn build_ui(app: &adw::Application) {
         let suppress_suggest = Rc::clone(&suppress_suggest);
 
         top_search_entry.connect_search_changed(move |entry| {
-            if suppress_suggest.get() {
+            if suppress_suggest.get() || !entry.has_focus() {
                 return;
             }
             if let Some(id) = debounce_id.borrow_mut().take() {
@@ -870,7 +903,7 @@ pub fn build_ui(app: &adw::Application) {
                 std::time::Duration::from_millis(320),
                 move || {
                     *debounce_id_ref.borrow_mut() = None;
-                    if *suggest_gen_ref.borrow() != current_gen {
+                    if *suggest_gen_ref.borrow() != current_gen || !entry_clone.has_focus() {
                         return;
                     }
                     let backend = state.borrow().backend.clone();
@@ -1034,24 +1067,188 @@ pub fn build_ui(app: &adw::Application) {
     content_toolbar.add_top_bar(&top_nav_bar);
     content_toolbar.set_content(Some(&content_view_stack));
 
+    // Floating bottom-right mini-player when the player panel is hidden
+    let (mini_cover_frame, mini_cover) =
+        crate::ui::widgets::clamped_cover(40, 40, "cover-art");
+    let mini_title = Label::builder()
+        .xalign(0.0)
+        .max_width_chars(18)
+        .ellipsize(gtk4::pango::EllipsizeMode::End)
+        .css_classes(["heading"])
+        .build();
+    let mini_artist = Label::builder()
+        .xalign(0.0)
+        .max_width_chars(20)
+        .ellipsize(gtk4::pango::EllipsizeMode::End)
+        .css_classes(["caption", "dim-label"])
+        .build();
+    {
+        let s = state.borrow();
+        s.player_cover
+            .bind_property("paintable", &mini_cover, "paintable")
+            .sync_create()
+            .build();
+        s.player_title
+            .bind_property("label", &mini_title, "label")
+            .sync_create()
+            .build();
+        s.player_artist
+            .bind_property("label", &mini_artist, "label")
+            .sync_create()
+            .build();
+    }
+    let mini_text_col = GtkBox::new(Orientation::Vertical, 1);
+    mini_text_col.set_hexpand(true);
+    mini_text_col.set_valign(Align::Center);
+    mini_text_col.append(&mini_title);
+    mini_text_col.append(&mini_artist);
+
+    let mini_open_box = GtkBox::new(Orientation::Horizontal, 10);
+    mini_open_box.append(&mini_cover_frame);
+    mini_open_box.append(&mini_text_col);
+    let mini_open_btn = Button::builder()
+        .child(&mini_open_box)
+        .hexpand(true)
+        .css_classes(["flat"])
+        .build();
+
+    let mini_play_btn = Button::builder()
+        .icon_name("media-playback-start-symbolic")
+        .css_classes(["circular", "flat"])
+        .build();
+    let mini_next_btn = Button::builder()
+        .icon_name("media-skip-forward-symbolic")
+        .css_classes(["circular", "flat"])
+        .build();
+    {
+        let s = state.borrow();
+        s.play_pause_btn
+            .bind_property("icon-name", &mini_play_btn, "icon-name")
+            .sync_create()
+            .build();
+    }
+    {
+        let play_btn = play_pause_btn.clone();
+        mini_play_btn.connect_clicked(move |_| play_btn.emit_clicked());
+    }
+    {
+        let nxt_btn = next_btn.clone();
+        mini_next_btn.connect_clicked(move |_| nxt_btn.emit_clicked());
+    }
+
+    let mini_player_bar = GtkBox::builder()
+        .orientation(Orientation::Horizontal)
+        .spacing(6)
+        .halign(Align::End)
+        .valign(Align::End)
+        .margin_end(18)
+        .margin_bottom(18)
+        .visible(false)
+        .css_classes(["floating-mini-player"])
+        .build();
+    mini_player_bar.append(&mini_open_btn);
+    mini_player_bar.append(&mini_play_btn);
+    mini_player_bar.append(&mini_next_btn);
+
     let split_view = adw::OverlaySplitView::builder()
         .sidebar(&sidebar_toolbar)
         .content(&content_toolbar)
-        .min_sidebar_width(320.0)
-        .max_sidebar_width(370.0)
+        .min_sidebar_width(280.0)
+        .max_sidebar_width(360.0)
         .sidebar_width_fraction(0.32)
         .show_sidebar(true)
         .build();
 
-    sidebar_toggle_btn
-        .bind_property("active", &split_view, "show-sidebar")
-        .bidirectional()
-        .sync_create()
+    let bottom_drawer_revealer = gtk4::Revealer::builder()
+        .transition_type(gtk4::RevealerTransitionType::SlideUp)
+        .transition_duration(240)
+        .reveal_child(false)
+        .visible(false)
+        .valign(Align::Fill)
+        .halign(Align::Fill)
+        .vexpand(true)
+        .hexpand(true)
         .build();
+
+    let main_overlay = gtk4::Overlay::builder()
+        .child(&split_view)
+        .vexpand(true)
+        .hexpand(true)
+        .build();
+    main_overlay.add_overlay(&mini_player_bar);
+    main_overlay.add_overlay(&bottom_drawer_revealer);
+
+    {
+        let mini_bar = mini_player_bar.clone();
+        let sv_ref = split_view.clone();
+        let rev_ref = bottom_drawer_revealer.clone();
+        let update_mini_bar = move || {
+            let player_visible = if sv_ref.is_collapsed() {
+                rev_ref.reveals_child()
+            } else {
+                sv_ref.shows_sidebar()
+            };
+            mini_bar.set_visible(!player_visible);
+        };
+
+        let update_rev = update_mini_bar.clone();
+        bottom_drawer_revealer.connect_reveal_child_notify(move |_| update_rev());
+        bottom_drawer_revealer.connect_child_revealed_notify(|r| {
+            if !r.is_child_revealed() {
+                r.set_visible(false);
+            }
+        });
+
+        let update_sv_show = update_mini_bar.clone();
+        split_view.connect_show_sidebar_notify(move |_| update_sv_show());
+
+        let sv_for_mini = split_view.clone();
+        let rev_for_mini = bottom_drawer_revealer.clone();
+        mini_open_btn.connect_clicked(move |_| {
+            if sv_for_mini.is_collapsed() {
+                rev_for_mini.set_visible(true);
+                rev_for_mini.set_reveal_child(true);
+            } else {
+                sv_for_mini.set_show_sidebar(true);
+            }
+        });
+
+        let sv_for_collapse = split_view.clone();
+        let rev_for_collapse_btn = bottom_drawer_revealer.clone();
+        sidebar_collapse_btn.connect_clicked(move |_| {
+            if sv_for_collapse.is_collapsed() {
+                rev_for_collapse_btn.set_reveal_child(false);
+            } else {
+                sv_for_collapse.set_show_sidebar(false);
+            }
+        });
+
+        let rev_for_collapse = bottom_drawer_revealer.clone();
+        let sidebar_tb = sidebar_toolbar.clone();
+        let collapse_btn_ref = sidebar_collapse_btn.clone();
+        let update_collapse = update_mini_bar.clone();
+        split_view.connect_collapsed_notify(move |sv| {
+            if sv.is_collapsed() {
+                sv.set_sidebar(None::<&gtk4::Widget>);
+                rev_for_collapse.set_child(Some(&sidebar_tb));
+                rev_for_collapse.set_reveal_child(false);
+                rev_for_collapse.set_visible(false);
+                collapse_btn_ref.set_icon_name("go-down-symbolic");
+            } else {
+                rev_for_collapse.set_reveal_child(false);
+                rev_for_collapse.set_visible(false);
+                rev_for_collapse.set_child(None::<&gtk4::Widget>);
+                collapse_btn_ref.set_icon_name("go-previous-symbolic");
+                sv.set_sidebar(Some(&sidebar_tb));
+                sv.set_show_sidebar(true);
+            }
+            update_collapse();
+        });
+    }
 
     let main_toolbar = adw::ToolbarView::new();
     main_toolbar.add_top_bar(&main_header);
-    main_toolbar.set_content(Some(&split_view));
+    main_toolbar.set_content(Some(&main_overlay));
 
     toast_overlay.set_child(Some(&main_toolbar));
 
@@ -1062,6 +1259,22 @@ pub fn build_ui(app: &adw::Application) {
         .default_height(700)
         .content(&toast_overlay)
         .build();
+
+    // Adaptive breakpoints for tablet & mobile/phone viewports
+    let tablet_bp = adw::Breakpoint::new(adw::BreakpointCondition::parse("max-width: 780sp").unwrap());
+    tablet_bp.add_setter(&split_view, "collapsed", Some(&true.to_value()));
+    tablet_bp.add_setter(&split_view, "show-sidebar", Some(&false.to_value()));
+    window.add_breakpoint(tablet_bp);
+
+    let mobile_bp = adw::Breakpoint::new(adw::BreakpointCondition::parse("max-width: 540sp").unwrap());
+    mobile_bp.add_setter(&brand_title, "visible", Some(&false.to_value()));
+    mobile_bp.add_setter(&brand_badge, "visible", Some(&false.to_value()));
+    mobile_bp.add_setter(
+        &top_search_entry,
+        "placeholder-text",
+        Some(&"Buscar…".to_value()),
+    );
+    window.add_breakpoint(mobile_bp);
 
     let mpris = {
         let state_mpris = Rc::clone(&state);

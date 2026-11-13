@@ -50,7 +50,8 @@ pub fn build_collection_page(state: Rc<RefCell<AppState>>) -> ScrolledWindow {
 
     let new_pl_entry = Entry::builder()
         .placeholder_text("Nueva playlist...")
-        .width_chars(18)
+        .width_chars(10)
+        .max_width_chars(18)
         .build();
     let new_pl_btn = Button::builder()
         .icon_name("list-add-symbolic")
