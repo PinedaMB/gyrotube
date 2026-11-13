@@ -17,8 +17,9 @@ use crate::ui::player::play_queue_index;
 use crate::ui::state::AppState;
 use crate::ui::widgets::{
     build_album_card, build_carousel_section, build_playlist_card, build_skeleton_box,
-    cancel_collection_loading, clamped_cover, clear_box, load_cover_into_picture,
-    open_collection_page, populate_track_list, spawn_bg,
+    cancel_collection_loading, clamped_cover, clear_box, highlight_active_track_in_list,
+    load_cover_into_picture, open_collection_page, populate_track_list, spawn_bg,
+    start_track_radio,
 };
 
 #[derive(Clone)]
@@ -163,10 +164,21 @@ pub fn build_explore_page(
     artist_shuffle_btn.set_child(Some(&shuffle_btn_content));
     artist_shuffle_btn.set_cursor_from_name(Some("pointer"));
 
+    let artist_radio_btn = Button::builder()
+        .tooltip_text("Iniciar radio del artista")
+        .css_classes(["pill", "artist-secondary-btn"])
+        .build();
+    let radio_btn_content = GtkBox::new(Orientation::Horizontal, 6);
+    radio_btn_content.append(&gtk4::Image::from_icon_name("media-playlist-consecutive-symbolic"));
+    radio_btn_content.append(&Label::new(Some("Radio")));
+    artist_radio_btn.set_child(Some(&radio_btn_content));
+    artist_radio_btn.set_cursor_from_name(Some("pointer"));
+
     let artist_actions_row = GtkBox::new(Orientation::Horizontal, 10);
     artist_actions_row.set_margin_top(6);
     artist_actions_row.append(&artist_play_btn);
     artist_actions_row.append(&artist_shuffle_btn);
+    artist_actions_row.append(&artist_radio_btn);
 
     let artist_hero_info = GtkBox::new(Orientation::Vertical, 4);
     artist_hero_info.set_halign(Align::Start);
@@ -236,6 +248,19 @@ pub fn build_explore_page(
             play_queue_index(Rc::clone(&state), start_idx);
         });
     }
+    {
+        let state = Rc::clone(&state);
+        let tracks_ref = Rc::clone(&current_artist_tracks);
+        artist_radio_btn.connect_clicked(move |_| {
+            let first = tracks_ref
+                .borrow()
+                .as_ref()
+                .and_then(|(_, t)| t.first().cloned());
+            if let Some(track) = first {
+                start_track_radio(Rc::clone(&state), &track);
+            }
+        });
+    }
 
     let artist_desc_label = Label::builder()
         .xalign(0.0)
@@ -258,6 +283,16 @@ pub fn build_explore_page(
         .css_classes(["boxed-list"])
         .visible(false)
         .build();
+    {
+        let state_cb = Rc::clone(&state);
+        let a_list = artist_tracks_list.clone();
+        let s_list = results_list.clone();
+        state.borrow_mut().on_track_changed.push(Rc::new(move || {
+            let active_id = state_cb.borrow().current_track().map(|t| t.id.clone());
+            highlight_active_track_in_list(&a_list, active_id.as_deref());
+            highlight_active_track_in_list(&s_list, active_id.as_deref());
+        }));
+    }
     let artist_tracks_expanded = Rc::new(Cell::new(false));
     let artist_tracks_toggle_btn = Button::builder()
         .halign(Align::Start)
@@ -316,6 +351,36 @@ pub fn build_explore_page(
         artist_tracks_skel.append(&row);
     }
     artist_skeleton.append(&artist_tracks_skel);
+
+    let search_skeleton = GtkBox::new(Orientation::Vertical, 16);
+    search_skeleton.set_visible(false);
+    search_skeleton.append(&build_skeleton_box(150, 20));
+    let search_cards_skel = GtkBox::new(Orientation::Horizontal, 12);
+    for _ in 0..4 {
+        let card = GtkBox::new(Orientation::Vertical, 6);
+        card.append(&build_skeleton_box(140, 140));
+        card.append(&build_skeleton_box(110, 13));
+        card.append(&build_skeleton_box(80, 11));
+        search_cards_skel.append(&card);
+    }
+    search_skeleton.append(&search_cards_skel);
+    search_skeleton.append(&build_skeleton_box(130, 20));
+    let search_tracks_skel = GtkBox::new(Orientation::Vertical, 8);
+    for _ in 0..5 {
+        let row = GtkBox::new(Orientation::Horizontal, 12);
+        row.set_margin_top(4);
+        row.set_margin_bottom(4);
+        row.append(&build_skeleton_box(44, 44));
+        let col = GtkBox::new(Orientation::Vertical, 6);
+        col.set_hexpand(true);
+        col.set_valign(Align::Center);
+        col.append(&build_skeleton_box(0, 14));
+        col.append(&build_skeleton_box(140, 11));
+        row.append(&col);
+        row.append(&build_skeleton_box(36, 14));
+        search_tracks_skel.append(&row);
+    }
+    search_skeleton.append(&search_tracks_skel);
 
     // Genres & moods grid
     let moods_title = Label::builder()
@@ -391,6 +456,7 @@ pub fn build_explore_page(
     container.append(&explore_header_box);
     container.append(&spinner);
     container.append(&status_label);
+    container.append(&search_skeleton);
     container.append(&search_results_section);
     container.append(&artist_skeleton);
     container.append(&artist_section);
@@ -461,6 +527,9 @@ pub fn build_explore_page(
         });
     }
 
+    let artist_history: Rc<RefCell<Vec<(String, String)>>> = Rc::new(RefCell::new(Vec::new()));
+    let current_artist: Rc<RefCell<Option<(String, String)>>> = Rc::new(RefCell::new(None));
+
     let artist_widgets = ArtistPageWidgets {
         spinner: spinner.clone(),
         status_label: status_label.clone(),
@@ -469,6 +538,8 @@ pub fn build_explore_page(
         genre_playlists_section: genre_playlists_section.clone(),
         artist_section: artist_section.clone(),
         skeleton: artist_skeleton.clone(),
+        artist_history: Rc::clone(&artist_history),
+        current_artist: Rc::clone(&current_artist),
         name_label: artist_name_label,
         subs_label: artist_subs_label,
         banner: artist_banner,
@@ -492,11 +563,21 @@ pub fn build_explore_page(
         let top_search_entry = top_search_entry.clone();
         let artist_section = artist_section.clone();
         let artist_skeleton_ref = artist_skeleton.clone();
+        let search_skeleton_ref = search_skeleton.clone();
         let search_results_section = search_results_section.clone();
         let genres_section = genres_section.clone();
+        let aw_back = artist_widgets.clone();
+        let state_back = Rc::clone(&state);
         artist_back_btn.connect_clicked(move |_| {
+            if let Some((prev_id, prev_name)) = aw_back.artist_history.borrow_mut().pop() {
+                *aw_back.current_artist.borrow_mut() = None;
+                open_artist_page(&prev_id, &prev_name, aw_back.clone(), Rc::clone(&state_back));
+                return;
+            }
+            *aw_back.current_artist.borrow_mut() = None;
             artist_section.set_visible(false);
             artist_skeleton_ref.set_visible(false);
+            search_skeleton_ref.set_visible(false);
             if top_search_entry.text().trim().is_empty() {
                 genres_section.set_visible(true);
             } else {
@@ -507,8 +588,8 @@ pub fn build_explore_page(
 
     let run_search: Rc<dyn Fn(&str)> = {
         let state = Rc::clone(&state);
-        let spinner = spinner.clone();
         let status_label = status_label.clone();
+        let search_skeleton_ref = search_skeleton.clone();
         let search_results_section = search_results_section.clone();
         let search_artists_section = search_artists_section.clone();
         let search_artists_cards = search_artists_cards.clone();
@@ -528,6 +609,7 @@ pub fn build_explore_page(
             let query = raw_query.trim().to_string();
             if query.is_empty() {
                 search_results_section.set_visible(false);
+                search_skeleton_ref.set_visible(false);
                 artist_section.set_visible(false);
                 artist_skeleton_ref.set_visible(false);
                 status_label.set_visible(false);
@@ -540,8 +622,7 @@ pub fn build_explore_page(
             genre_playlists_section.set_visible(false);
             artist_section.set_visible(false);
             artist_skeleton_ref.set_visible(false);
-            spinner.set_visible(true);
-            spinner.set_spinning(true);
+            search_skeleton_ref.set_visible(true);
             status_label.set_visible(false);
             search_results_section.set_visible(false);
 
@@ -555,7 +636,7 @@ pub fn build_explore_page(
             });
 
             let state = Rc::clone(&state);
-            let spinner = spinner.clone();
+            let search_skeleton_done = search_skeleton_ref.clone();
             let status_label = status_label.clone();
             let search_results_section = search_results_section.clone();
             let search_artists_section = search_artists_section.clone();
@@ -570,8 +651,7 @@ pub fn build_explore_page(
 
             glib::spawn_future_local(async move {
                 if let Ok(result) = rx.recv().await {
-                    spinner.set_spinning(false);
-                    spinner.set_visible(false);
+                    search_skeleton_done.set_visible(false);
                     match result {
                         Ok(res)
                             if res.artists.is_empty()
@@ -769,6 +849,8 @@ struct ArtistPageWidgets {
     genre_playlists_section: GtkBox,
     artist_section: GtkBox,
     skeleton: GtkBox,
+    artist_history: Rc<RefCell<Vec<(String, String)>>>,
+    current_artist: Rc<RefCell<Option<(String, String)>>>,
     name_label: Label,
     subs_label: Label,
     banner: Picture,
@@ -794,6 +876,14 @@ fn open_artist_page(
     ui: ArtistPageWidgets,
     state: Rc<RefCell<AppState>>,
 ) {
+    if ui.artist_section.is_visible()
+        && let Some(prev) = ui.current_artist.borrow().clone()
+        && prev.0 != artist_id
+    {
+        ui.artist_history.borrow_mut().push(prev);
+    }
+    *ui.current_artist.borrow_mut() = Some((artist_id.to_string(), artist_name.to_string()));
+
     ui.search_results_section.set_visible(false);
     ui.genres_section.set_visible(false);
     ui.genre_playlists_section.set_visible(false);

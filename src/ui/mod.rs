@@ -580,6 +580,125 @@ fn wire_sidebar_actions(
             }
         });
     }
+    wire_sleep_timer(state, &sb.sleep_timer_btn);
+}
+
+fn wire_sleep_timer(state: &Rc<RefCell<AppState>>, btn: &gtk4::MenuButton) {
+    let timer_source: Rc<RefCell<Option<glib::SourceId>>> = Rc::new(RefCell::new(None));
+    let stop_on_end: Rc<Cell<bool>> = Rc::new(Cell::new(false));
+
+    let pop = gtk4::Popover::new();
+    let box_pop = GtkBox::new(Orientation::Vertical, 4);
+    box_pop.set_margin_top(6);
+    box_pop.set_margin_bottom(6);
+    box_pop.set_margin_start(6);
+    box_pop.set_margin_end(6);
+
+    let clear_timer = {
+        let timer_source = Rc::clone(&timer_source);
+        let stop_on_end = Rc::clone(&stop_on_end);
+        let btn = btn.clone();
+        Rc::new(move || {
+            if let Some(id) = timer_source.borrow_mut().take() {
+                id.remove();
+            }
+            stop_on_end.set(false);
+            btn.remove_css_class("accent");
+            btn.set_tooltip_text(Some("Temporizador de apagado"));
+        })
+    };
+
+    for (label, mins) in [
+        ("Desactivado", 0u32),
+        ("15 minutos", 15),
+        ("30 minutos", 30),
+        ("45 minutos", 45),
+        ("60 minutos", 60),
+    ] {
+        let item = gtk4::Button::builder()
+            .label(label)
+            .css_classes(["flat"])
+            .build();
+        if let Some(lbl) = item.child().and_downcast::<Label>() {
+            lbl.set_xalign(0.0);
+        }
+        let state = Rc::clone(state);
+        let pop = pop.clone();
+        let clear = Rc::clone(&clear_timer);
+        let timer_source = Rc::clone(&timer_source);
+        let btn = btn.clone();
+        item.connect_clicked(move |_| {
+            clear();
+            if mins == 0 {
+                state.borrow().show_toast("Temporizador desactivado");
+            } else {
+                btn.add_css_class("accent");
+                btn.set_tooltip_text(Some(&format!("Temporizador activo: {mins} min")));
+                state
+                    .borrow()
+                    .show_toast(&format!("Temporizador: {mins} minutos"));
+                let state_cb = Rc::clone(&state);
+                let timer_ref = Rc::clone(&timer_source);
+                let btn_cb = btn.clone();
+                let id = glib::timeout_add_seconds_local_once(mins * 60, move || {
+                    timer_ref.borrow_mut().take();
+                    btn_cb.remove_css_class("accent");
+                    btn_cb.set_tooltip_text(Some("Temporizador de apagado"));
+                    let s = state_cb.borrow();
+                    s.decks[0].pause();
+                    s.decks[1].pause();
+                    s.show_toast("Temporizador: reproducción detenida");
+                });
+                *timer_source.borrow_mut() = Some(id);
+            }
+            pop.popdown();
+        });
+        box_pop.append(&item);
+    }
+
+    let end_track_btn = gtk4::Button::builder()
+        .label("Al terminar la canción")
+        .css_classes(["flat"])
+        .build();
+    if let Some(lbl) = end_track_btn.child().and_downcast::<Label>() {
+        lbl.set_xalign(0.0);
+    }
+    {
+        let state = Rc::clone(state);
+        let pop = pop.clone();
+        let clear = Rc::clone(&clear_timer);
+        let stop_on_end = Rc::clone(&stop_on_end);
+        let btn = btn.clone();
+        end_track_btn.connect_clicked(move |_| {
+            clear();
+            stop_on_end.set(true);
+            btn.add_css_class("accent");
+            btn.set_tooltip_text(Some("Detener al terminar la canción"));
+            state
+                .borrow()
+                .show_toast("Se detendrá al terminar la canción");
+            pop.popdown();
+        });
+    }
+    box_pop.append(&end_track_btn);
+    pop.set_child(Some(&box_pop));
+    btn.set_popover(Some(&pop));
+
+    {
+        let state_cb = Rc::clone(state);
+        let stop_on_end = Rc::clone(&stop_on_end);
+        let btn = btn.clone();
+        state.borrow_mut().on_track_changed.push(Rc::new(move || {
+            if stop_on_end.replace(false) {
+                btn.remove_css_class("accent");
+                btn.set_tooltip_text(Some("Temporizador de apagado"));
+                let s = state_cb.borrow();
+                s.decks[0].pause();
+                s.decks[1].pause();
+                s.show_toast("Temporizador: reproducción detenida");
+            }
+        }));
+    }
 }
 
 fn wire_mpris(state: &Rc<RefCell<AppState>>, window: &adw::ApplicationWindow) {

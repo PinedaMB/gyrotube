@@ -14,8 +14,9 @@ use crate::ui::collection::refresh_playlists_ui;
 use crate::ui::player::{play_queue_index, refresh_queue_ui};
 use crate::ui::state::AppState;
 use crate::ui::widgets::{
-    build_skeleton_box, clamped_cover, clear_box, clear_list_box, load_cover_into_picture,
-    set_artist_links, set_track_favorite,
+    build_skeleton_box, clamped_cover, clear_box, clear_list_box, highlight_active_track_in_list,
+    load_cover_into_picture, set_artist_links, set_track_favorite, start_track_radio,
+    update_album_ambient_color,
 };
 
 pub fn build_album_page(
@@ -132,6 +133,14 @@ pub fn build_album_page(
         .build();
     save_fav_btn.set_cursor_from_name(Some("pointer"));
 
+    let radio_btn = Button::builder()
+        .icon_name("media-playlist-consecutive-symbolic")
+        .tooltip_text("Iniciar radio")
+        .valign(Align::Center)
+        .css_classes(["circular", "album-action-btn"])
+        .build();
+    radio_btn.set_cursor_from_name(Some("pointer"));
+
     let actions_row = GtkBox::new(Orientation::Horizontal, 14);
     actions_row.set_halign(Align::Center);
     actions_row.set_margin_top(6);
@@ -139,6 +148,7 @@ pub fn build_album_page(
     actions_row.append(&play_all_btn);
     actions_row.append(&add_queue_btn);
     actions_row.append(&save_fav_btn);
+    actions_row.append(&radio_btn);
 
     let cover_wrap = GtkBox::new(Orientation::Vertical, 0);
     cover_wrap.set_halign(Align::Center);
@@ -226,6 +236,22 @@ pub fn build_album_page(
         .selection_mode(SelectionMode::None)
         .css_classes(["boxed-list"])
         .build();
+
+    cover_pic.connect_paintable_notify(|pic| {
+        let tex = pic
+            .paintable()
+            .and_then(|p| p.downcast::<gtk4::gdk::Texture>().ok());
+        update_album_ambient_color(tex.as_ref());
+    });
+
+    {
+        let state_cb = Rc::clone(&state);
+        let list = track_list.clone();
+        state.borrow_mut().on_track_changed.push(Rc::new(move || {
+            let active_id = state_cb.borrow().current_track().map(|t| t.id.clone());
+            highlight_active_track_in_list(&list, active_id.as_deref());
+        }));
+    }
 
     let container = GtkBox::new(Orientation::Vertical, 12);
     container.set_margin_top(14);
@@ -395,6 +421,16 @@ pub fn build_album_page(
                 "Eliminado de favoritos"
             };
             state.borrow().show_toast(msg);
+        });
+    }
+    {
+        let state = Rc::clone(&state);
+        let tracks_ref = Rc::clone(&current_tracks);
+        radio_btn.connect_clicked(move |_| {
+            let first = tracks_ref.borrow().first().cloned();
+            if let Some(track) = first {
+                start_track_radio(Rc::clone(&state), &track);
+            }
         });
     }
 
@@ -786,6 +822,14 @@ fn build_album_track_row(
 
     let row = ListBoxRow::new();
     row.set_child(Some(&row_box));
+    row.set_widget_name(&track.id);
+    if state
+        .borrow()
+        .current_track()
+        .is_some_and(|t| t.id == track.id)
+    {
+        row.add_css_class("chart-active-row");
+    }
     row.set_cursor_from_name(Some("pointer"));
 
     let click = gtk4::GestureClick::new();

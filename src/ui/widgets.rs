@@ -342,7 +342,7 @@ fn build_media_card(
     subtitle: &str,
     meta: Option<&str>,
     state: &Rc<RefCell<AppState>>,
-) -> Button {
+) -> (GtkBox, Button) {
     let (cover_frame, cover) = clamped_cover(156, 156, "cover-art");
     cover_frame.set_halign(Align::Center);
 
@@ -355,18 +355,19 @@ fn build_media_card(
         .pixel_size(18)
         .halign(Align::Center)
         .valign(Align::Center)
-        .hexpand(true)
         .build();
-    let play_overlay_badge = GtkBox::builder()
+    let play_btn = Button::builder()
+        .child(&play_icon)
         .halign(Align::End)
         .valign(Align::End)
         .margin_end(8)
         .margin_bottom(8)
         .width_request(40)
         .height_request(40)
+        .tooltip_text("Reproducir")
         .css_classes(["album-play-overlay"])
         .build();
-    play_overlay_badge.append(&play_icon);
+    play_btn.set_cursor_from_name(Some("pointer"));
 
     let cover_overlay = gtk4::Overlay::new();
     cover_overlay.set_halign(Align::Center);
@@ -382,7 +383,7 @@ fn build_media_card(
             .build();
         cover_overlay.add_overlay(&badge_label);
     }
-    cover_overlay.add_overlay(&play_overlay_badge);
+    cover_overlay.add_overlay(&play_btn);
 
     let title_label = Label::builder()
         .label(title)
@@ -414,16 +415,16 @@ fn build_media_card(
         text_box.append(&meta_label);
     }
 
-    let card_box = GtkBox::new(Orientation::Vertical, 10);
+    let card_box = GtkBox::builder()
+        .orientation(Orientation::Vertical)
+        .spacing(10)
+        .css_classes(["album-featured-card"])
+        .build();
     card_box.append(&cover_overlay);
     card_box.append(&text_box);
+    card_box.set_cursor_from_name(Some("pointer"));
 
-    let btn = Button::builder()
-        .child(&card_box)
-        .css_classes(["flat", "album-featured-card"])
-        .build();
-    btn.set_cursor_from_name(Some("pointer"));
-    btn
+    (card_box, play_btn)
 }
 
 pub fn set_artist_links(label: &Label, artists: &str) {
@@ -530,7 +531,43 @@ fn handle_fetched_queue(
     }
 }
 
-pub fn build_album_card(album: &Album, state: Rc<RefCell<AppState>>) -> Button {
+fn play_fetched_queue(
+    result: Result<(String, Vec<Track>), String>,
+    empty_msg: &str,
+    state: Rc<RefCell<AppState>>,
+) {
+    match result {
+        Ok((source, tracks)) if !tracks.is_empty() => {
+            {
+                let mut s = state.borrow_mut();
+                s.shuffle = false;
+                s.queue = tracks;
+                s.source_name = source;
+            }
+            play_queue_index(state, 0);
+        }
+        Ok(_) => state.borrow().show_toast(empty_msg),
+        Err(err) => state.borrow().show_toast(&err),
+    }
+}
+
+fn connect_card_open(card: &GtkBox, on_open: impl Fn() + 'static) {
+    let click = gtk4::GestureClick::new();
+    click.connect_released(move |gesture, n_press, x, y| {
+        if n_press != 1 {
+            return;
+        }
+        if let Some(widget) = gesture.widget() {
+            if !widget.contains(x, y) {
+                return;
+            }
+        }
+        on_open();
+    });
+    card.add_controller(click);
+}
+
+pub fn build_album_card(album: &Album, state: Rc<RefCell<AppState>>) -> GtkBox {
     let year_str = album.year.map(|y| y.to_string());
     let badge = year_str
         .as_deref()
@@ -539,7 +576,7 @@ pub fn build_album_card(album: &Album, state: Rc<RefCell<AppState>>) -> Button {
         Some(y) => format!("Álbum • {y}"),
         None => String::from("Álbum"),
     };
-    let btn = build_media_card(
+    let (card, play_btn) = build_media_card(
         album.cover_url.as_deref(),
         badge,
         &album.title,
@@ -551,35 +588,51 @@ pub fn build_album_card(album: &Album, state: Rc<RefCell<AppState>>) -> Button {
     let album_id = album.id.clone();
     let album_title = album.title.clone();
     let album_cover = album.cover_url.clone();
-    btn.connect_clicked(move |_| {
+    {
+        let album_id = album_id.clone();
+        let state = Rc::clone(&state);
+        connect_card_open(&card, move || {
+            let backend = state.borrow().backend.clone();
+            open_collection_page(
+                album_title.clone(),
+                album_cover.clone(),
+                None,
+                Rc::clone(&state),
+            );
+            let id = album_id.clone();
+            let cover = album_cover.clone();
+            let state = Rc::clone(&state);
+            spawn_bg(
+                move || async move { backend.fetch_album_tracks(&id).await },
+                move |result| {
+                    handle_fetched_queue(
+                        result,
+                        cover,
+                        "El álbum no tiene pistas disponibles.",
+                        state,
+                    );
+                },
+            );
+        });
+    }
+
+    play_btn.connect_clicked(move |_| {
         let backend = state.borrow().backend.clone();
-        open_collection_page(
-            album_title.clone(),
-            album_cover.clone(),
-            None,
-            Rc::clone(&state),
-        );
         let id = album_id.clone();
-        let cover = album_cover.clone();
         let state = Rc::clone(&state);
         spawn_bg(
             move || async move { backend.fetch_album_tracks(&id).await },
             move |result| {
-                handle_fetched_queue(
-                    result,
-                    cover,
-                    "El álbum no tiene pistas disponibles.",
-                    state,
-                );
+                play_fetched_queue(result, "El álbum no tiene pistas disponibles.", state);
             },
         );
     });
 
-    btn
+    card
 }
 
-pub fn build_playlist_card(playlist: &Playlist, state: Rc<RefCell<AppState>>) -> Button {
-    let btn = build_media_card(
+pub fn build_playlist_card(playlist: &Playlist, state: Rc<RefCell<AppState>>) -> GtkBox {
+    let (card, play_btn) = build_media_card(
         playlist.cover_url.as_deref(),
         Some(("Playlist", ["album-year-badge"].as_slice())),
         &playlist.name,
@@ -591,26 +644,42 @@ pub fn build_playlist_card(playlist: &Playlist, state: Rc<RefCell<AppState>>) ->
     let playlist_id = playlist.id.clone();
     let playlist_name = playlist.name.clone();
     let playlist_cover = playlist.cover_url.clone();
-    btn.connect_clicked(move |_| {
+    {
+        let playlist_id = playlist_id.clone();
+        let state = Rc::clone(&state);
+        connect_card_open(&card, move || {
+            let backend = state.borrow().backend.clone();
+            open_collection_page(
+                playlist_name.clone(),
+                playlist_cover.clone(),
+                None,
+                Rc::clone(&state),
+            );
+            let id = playlist_id.clone();
+            let cover = playlist_cover.clone();
+            let state = Rc::clone(&state);
+            spawn_bg(
+                move || async move { backend.fetch_playlist_tracks(&id).await },
+                move |result| {
+                    handle_fetched_queue(result, cover, "La playlist está vacía.", state);
+                },
+            );
+        });
+    }
+
+    play_btn.connect_clicked(move |_| {
         let backend = state.borrow().backend.clone();
-        open_collection_page(
-            playlist_name.clone(),
-            playlist_cover.clone(),
-            None,
-            Rc::clone(&state),
-        );
         let id = playlist_id.clone();
-        let cover = playlist_cover.clone();
         let state = Rc::clone(&state);
         spawn_bg(
             move || async move { backend.fetch_playlist_tracks(&id).await },
             move |result| {
-                handle_fetched_queue(result, cover, "La playlist está vacía.", state);
+                play_fetched_queue(result, "La playlist está vacía.", state);
             },
         );
     });
 
-    btn
+    card
 }
 
 pub fn populate_track_list(
@@ -837,7 +906,31 @@ pub fn build_track_row(
     row_box.append(&queue_btn);
     row_box.append(&play_btn);
 
-    ListBoxRow::builder().child(&row_box).build()
+    let row = ListBoxRow::builder().child(&row_box).build();
+    row.set_widget_name(&track.id);
+    if state
+        .borrow()
+        .current_track()
+        .is_some_and(|t| t.id == track.id)
+    {
+        row.add_css_class("chart-active-row");
+    }
+    row
+}
+
+pub fn highlight_active_track_in_list(list: &ListBox, active_id: Option<&str>) {
+    let mut child = list.first_child();
+    while let Some(w) = child {
+        child = w.next_sibling();
+        if let Ok(row) = w.downcast::<ListBoxRow>() {
+            let is_active = active_id.is_some_and(|id| row.widget_name() == id);
+            if is_active {
+                row.add_css_class("chart-active-row");
+            } else {
+                row.remove_css_class("chart-active-row");
+            }
+        }
+    }
 }
 
 pub fn set_track_favorite(state: Rc<RefCell<AppState>>, track: &Track, fav: bool) {
@@ -951,29 +1044,25 @@ pub fn load_cover_into_picture(picture: &Picture, url: &str, state: Rc<RefCell<A
 
 thread_local! {
     static AMBIENT_PROVIDER: std::cell::OnceCell<CssProvider> = const { std::cell::OnceCell::new() };
+    static ALBUM_AMBIENT_PROVIDER: std::cell::OnceCell<CssProvider> = const { std::cell::OnceCell::new() };
 }
 
-pub fn update_ambient_color(texture: Option<&gdk::Texture>) {
-    let provider = AMBIENT_PROVIDER.with(|cell| {
-        cell.get_or_init(|| {
-            let p = CssProvider::new();
-            if let Some(display) = gdk::Display::default() {
-                gtk4::style_context_add_provider_for_display(
-                    &display,
-                    &p,
-                    gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION + 1,
-                );
-            }
-            p
-        })
-        .clone()
-    });
+fn ensure_display_provider(cell: &std::cell::OnceCell<CssProvider>) -> CssProvider {
+    cell.get_or_init(|| {
+        let p = CssProvider::new();
+        if let Some(display) = gdk::Display::default() {
+            gtk4::style_context_add_provider_for_display(
+                &display,
+                &p,
+                gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION + 1,
+            );
+        }
+        p
+    })
+    .clone()
+}
 
-    let Some(tex) = texture else {
-        provider.load_from_string("");
-        return;
-    };
-
+pub fn extract_dominant_rgb(tex: &gdk::Texture) -> Option<(u8, u8, u8)> {
     let w = tex.width().max(1) as usize;
     let h = tex.height().max(1) as usize;
     let stride = w * 4;
@@ -986,7 +1075,12 @@ pub fn update_ambient_color(texture: Option<&gdk::Texture>) {
     for y in (0..h).step_by(step_y) {
         for x in (0..w).step_by(step_x) {
             let idx = y * stride + x * 4;
-            let (b, g, r, a) = (buf[idx] as u64, buf[idx + 1] as u64, buf[idx + 2] as u64, buf[idx + 3] as u64);
+            let (b, g, r, a) = (
+                buf[idx] as u64,
+                buf[idx + 1] as u64,
+                buf[idx + 2] as u64,
+                buf[idx + 3] as u64,
+            );
             if a < 128 {
                 continue;
             }
@@ -1005,15 +1099,35 @@ pub fn update_ambient_color(texture: Option<&gdk::Texture>) {
     }
 
     if total_w == 0 {
-        provider.load_from_string("");
-        return;
+        return None;
     }
-    let r = (sum_r / total_w).min(255);
-    let g = (sum_g / total_w).min(255);
-    let b = (sum_b / total_w).min(255);
-    provider.load_from_string(&format!(
-        ".ambient-player {{ background-image: radial-gradient(circle at 50% 28%, rgba({r}, {g}, {b}, 0.24), transparent 72%); }}"
-    ));
+    Some((
+        (sum_r / total_w).min(255) as u8,
+        (sum_g / total_w).min(255) as u8,
+        (sum_b / total_w).min(255) as u8,
+    ))
+}
+
+pub fn update_ambient_color(texture: Option<&gdk::Texture>) {
+    let provider = AMBIENT_PROVIDER.with(ensure_display_provider);
+    if let Some((r, g, b)) = texture.and_then(extract_dominant_rgb) {
+        provider.load_from_string(&format!(
+            ".ambient-player {{ background-image: radial-gradient(circle at 50% 28%, rgba({r}, {g}, {b}, 0.24), transparent 72%); }}"
+        ));
+    } else {
+        provider.load_from_string("");
+    }
+}
+
+pub fn update_album_ambient_color(texture: Option<&gdk::Texture>) {
+    let provider = ALBUM_AMBIENT_PROVIDER.with(ensure_display_provider);
+    if let Some((r, g, b)) = texture.and_then(extract_dominant_rgb) {
+        provider.load_from_string(&format!(
+            ".album-page-hero {{ background-image: linear-gradient(180deg, rgba({r}, {g}, {b}, 0.42) 0%, rgba({r}, {g}, {b}, 0.12) 100%); }}"
+        ));
+    } else {
+        provider.load_from_string("");
+    }
 }
 
 pub fn load_player_cover(

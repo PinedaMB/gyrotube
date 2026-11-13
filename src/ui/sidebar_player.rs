@@ -38,6 +38,7 @@ pub struct SidebarPlayerWidgets {
     pub volume_scale: Scale,
     pub volume_btn: MenuButton,
     pub crossfade_btn: ToggleButton,
+    pub sleep_timer_btn: MenuButton,
     pub lyrics_title_label: Label,
     pub lyrics_artist_label: Label,
     pub lyrics_sync_badge: Label,
@@ -163,12 +164,19 @@ pub fn build_sidebar_player() -> SidebarPlayerWidgets {
         .css_classes(["flat", "circular", "caption"])
         .build();
 
-    let action_icons_row = GtkBox::new(Orientation::Horizontal, 16);
+    let sleep_timer_btn = MenuButton::builder()
+        .icon_name("alarm-symbolic")
+        .tooltip_text("Temporizador de apagado")
+        .css_classes(["flat", "circular"])
+        .build();
+
+    let action_icons_row = GtkBox::new(Orientation::Horizontal, 14);
     action_icons_row.set_halign(Align::Center);
     action_icons_row.append(&volume_btn);
     action_icons_row.append(&player_fav_btn);
     action_icons_row.append(&player_radio_btn);
     action_icons_row.append(&crossfade_btn);
+    action_icons_row.append(&sleep_timer_btn);
 
     let seek_scale = Scale::with_range(Orientation::Horizontal, 0.0, 100.0, 1.0);
     seek_scale.set_draw_value(false);
@@ -448,6 +456,7 @@ pub fn build_sidebar_player() -> SidebarPlayerWidgets {
         volume_scale,
         volume_btn,
         crossfade_btn,
+        sleep_timer_btn,
         lyrics_title_label,
         lyrics_artist_label,
         lyrics_sync_badge,

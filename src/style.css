@@ -392,13 +392,23 @@
 .album-play-overlay {
     min-width: 40px;
     min-height: 40px;
+    padding: 0;
+    border: none;
     border-radius: 999px;
     background-color: #e01b24;
     color: #ffffff;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.45);
     opacity: 0;
-    transition: opacity 150ms ease, transform 150ms ease;
+    transition: opacity 150ms ease, transform 150ms ease, background-color 150ms ease;
     transform: translateY(4px);
+}
+
+.album-play-overlay:hover {
+    background-color: #f66151;
+}
+
+.album-play-overlay:active {
+    background-color: #c01c28;
 }
 
 .album-featured-card:hover .album-play-overlay {
