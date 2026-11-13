@@ -2401,7 +2401,18 @@ fn play_queue_index(state: Rc<RefCell<AppState>>, index: usize) {
                     s.play_pause_btn.set_sensitive(true);
                     s.seek_scale.set_sensitive(true);
                     s.pending_autoplay = true;
-                    Some((s.media_file.clone(), stream.url))
+                    let next_id = if !s.shuffle {
+                        s.queue.get(index + 1).map(|t| t.id.clone())
+                    } else {
+                        None
+                    };
+                    Some((
+                        s.media_file.clone(),
+                        stream.url,
+                        stream.is_local_file,
+                        s.backend.clone(),
+                        next_id,
+                    ))
                 }
                 Err(err) => {
                     s.play_pause_btn.set_icon_name("media-playback-start-symbolic");
@@ -2413,13 +2424,22 @@ fn play_queue_index(state: Rc<RefCell<AppState>>, index: usize) {
             }
         };
 
-        if let Some((media_file, path)) = stream_to_play {
-            let file = gio::File::for_path(&path);
+        if let Some((media_file, url, is_local_file, backend, next_id)) = stream_to_play {
+            let file = if is_local_file {
+                gio::File::for_path(&url)
+            } else {
+                gio::File::for_uri(&url)
+            };
             media_file.pause();
             media_file.set_file(Some(&file));
             if media_file.is_prepared() {
                 state.borrow_mut().pending_autoplay = false;
                 media_file.play();
+            }
+            if let Some(next_video_id) = next_id {
+                runtime().spawn(async move {
+                    backend.prefetch_audio(&next_video_id).await;
+                });
             }
         }
     });

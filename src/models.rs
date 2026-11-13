@@ -72,6 +72,7 @@ pub struct SearchResults {
 pub struct StreamInfo {
     pub url: String,
     pub quality_label: String,
+    pub is_local_file: bool,
 }
 
 pub fn upgrade_cover_url(url: &str, target_size: i32) -> String {
