@@ -275,7 +275,41 @@ impl Backend {
             .await
             .map_err(|e| format!("Error al cargar artista: {e}"))?;
 
-        Ok(ArtistDetails::from(&artist))
+        let mut details = ArtistDetails::from(&artist);
+        let is_video_thumb = |url: Option<&str>| url.is_some_and(|u| u.contains("ytimg.com"));
+        if details
+            .tracks
+            .iter()
+            .any(|t| t.duration_secs.is_none() || is_video_thumb(t.cover_url.as_deref()))
+            && let Some(pl_id) = &artist.tracks_playlist_id
+            && let Ok(pl) = self.rp.query().music_playlist(pl_id).await
+        {
+            let pl_tracks: std::collections::HashMap<String, Track> = pl
+                .tracks
+                .items
+                .iter()
+                .map(|item| (item.id.clone(), Track::from(item)))
+                .collect();
+            for track in &mut details.tracks {
+                if let Some(pl_track) = pl_tracks.get(&track.id) {
+                    if track.duration_secs.is_none() {
+                        track.duration_secs = pl_track.duration_secs;
+                    }
+                    if track.album.is_none() {
+                        track.album = pl_track.album.clone();
+                    }
+                    if (track.cover_url.is_none() || is_video_thumb(track.cover_url.as_deref()))
+                        && pl_track.cover_url.is_some()
+                        && !is_video_thumb(pl_track.cover_url.as_deref())
+                    {
+                        track.cover_url = pl_track.cover_url.clone();
+                        track.cover_large_url = pl_track.cover_large_url.clone();
+                    }
+                }
+            }
+        }
+
+        Ok(details)
     }
 
     fn streams_dir() -> Result<std::path::PathBuf, String> {

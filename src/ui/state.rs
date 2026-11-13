@@ -80,6 +80,8 @@ pub struct AppState {
     pub loading_generation: u64,
     pub preloading_id: Option<String>,
     pub on_track_changed: Vec<Rc<dyn Fn()>>,
+    pub on_open_collection: Option<Rc<dyn Fn(String, Option<String>, Option<Vec<Track>>)>>,
+    pub on_cancel_collection_loading: Option<Rc<dyn Fn()>>,
 }
 
 impl AppState {

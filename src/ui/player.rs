@@ -968,6 +968,8 @@ pub fn restore_last_track(state: Rc<RefCell<AppState>>, position_secs: f64) {
             "non-starred-symbolic"
         });
         s.player_radio_btn.set_sensitive(true);
+        s.play_pause_btn.set_sensitive(true);
+        s.seek_scale.set_sensitive(cached.is_some());
         s.prev_btn.set_sensitive(idx > 0);
         s.next_btn
             .set_sensitive(idx + 1 < s.queue.len() || (s.repeat && !s.queue.is_empty()));

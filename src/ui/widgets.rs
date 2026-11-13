@@ -1,14 +1,13 @@
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
-use adw::prelude::*;
 use gtk4::gdk;
 use gtk4::glib;
 use gtk4::prelude::*;
 use gtk4::{
     Align, Box as GtkBox, Button, ContentFit, CssProvider, Image, Label, ListBox, ListBoxRow,
-    MenuButton, Orientation, Overflow, Picture, PolicyType, Popover, ScrolledWindow,
-    SelectionMode, ToggleButton, Widget,
+    MenuButton, Orientation, Overflow, Picture, PolicyType, Popover, ScrolledWindow, ToggleButton,
+    Widget,
 };
 use libadwaita as adw;
 
@@ -174,6 +173,7 @@ pub fn build_carousel_section(title: &str) -> (GtkBox, GtkBox, ScrolledWindow) {
     (section, cards_box, scroller)
 }
 
+#[allow(dead_code)]
 #[derive(Clone)]
 pub struct PagedCarousel {
     pub carousel: adw::Carousel,
@@ -181,13 +181,15 @@ pub struct PagedCarousel {
     last_per_page: Rc<Cell<usize>>,
 }
 
+#[allow(dead_code)]
 fn calc_carousel_per_page(width: i32) -> usize {
     if width <= 0 {
-        return 4;
+        return 1;
     }
     ((width + 12) / 188).clamp(1, 6) as usize
 }
 
+#[allow(dead_code)]
 fn relayout_paged_carousel(pc: &PagedCarousel, per_page: usize) {
     while pc.carousel.n_pages() > 0 {
         let page = pc.carousel.nth_page(0);
@@ -220,6 +222,7 @@ fn relayout_paged_carousel(pc: &PagedCarousel, per_page: usize) {
     pc.last_per_page.set(per_page);
 }
 
+#[allow(dead_code)]
 pub fn build_paged_carousel_section(title: &str) -> (GtkBox, PagedCarousel) {
     let header_box = GtkBox::new(Orientation::Horizontal, 8);
     let title_label = Label::builder()
@@ -312,6 +315,7 @@ pub fn build_paged_carousel_section(title: &str) -> (GtkBox, PagedCarousel) {
     (section, pc)
 }
 
+#[allow(dead_code)]
 pub fn populate_paged_carousel(pc: &PagedCarousel, section: &GtkBox, cards: Vec<Widget>) {
     while pc.carousel.n_pages() > 0 {
         let page = pc.carousel.nth_page(0);
@@ -486,122 +490,23 @@ pub fn strip_link_markup(markup: &str) -> String {
         .replace("&amp;", "&")
 }
 
-pub fn show_collection_preview_dialog(
+pub fn open_collection_page(
     title: String,
     cover_url: Option<String>,
-    tracks: Vec<Track>,
+    tracks: Option<Vec<Track>>,
     state: Rc<RefCell<AppState>>,
 ) {
-    let dialog = adw::Dialog::builder()
-        .title(&title)
-        .content_width(480)
-        .content_height(560)
-        .build();
-
-    let (cover_frame, cover_pic) = clamped_cover(88, 88, "cover-art");
-    if let Some(url) = cover_url.as_deref() {
-        load_cover_into_picture(&cover_pic, url, Rc::clone(&state));
+    let cb = state.borrow().on_open_collection.clone();
+    if let Some(open_fn) = cb {
+        open_fn(title, cover_url, tracks);
     }
+}
 
-    let title_lbl = Label::builder()
-        .label(&title)
-        .xalign(0.0)
-        .wrap(true)
-        .css_classes(["title-3"])
-        .build();
-    let count_lbl = Label::builder()
-        .label(format!("{} canciones", tracks.len()))
-        .xalign(0.0)
-        .css_classes(["dim-label", "caption"])
-        .build();
-
-    let play_all_btn = Button::builder()
-        .label("Reproducir todo")
-        .css_classes(["suggested-action", "pill"])
-        .build();
-    let add_queue_btn = Button::builder()
-        .label("Añadir a la cola")
-        .css_classes(["pill"])
-        .build();
-
-    let btns_row = GtkBox::new(Orientation::Horizontal, 8);
-    btns_row.append(&play_all_btn);
-    btns_row.append(&add_queue_btn);
-
-    let meta_col = GtkBox::new(Orientation::Vertical, 6);
-    meta_col.set_hexpand(true);
-    meta_col.set_valign(Align::Center);
-    meta_col.append(&title_lbl);
-    meta_col.append(&count_lbl);
-    meta_col.append(&btns_row);
-
-    let hero = GtkBox::new(Orientation::Horizontal, 14);
-    hero.set_margin_top(12);
-    hero.set_margin_bottom(12);
-    hero.set_margin_start(16);
-    hero.set_margin_end(16);
-    hero.append(&cover_frame);
-    hero.append(&meta_col);
-
-    let track_list = ListBox::builder()
-        .selection_mode(SelectionMode::None)
-        .css_classes(["boxed-list"])
-        .margin_start(16)
-        .margin_end(16)
-        .margin_bottom(16)
-        .build();
-    populate_track_list(&track_list, &tracks, &title, Rc::clone(&state));
-
-    let body = GtkBox::new(Orientation::Vertical, 4);
-    body.append(&hero);
-    body.append(&track_list);
-
-    let scroller = ScrolledWindow::builder()
-        .hscrollbar_policy(PolicyType::Never)
-        .vexpand(true)
-        .child(&body)
-        .build();
-
-    let toolbar = adw::ToolbarView::new();
-    toolbar.add_top_bar(&adw::HeaderBar::new());
-    toolbar.set_content(Some(&scroller));
-    dialog.set_child(Some(&toolbar));
-
-    {
-        let state = Rc::clone(&state);
-        let tracks = tracks.clone();
-        let source = title.clone();
-        let dlg = dialog.clone();
-        play_all_btn.connect_clicked(move |_| {
-            {
-                let mut s = state.borrow_mut();
-                s.queue = tracks.clone();
-                s.source_name = source.clone();
-            }
-            play_queue_index(Rc::clone(&state), 0);
-            dlg.close();
-        });
+pub fn cancel_collection_loading(state: &Rc<RefCell<AppState>>) {
+    let cb = state.borrow().on_cancel_collection_loading.clone();
+    if let Some(cancel_fn) = cb {
+        cancel_fn();
     }
-    {
-        let state = Rc::clone(&state);
-        let tracks = tracks.clone();
-        let dlg = dialog.clone();
-        add_queue_btn.connect_clicked(move |_| {
-            let count = tracks.len();
-            {
-                let mut s = state.borrow_mut();
-                s.queue.extend(tracks.clone());
-                s.update_nav_buttons();
-                s.save_session();
-                s.show_toast(&format!("{count} canciones añadidas a la cola"));
-            }
-            refresh_queue_ui(Rc::clone(&state));
-            dlg.close();
-        });
-    }
-
-    let parent: Widget = state.borrow().toast_overlay.clone().upcast();
-    dialog.present(Some(&parent));
 }
 
 fn handle_fetched_queue(
@@ -612,10 +517,16 @@ fn handle_fetched_queue(
 ) {
     match result {
         Ok((source, tracks)) if !tracks.is_empty() => {
-            show_collection_preview_dialog(source, cover_url, tracks, state);
+            open_collection_page(source, cover_url, Some(tracks), state);
         }
-        Ok(_) => state.borrow().show_toast(empty_msg),
-        Err(err) => state.borrow().show_toast(&err),
+        Ok(_) => {
+            cancel_collection_loading(&state);
+            state.borrow().show_toast(empty_msg);
+        }
+        Err(err) => {
+            cancel_collection_loading(&state);
+            state.borrow().show_toast(&err);
+        }
     }
 }
 
@@ -642,9 +553,12 @@ pub fn build_album_card(album: &Album, state: Rc<RefCell<AppState>>) -> Button {
     let album_cover = album.cover_url.clone();
     btn.connect_clicked(move |_| {
         let backend = state.borrow().backend.clone();
-        state
-            .borrow()
-            .show_toast(&format!("Cargando álbum: {album_title}"));
+        open_collection_page(
+            album_title.clone(),
+            album_cover.clone(),
+            None,
+            Rc::clone(&state),
+        );
         let id = album_id.clone();
         let cover = album_cover.clone();
         let state = Rc::clone(&state);
@@ -679,9 +593,12 @@ pub fn build_playlist_card(playlist: &Playlist, state: Rc<RefCell<AppState>>) ->
     let playlist_cover = playlist.cover_url.clone();
     btn.connect_clicked(move |_| {
         let backend = state.borrow().backend.clone();
-        state
-            .borrow()
-            .show_toast(&format!("Cargando playlist: {playlist_name}"));
+        open_collection_page(
+            playlist_name.clone(),
+            playlist_cover.clone(),
+            None,
+            Rc::clone(&state),
+        );
         let id = playlist_id.clone();
         let cover = playlist_cover.clone();
         let state = Rc::clone(&state);
@@ -753,10 +670,11 @@ pub fn build_track_row(
     let duration_str = track
         .duration_secs
         .map(format_duration)
-        .unwrap_or_else(|| String::from("--:--"));
+        .unwrap_or_default();
     let duration_label = Label::builder()
         .label(&duration_str)
         .valign(Align::Center)
+        .visible(track.duration_secs.is_some())
         .css_classes(["dim-label", "caption", "numeric"])
         .build();
 

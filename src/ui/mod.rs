@@ -1,3 +1,4 @@
+pub mod album_page;
 pub mod collection;
 pub mod explore;
 pub mod header_search;
@@ -218,6 +219,8 @@ pub fn build_ui(app: &adw::Application) {
         loading_generation: 0,
         preloading_id: None,
         on_track_changed: Vec::new(),
+        on_open_collection: None,
+        on_cancel_collection_loading: None,
     }));
 
     sb.volume_scale
@@ -275,6 +278,18 @@ pub fn build_ui(app: &adw::Application) {
         "Colección",
         "library-music-symbolic",
     );
+
+    let (album_page, open_album_page, cancel_album_loading) = album_page::build_album_page(
+        Rc::clone(&state),
+        content_view_stack.clone(),
+        Rc::clone(&explore_actions.open_artist),
+    );
+    content_view_stack.add_named(&album_page, Some("album"));
+    {
+        let mut s = state.borrow_mut();
+        s.on_open_collection = Some(open_album_page);
+        s.on_cancel_collection_loading = Some(cancel_album_loading);
+    }
 
     let (search_focus_ctrl, search_popover, allow_search_focus) = wire_search_popover(
         Rc::clone(&state),
