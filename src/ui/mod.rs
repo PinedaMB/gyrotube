@@ -5,7 +5,7 @@ pub mod player;
 pub mod state;
 pub mod widgets;
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
 
@@ -295,6 +295,24 @@ pub fn build_ui(app: &adw::Application) {
         .child(&lyrics_box)
         .build();
 
+    let lyrics_resync_btn = Button::builder()
+        .halign(Align::Center)
+        .valign(Align::End)
+        .margin_bottom(14)
+        .visible(false)
+        .css_classes(["suggested-action", "pill", "lyrics-resync-btn"])
+        .build();
+    let resync_content = GtkBox::new(Orientation::Horizontal, 6);
+    resync_content.append(&Image::from_icon_name("go-down-symbolic"));
+    resync_content.append(&Label::new(Some("Volver a la letra")));
+    lyrics_resync_btn.set_child(Some(&resync_content));
+
+    let lyrics_overlay = gtk4::Overlay::builder()
+        .vexpand(true)
+        .child(&lyrics_scroll)
+        .build();
+    lyrics_overlay.add_overlay(&lyrics_resync_btn);
+
     // Sidebar Queue View
     let queue_list = ListBox::builder()
         .selection_mode(SelectionMode::None)
@@ -348,7 +366,7 @@ pub fn build_ui(app: &adw::Application) {
         .vexpand(true)
         .build();
     sidebar_stack.add_named(&player_view, Some("player"));
-    sidebar_stack.add_named(&lyrics_scroll, Some("lyrics"));
+    sidebar_stack.add_named(&lyrics_overlay, Some("lyrics"));
     sidebar_stack.add_named(&queue_scroll, Some("queue"));
 
     // Bottom 3-tab switcher in sidebar
@@ -512,33 +530,28 @@ pub fn build_ui(app: &adw::Application) {
         .css_classes(["boxed-list"])
         .visible(false)
         .build();
-    let favorites_empty_label = Label::builder()
-        .label("Aún no tienes canciones favoritas.\nPulsa el ícono de estrella en cualquier canción para guardarla.")
-        .justify(Justification::Center)
-        .margin_top(48)
-        .css_classes(["dim-label"])
-        .build();
+    let favorites_empty_label = crate::ui::widgets::empty_state_card(
+        "starred-symbolic",
+        "Aún no tienes canciones favoritas",
+        "Pulsa el ícono de estrella en cualquier canción para guardarla.",
+    );
 
     let recent_list = ListBox::builder()
         .selection_mode(SelectionMode::None)
         .css_classes(["boxed-list"])
         .build();
-    let recent_empty_label = Label::builder()
-        .label("Aún no has reproducido canciones.")
-        .justify(Justification::Center)
-        .margin_top(16)
-        .margin_bottom(16)
-        .css_classes(["dim-label"])
-        .build();
+    let recent_empty_label = crate::ui::widgets::empty_state_card(
+        "document-open-recent-symbolic",
+        "Sin historial reciente",
+        "Las canciones que reproduzcas aparecerán aquí.",
+    );
 
     let playlists_box = GtkBox::new(Orientation::Vertical, 8);
-    let playlists_empty_label = Label::builder()
-        .label("No tienes playlists locales. Crea una arriba para organizar tus canciones.")
-        .justify(Justification::Center)
-        .margin_top(16)
-        .margin_bottom(16)
-        .css_classes(["dim-label"])
-        .build();
+    let playlists_empty_label = crate::ui::widgets::empty_state_card(
+        "folder-music-symbolic",
+        "No tienes playlists locales",
+        "Escribe un nombre arriba y pulsa Crear para organizar tus canciones.",
+    );
 
     let state = Rc::new(RefCell::new(AppState {
         backend: backend.clone(),
@@ -580,9 +593,12 @@ pub fn build_ui(app: &adw::Application) {
         lyrics_sync_badge,
         lyrics_body_label,
         lyrics_box: lyrics_lines_box,
-        lyrics_scroll,
+        lyrics_scroll: lyrics_scroll.clone(),
+        lyrics_resync_btn: lyrics_resync_btn.clone(),
         synced_lyrics: Vec::new(),
         active_lyric_idx: None,
+        lyrics_auto_scroll: true,
+        lyrics_programmatic_scroll: Rc::new(Cell::new(false)),
         lyrics_loaded_for: None,
         queue_list,
         queue_empty_label,
@@ -598,6 +614,32 @@ pub fn build_ui(app: &adw::Application) {
         loading_generation: 0,
         on_track_changed: Vec::new(),
     }));
+
+    {
+        let state = Rc::clone(&state);
+        lyrics_scroll
+            .vadjustment()
+            .connect_value_changed(move |_| {
+                if let Ok(mut s) = state.try_borrow_mut() {
+                    if s.lyrics_programmatic_scroll.get() || s.synced_lyrics.is_empty() {
+                        return;
+                    }
+                    if s.lyrics_auto_scroll {
+                        s.lyrics_auto_scroll = false;
+                        s.lyrics_resync_btn.set_visible(true);
+                    }
+                }
+            });
+    }
+    {
+        let state = Rc::clone(&state);
+        lyrics_resync_btn.connect_clicked(move |_| {
+            let mut s = state.borrow_mut();
+            s.lyrics_auto_scroll = true;
+            s.lyrics_resync_btn.set_visible(false);
+            crate::ui::player::scroll_to_active_lyric(&s);
+        });
+    }
 
     // Build right-pane pages
     let home_page = build_home_page(Rc::clone(&state), content_view_stack.clone());
@@ -892,6 +934,24 @@ pub fn build_ui(app: &adw::Application) {
                 load_current_lyrics(Rc::clone(&state));
             }
         });
+    }
+    {
+        let state_cb = Rc::clone(&state);
+        let tab_lyrics = tab_lyrics.clone();
+        state
+            .borrow_mut()
+            .on_track_changed
+            .push(Rc::new(move || {
+                if tab_lyrics.is_active() {
+                    load_current_lyrics(Rc::clone(&state_cb));
+                } else {
+                    let mut s = state_cb.borrow_mut();
+                    s.synced_lyrics.clear();
+                    s.active_lyric_idx = None;
+                    s.lyrics_loaded_for = None;
+                    s.lyrics_resync_btn.set_visible(false);
+                }
+            }));
     }
     {
         let sidebar_stack = sidebar_stack.clone();

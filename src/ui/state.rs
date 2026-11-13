@@ -1,3 +1,4 @@
+use std::cell::Cell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
@@ -56,19 +57,22 @@ pub struct AppState {
     pub lyrics_body_label: Label,
     pub lyrics_box: GtkBox,
     pub lyrics_scroll: ScrolledWindow,
+    pub lyrics_resync_btn: Button,
     pub synced_lyrics: Vec<(f64, Button)>,
     pub active_lyric_idx: Option<usize>,
+    pub lyrics_auto_scroll: bool,
+    pub lyrics_programmatic_scroll: Rc<Cell<bool>>,
     pub lyrics_loaded_for: Option<String>,
     pub queue_list: ListBox,
     pub queue_empty_label: Label,
     pub queue_title_label: Label,
     // Collection (favorites, recent, custom playlists) widgets
     pub favorites_list: ListBox,
-    pub favorites_empty_label: Label,
+    pub favorites_empty_label: GtkBox,
     pub recent_list: ListBox,
-    pub recent_empty_label: Label,
+    pub recent_empty_label: GtkBox,
     pub playlists_box: GtkBox,
-    pub playlists_empty_label: Label,
+    pub playlists_empty_label: GtkBox,
     pub mpris: Option<MprisController>,
     pub pending_autoplay: bool,
     pub loading_generation: u64,

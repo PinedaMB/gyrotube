@@ -151,6 +151,8 @@ pub fn load_current_lyrics(state: Rc<RefCell<AppState>>) {
             clear_box(&s.lyrics_box);
             s.synced_lyrics.clear();
             s.active_lyric_idx = None;
+            s.lyrics_auto_scroll = true;
+            s.lyrics_resync_btn.set_visible(false);
             s.lyrics_loaded_for = None;
             s.lyrics_title_label.set_label("Letras");
             s.lyrics_artist_label.set_visible(false);
@@ -166,6 +168,8 @@ pub fn load_current_lyrics(state: Rc<RefCell<AppState>>) {
         clear_box(&s.lyrics_box);
         s.synced_lyrics.clear();
         s.active_lyric_idx = None;
+        s.lyrics_auto_scroll = true;
+        s.lyrics_resync_btn.set_visible(false);
         s.lyrics_title_label.set_label(&track.title);
         s.lyrics_artist_label.set_label(&track.artist);
         s.lyrics_artist_label.set_visible(!track.artist.is_empty());
@@ -208,7 +212,9 @@ pub fn load_current_lyrics(state: Rc<RefCell<AppState>>) {
                             let state_click = Rc::clone(&state);
                             let time_secs = line.time_secs;
                             btn.connect_clicked(move |_| {
-                                let s = state_click.borrow();
+                                let mut s = state_click.borrow_mut();
+                                s.lyrics_auto_scroll = true;
+                                s.lyrics_resync_btn.set_visible(false);
                                 let media = s.active_media().clone();
                                 let target_us = (time_secs * 1_000_000.0) as i64;
                                 media.seek(target_us);
@@ -240,6 +246,20 @@ pub fn load_current_lyrics(state: Rc<RefCell<AppState>>) {
     });
 }
 
+pub fn scroll_to_active_lyric(s: &AppState) {
+    if let Some(idx) = s.active_lyric_idx
+        && let Some((_, btn)) = s.synced_lyrics.get(idx)
+        && let Some(bounds) = btn.compute_bounds(&s.lyrics_box)
+    {
+        let adj = s.lyrics_scroll.vadjustment();
+        let target = (bounds.y() as f64 - adj.page_size() * 0.35)
+            .clamp(0.0, (adj.upper() - adj.page_size()).max(0.0));
+        s.lyrics_programmatic_scroll.set(true);
+        adj.set_value(target);
+        s.lyrics_programmatic_scroll.set(false);
+    }
+}
+
 fn update_synced_lyrics_position(s: &mut AppState, pos_secs_exact: f64) {
     if s.synced_lyrics.is_empty() {
         return;
@@ -258,14 +278,11 @@ fn update_synced_lyrics_position(s: &mut AppState, pos_secs_exact: f64) {
             && let Some((_, btn)) = s.synced_lyrics.get(idx)
         {
             btn.add_css_class("lyric-line-active");
-            if let Some(bounds) = btn.compute_bounds(&s.lyrics_box) {
-                let adj = s.lyrics_scroll.vadjustment();
-                let target = (bounds.y() as f64 - adj.page_size() * 0.35)
-                    .clamp(0.0, (adj.upper() - adj.page_size()).max(0.0));
-                adj.set_value(target);
-            }
         }
         s.active_lyric_idx = new_idx;
+        if s.lyrics_auto_scroll {
+            scroll_to_active_lyric(s);
+        }
     }
 }
 

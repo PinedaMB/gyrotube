@@ -31,6 +31,40 @@ pub fn clear_list_box(list: &ListBox) {
     }
 }
 
+pub fn empty_state_card(icon_name: &str, title: &str, subtitle: &str) -> GtkBox {
+    let card = GtkBox::builder()
+        .orientation(Orientation::Vertical)
+        .spacing(6)
+        .halign(Align::Fill)
+        .css_classes(["empty-state-card"])
+        .build();
+
+    let icon = Image::builder()
+        .icon_name(icon_name)
+        .pixel_size(28)
+        .halign(Align::Center)
+        .margin_bottom(2)
+        .css_classes(["empty-state-icon"])
+        .build();
+    let title_lbl = Label::builder()
+        .label(title)
+        .halign(Align::Center)
+        .css_classes(["heading"])
+        .build();
+    let sub_lbl = Label::builder()
+        .label(subtitle)
+        .halign(Align::Center)
+        .wrap(true)
+        .justify(gtk4::Justification::Center)
+        .css_classes(["dim-label", "caption"])
+        .build();
+
+    card.append(&icon);
+    card.append(&title_lbl);
+    card.append(&sub_lbl);
+    card
+}
+
 pub fn build_skeleton_box(width: i32, height: i32) -> GtkBox {
     let b = GtkBox::builder()
         .width_request(width)

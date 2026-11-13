@@ -159,6 +159,14 @@ pub fn build_collection_page(state: Rc<RefCell<AppState>>) -> ScrolledWindow {
         let s = state.borrow();
         (s.recent_list.clone(), s.recent_empty_label.clone())
     };
+    recent_list
+        .bind_property("visible", &play_recent_btn, "visible")
+        .sync_create()
+        .build();
+    recent_list
+        .bind_property("visible", &clear_recent_btn, "visible")
+        .sync_create()
+        .build();
     container.append(&recent_empty_label);
     container.append(&recent_list);
 
@@ -203,6 +211,10 @@ pub fn build_collection_page(state: Rc<RefCell<AppState>>) -> ScrolledWindow {
         let s = state.borrow();
         (s.favorites_list.clone(), s.favorites_empty_label.clone())
     };
+    favorites_list
+        .bind_property("visible", &play_fav_btn, "visible")
+        .sync_create()
+        .build();
     container.append(&favorites_empty_label);
     container.append(&favorites_list);
 

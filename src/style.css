@@ -393,3 +393,19 @@
     color: @accent_color;
     background-color: alpha(@accent_bg_color, 0.16);
 }
+
+.lyrics-resync-btn {
+    padding: 6px 14px;
+    box-shadow: 0 4px 12px alpha(#000000, 0.45);
+}
+
+.empty-state-card {
+    background-color: alpha(@window_fg_color, 0.035);
+    border: 1px solid alpha(@window_fg_color, 0.06);
+    border-radius: 12px;
+    padding: 22px 20px;
+}
+
+.empty-state-icon {
+    opacity: 0.45;
+}
