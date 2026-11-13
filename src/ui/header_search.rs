@@ -1,0 +1,436 @@
+use std::cell::{Cell, RefCell};
+use std::rc::Rc;
+
+use gtk4::glib;
+use gtk4::prelude::*;
+use gtk4::{
+    Align, Box as GtkBox, Button, Image, Label, MenuButton, Orientation, Popover, SearchEntry,
+};
+use libadwaita as adw;
+
+use crate::models::save_search_history;
+use crate::ui::state::AppState;
+use crate::ui::widgets::spawn_bg;
+
+pub struct HeaderWidgets {
+    pub header_bar: adw::HeaderBar,
+    pub brand_title: Label,
+    pub brand_badge: Label,
+    pub search_entry: SearchEntry,
+}
+
+pub fn build_header_bar(content_view_stack: &adw::ViewStack) -> HeaderWidgets {
+    let brand_icon = Image::builder()
+        .icon_name("media-playback-start-symbolic")
+        .pixel_size(14)
+        .halign(Align::Center)
+        .valign(Align::Center)
+        .build();
+    let brand_icon_box = GtkBox::new(Orientation::Horizontal, 0);
+    brand_icon_box.add_css_class("brand-icon");
+    brand_icon_box.set_halign(Align::Center);
+    brand_icon_box.set_valign(Align::Center);
+    brand_icon_box.append(&brand_icon);
+
+    let brand_title = Label::builder()
+        .label("GyroTube")
+        .css_classes(["brand-title"])
+        .build();
+    let brand_badge = Label::builder()
+        .label("Música")
+        .css_classes(["brand-badge"])
+        .build();
+
+    let brand_box = GtkBox::new(Orientation::Horizontal, 8);
+    brand_box.set_valign(Align::Center);
+    brand_box.append(&brand_icon_box);
+    brand_box.append(&brand_title);
+    brand_box.append(&brand_badge);
+
+    let search_entry = SearchEntry::builder()
+        .placeholder_text("Buscar canciones, álbumes, artistas…")
+        .width_chars(8)
+        .hexpand(true)
+        .can_focus(false)
+        .css_classes(["header-search"])
+        .build();
+    let top_search_clamp = adw::Clamp::builder()
+        .maximum_size(360)
+        .child(&search_entry)
+        .build();
+
+    let nav_home_btn = Button::builder()
+        .label("Inicio")
+        .css_classes(["flat"])
+        .build();
+    let nav_explore_btn = Button::builder()
+        .label("Explorar")
+        .css_classes(["flat"])
+        .build();
+    let nav_collection_btn = Button::builder()
+        .label("Colección")
+        .css_classes(["flat"])
+        .build();
+
+    let menu_box = GtkBox::new(Orientation::Vertical, 4);
+    menu_box.set_margin_top(6);
+    menu_box.set_margin_bottom(6);
+    menu_box.set_margin_start(6);
+    menu_box.set_margin_end(6);
+    menu_box.append(&nav_home_btn);
+    menu_box.append(&nav_explore_btn);
+    menu_box.append(&nav_collection_btn);
+
+    let profile_popover = Popover::builder().child(&menu_box).build();
+    let profile_btn = MenuButton::builder()
+        .icon_name("avatar-default-symbolic")
+        .tooltip_text("Menú de GyroTube")
+        .popover(&profile_popover)
+        .css_classes(["profile-pill"])
+        .build();
+
+    for (btn, page) in [
+        (&nav_home_btn, "home"),
+        (&nav_explore_btn, "explore"),
+        (&nav_collection_btn, "collection"),
+    ] {
+        let stack = content_view_stack.clone();
+        let pop = profile_popover.clone();
+        btn.connect_clicked(move |_| {
+            stack.set_visible_child_name(page);
+            pop.popdown();
+        });
+    }
+
+    let header_bar = adw::HeaderBar::builder()
+        .centering_policy(adw::CenteringPolicy::Loose)
+        .title_widget(&top_search_clamp)
+        .build();
+    header_bar.pack_start(&brand_box);
+    header_bar.pack_end(&profile_btn);
+
+    HeaderWidgets {
+        header_bar,
+        brand_title,
+        brand_badge,
+        search_entry,
+    }
+}
+
+pub fn wire_search_popover(
+    state: Rc<RefCell<AppState>>,
+    top_search_entry: &SearchEntry,
+    content_view_stack: &adw::ViewStack,
+    trigger_explore_search: Rc<dyn Fn(&str)>,
+) -> (gtk4::EventControllerFocus, Popover, Rc<Cell<bool>>) {
+    let search_popover = Popover::builder().autohide(false).can_focus(false).build();
+    search_popover.set_parent(top_search_entry);
+    let debounce_id: Rc<RefCell<Option<glib::SourceId>>> = Rc::new(RefCell::new(None));
+    let suggest_gen: Rc<RefCell<u64>> = Rc::new(RefCell::new(0));
+    let suppress_suggest: Rc<Cell<bool>> = Rc::new(Cell::new(false));
+    let allow_search_focus: Rc<Cell<bool>> = Rc::new(Cell::new(false));
+
+    // Only allow focus on the search bar when explicitly clicked (or Ctrl+F)
+    {
+        let click = gtk4::GestureClick::builder()
+            .propagation_phase(gtk4::PropagationPhase::Capture)
+            .button(0)
+            .build();
+        let entry_click = top_search_entry.clone();
+        let allow_click = Rc::clone(&allow_search_focus);
+        click.connect_pressed(move |_, _, _, _| {
+            allow_click.set(true);
+            entry_click.set_can_focus(true);
+            entry_click.grab_focus();
+        });
+        top_search_entry.add_controller(click);
+    }
+
+    let run_header_search: Rc<dyn Fn(&str)> = {
+        let content_view_stack = content_view_stack.clone();
+        let top_entry_focus = top_search_entry.clone();
+        let state = Rc::clone(&state);
+        let search_popover = search_popover.clone();
+        let debounce_id = Rc::clone(&debounce_id);
+        let suggest_gen = Rc::clone(&suggest_gen);
+        let allow_run = Rc::clone(&allow_search_focus);
+        Rc::new(move |query: &str| {
+            let trimmed = query.trim();
+            if trimmed.is_empty() {
+                return;
+            }
+            if let Some(id) = debounce_id.borrow_mut().take() {
+                id.remove();
+            }
+            *suggest_gen.borrow_mut() += 1;
+            {
+                let mut s = state.borrow_mut();
+                s.search_history.retain(|q| !q.eq_ignore_ascii_case(trimmed));
+                s.search_history.insert(0, trimmed.to_string());
+                s.search_history.truncate(8);
+                save_search_history(&s.search_history);
+            }
+            allow_run.set(false);
+            top_entry_focus.set_can_focus(false);
+            search_popover.popdown();
+            if let Some(root) = top_entry_focus.root() {
+                root.set_focus(None::<&gtk4::Widget>);
+            }
+            content_view_stack.set_visible_child_name("explore");
+            trigger_explore_search(trimmed);
+        })
+    };
+
+    let show_search_popover = {
+        let search_popover = search_popover.clone();
+        let top_entry_ref = top_search_entry.clone();
+        let run_header_search = Rc::clone(&run_header_search);
+        let suppress_suggest = Rc::clone(&suppress_suggest);
+        move |heading_text: &str, icon_name: &str, items: Vec<String>| {
+            if items.is_empty() {
+                search_popover.popdown();
+                return;
+            }
+            let box_hist = GtkBox::new(Orientation::Vertical, 4);
+            box_hist.set_margin_top(6);
+            box_hist.set_margin_bottom(6);
+            box_hist.set_margin_start(6);
+            box_hist.set_margin_end(6);
+            box_hist.set_width_request(300);
+            box_hist.append(
+                &Label::builder()
+                    .label(heading_text)
+                    .xalign(0.0)
+                    .margin_start(6)
+                    .css_classes(["dim-label", "caption"])
+                    .build(),
+            );
+            for term in items {
+                let row = GtkBox::new(Orientation::Horizontal, 8);
+                row.append(&Image::from_icon_name(icon_name));
+                row.append(
+                    &Label::builder()
+                        .label(&term)
+                        .xalign(0.0)
+                        .hexpand(true)
+                        .ellipsize(gtk4::pango::EllipsizeMode::End)
+                        .build(),
+                );
+                let item = Button::builder()
+                    .child(&row)
+                    .can_focus(false)
+                    .focus_on_click(false)
+                    .css_classes(["flat", "search-popover-row"])
+                    .build();
+                let top_entry = top_entry_ref.clone();
+                let run_fn = Rc::clone(&run_header_search);
+                let suppress = Rc::clone(&suppress_suggest);
+                let term_clone = term.clone();
+                item.connect_clicked(move |_| {
+                    suppress.set(true);
+                    top_entry.set_text(&term_clone);
+                    suppress.set(false);
+                    run_fn(&term_clone);
+                });
+                box_hist.append(&item);
+            }
+            search_popover.set_child(Some(&box_hist));
+            if !search_popover.is_visible() {
+                search_popover.popup();
+            }
+        }
+    };
+
+    let search_focus_ctrl = gtk4::EventControllerFocus::new();
+    let schedule_suggestions = {
+        let state = Rc::clone(&state);
+        let show_search_popover = show_search_popover.clone();
+        let search_popover = search_popover.clone();
+        let debounce_id = Rc::clone(&debounce_id);
+        let suggest_gen = Rc::clone(&suggest_gen);
+        let focus_ctrl = search_focus_ctrl.clone();
+        move |entry: &SearchEntry, delay_ms: u64| {
+            if let Some(id) = debounce_id.borrow_mut().take() {
+                id.remove();
+            }
+            let current_gen = {
+                let mut g = suggest_gen.borrow_mut();
+                *g += 1;
+                *g
+            };
+
+            let text = entry.text().trim().to_string();
+            if text.is_empty() {
+                let history = state.borrow().search_history.clone();
+                show_search_popover("Búsquedas recientes", "document-open-recent-symbolic", history);
+                return;
+            }
+            if text.chars().count() < 2 {
+                search_popover.popdown();
+                return;
+            }
+
+            let state = Rc::clone(&state);
+            let show_search_popover = show_search_popover.clone();
+            let suggest_gen_ref = Rc::clone(&suggest_gen);
+            let debounce_id_ref = Rc::clone(&debounce_id);
+            let entry_clone = entry.clone();
+            let focus_ctrl_ref = focus_ctrl.clone();
+
+            let id = glib::timeout_add_local_once(
+                std::time::Duration::from_millis(delay_ms),
+                move || {
+                    *debounce_id_ref.borrow_mut() = None;
+                    if *suggest_gen_ref.borrow() != current_gen
+                        || !(entry_clone.has_focus() || focus_ctrl_ref.contains_focus())
+                    {
+                        return;
+                    }
+                    let backend = state.borrow().backend.clone();
+                    let query = text.clone();
+                    let show_search_popover = show_search_popover.clone();
+                    let suggest_gen_ref = Rc::clone(&suggest_gen_ref);
+                    let entry_inner = entry_clone.clone();
+                    let focus_ctrl_rx = focus_ctrl_ref.clone();
+                    spawn_bg(
+                        move || async move { backend.search_suggestions(&query).await },
+                        move |res| {
+                            if let Ok(terms) = res
+                                && *suggest_gen_ref.borrow() == current_gen
+                                && (entry_inner.has_focus() || focus_ctrl_rx.contains_focus())
+                                && !entry_inner.text().trim().is_empty()
+                            {
+                                show_search_popover(
+                                    "Sugerencias",
+                                    "system-search-symbolic",
+                                    terms,
+                                );
+                            }
+                        },
+                    );
+                },
+            );
+            *debounce_id.borrow_mut() = Some(id);
+        }
+    };
+
+    {
+        let run_header_search = Rc::clone(&run_header_search);
+        top_search_entry.connect_activate(move |entry| {
+            let text = entry.text().to_string();
+            run_header_search(&text);
+        });
+    }
+    {
+        let search_popover = search_popover.clone();
+        let debounce_id = Rc::clone(&debounce_id);
+        let suggest_gen = Rc::clone(&suggest_gen);
+        let allow_stop = Rc::clone(&allow_search_focus);
+        top_search_entry.connect_stop_search(move |entry| {
+            if let Some(id) = debounce_id.borrow_mut().take() {
+                id.remove();
+            }
+            *suggest_gen.borrow_mut() += 1;
+            allow_stop.set(false);
+            entry.set_can_focus(false);
+            search_popover.popdown();
+            if let Some(root) = entry.root() {
+                root.set_focus(None::<&gtk4::Widget>);
+            }
+        });
+    }
+    {
+        let schedule_enter = schedule_suggestions.clone();
+        let top_entry_enter = top_search_entry.clone();
+        search_focus_ctrl.connect_enter(move |_| {
+            schedule_enter(&top_entry_enter, 80);
+        });
+        let popover_leave = search_popover.clone();
+        let top_entry_leave = top_search_entry.clone();
+        let focus_ctrl_leave = search_focus_ctrl.clone();
+        let allow_leave = Rc::clone(&allow_search_focus);
+        search_focus_ctrl.connect_leave(move |_| {
+            let pop = popover_leave.clone();
+            let entry = top_entry_leave.clone();
+            let fc = focus_ctrl_leave.clone();
+            let allow = Rc::clone(&allow_leave);
+            glib::timeout_add_local_once(std::time::Duration::from_millis(120), move || {
+                if !(entry.has_focus() || fc.contains_focus()) {
+                    allow.set(false);
+                    entry.set_can_focus(false);
+                    pop.popdown();
+                }
+            });
+        });
+        top_search_entry.add_controller(search_focus_ctrl.clone());
+    }
+    {
+        let suppress_suggest = Rc::clone(&suppress_suggest);
+        let focus_ctrl = search_focus_ctrl.clone();
+        let schedule_changed = schedule_suggestions.clone();
+        top_search_entry.connect_search_changed(move |entry| {
+            if suppress_suggest.get() || !(entry.has_focus() || focus_ctrl.contains_focus()) {
+                return;
+            }
+            schedule_changed(entry, 320);
+        });
+    }
+
+    (search_focus_ctrl, search_popover, allow_search_focus)
+}
+
+pub fn install_unfocus_on_click(
+    window: &adw::ApplicationWindow,
+    search_entry: &SearchEntry,
+    focus_ctrl: &gtk4::EventControllerFocus,
+    search_popover: &Popover,
+    allow_search_focus: &Rc<Cell<bool>>,
+) {
+    // Reject any automatic GTK focus (startup, resize, Tab fallback) unless explicitly allowed
+    {
+        let entry_guard = search_entry.clone();
+        let allow_guard = Rc::clone(allow_search_focus);
+        window.connect_focus_widget_notify(move |win| {
+            if allow_guard.get() {
+                return;
+            }
+            let focused_search = GtkWindowExt::focus(win).is_some_and(|w| {
+                &w == entry_guard.upcast_ref::<gtk4::Widget>() || w.is_ancestor(&entry_guard)
+            });
+            if focused_search {
+                entry_guard.set_can_focus(false);
+                GtkWindowExt::set_focus(win, None::<&gtk4::Widget>);
+            }
+        });
+    }
+
+    let click = gtk4::GestureClick::builder()
+        .propagation_phase(gtk4::PropagationPhase::Capture)
+        .button(0)
+        .build();
+    let win_ref = window.clone();
+    let entry_ref = search_entry.clone();
+    let fc_ref = focus_ctrl.clone();
+    let pop_ref = search_popover.clone();
+    let allow_ref = Rc::clone(allow_search_focus);
+    click.connect_pressed(move |_, _, x, y| {
+        if !(entry_ref.has_focus() || fc_ref.contains_focus()) {
+            return;
+        }
+        let clicked_inside_search = win_ref
+            .pick(x, y, gtk4::PickFlags::DEFAULT)
+            .is_some_and(|w| {
+                &w == entry_ref.upcast_ref::<gtk4::Widget>()
+                    || w.is_ancestor(&entry_ref)
+                    || &w == pop_ref.upcast_ref::<gtk4::Widget>()
+                    || w.is_ancestor(&pop_ref)
+            });
+        if !clicked_inside_search {
+            allow_ref.set(false);
+            entry_ref.set_can_focus(false);
+            pop_ref.popdown();
+            GtkWindowExt::set_focus(&win_ref, None::<&gtk4::Widget>);
+        }
+    });
+    window.add_controller(click);
+}

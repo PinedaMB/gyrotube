@@ -19,6 +19,25 @@ use crate::ui::collection::{refresh_favorites_ui, refresh_playlists_ui, refresh_
 use crate::ui::player::{play_queue_index, refresh_queue_ui};
 use crate::ui::state::AppState;
 
+pub fn spawn_bg<F, Fut, T, C>(work: F, on_done: C)
+where
+    F: FnOnce() -> Fut + Send + 'static,
+    Fut: std::future::Future<Output = T> + Send + 'static,
+    T: Send + 'static,
+    C: FnOnce(T) + 'static,
+{
+    let (tx, rx) = async_channel::bounded(1);
+    runtime().spawn(async move {
+        let res = work().await;
+        let _ = tx.send(res).await;
+    });
+    glib::spawn_future_local(async move {
+        if let Ok(val) = rx.recv().await {
+            on_done(val);
+        }
+    });
+}
+
 pub fn clear_box(container: &GtkBox) {
     while let Some(child) = container.first_child() {
         container.remove(&child);
@@ -156,7 +175,6 @@ pub fn build_carousel_section(title: &str) -> (GtkBox, GtkBox, ScrolledWindow) {
 #[derive(Clone)]
 pub struct PagedCarousel {
     pub carousel: adw::Carousel,
-    viewport: ScrolledWindow,
     cards: Rc<RefCell<Vec<Widget>>>,
     last_per_page: Rc<Cell<usize>>,
 }
@@ -227,14 +245,10 @@ pub fn build_paged_carousel_section(title: &str) -> (GtkBox, PagedCarousel) {
     let carousel = adw::Carousel::builder()
         .spacing(12)
         .hexpand(true)
+        .vexpand(false)
+        .valign(Align::Start)
         .allow_mouse_drag(true)
         .allow_scroll_wheel(false)
-        .build();
-    let viewport = ScrolledWindow::builder()
-        .hscrollbar_policy(PolicyType::External)
-        .vscrollbar_policy(PolicyType::Never)
-        .hexpand(true)
-        .child(&carousel)
         .build();
     let dots = adw::CarouselIndicatorDots::builder()
         .carousel(&carousel)
@@ -267,7 +281,6 @@ pub fn build_paged_carousel_section(title: &str) -> (GtkBox, PagedCarousel) {
 
     let pc = PagedCarousel {
         carousel: carousel.clone(),
-        viewport: viewport.clone(),
         cards: Rc::new(RefCell::new(Vec::new())),
         last_per_page: Rc::new(Cell::new(0)),
     };
@@ -275,8 +288,8 @@ pub fn build_paged_carousel_section(title: &str) -> (GtkBox, PagedCarousel) {
     {
         let pc_tick = pc.clone();
         let last_width = Cell::new(0i32);
-        viewport.add_tick_callback(move |vp, _| {
-            let w = vp.width();
+        carousel.add_tick_callback(move |c, _| {
+            let w = c.width();
             if w > 0 && w != last_width.get() {
                 last_width.set(w);
                 let per_page = calc_carousel_per_page(w);
@@ -291,7 +304,7 @@ pub fn build_paged_carousel_section(title: &str) -> (GtkBox, PagedCarousel) {
     let section = GtkBox::new(Orientation::Vertical, 10);
     section.set_visible(false);
     section.append(&header_box);
-    section.append(&viewport);
+    section.append(&carousel);
     section.append(&dots);
 
     (section, pc)
@@ -308,7 +321,7 @@ pub fn populate_paged_carousel(pc: &PagedCarousel, section: &GtkBox, cards: Vec<
     let has_items = !cards.is_empty();
     *pc.cards.borrow_mut() = cards;
     if has_items {
-        let per_page = calc_carousel_per_page(pc.viewport.width());
+        let per_page = calc_carousel_per_page(pc.carousel.width());
         relayout_paged_carousel(pc, per_page);
     } else {
         pc.last_per_page.set(0);
@@ -316,12 +329,19 @@ pub fn populate_paged_carousel(pc: &PagedCarousel, section: &GtkBox, cards: Vec<
     section.set_visible(has_items);
 }
 
-pub fn build_album_card(album: &Album, state: Rc<RefCell<AppState>>) -> Button {
+fn build_media_card(
+    cover_url: Option<&str>,
+    badge: Option<(&str, &[&str])>,
+    title: &str,
+    subtitle: &str,
+    meta: Option<&str>,
+    state: &Rc<RefCell<AppState>>,
+) -> Button {
     let (cover_frame, cover) = clamped_cover(156, 156, "cover-art");
     cover_frame.set_halign(Align::Center);
 
-    if let Some(url) = &album.cover_url {
-        load_cover_into_picture(&cover, url, Rc::clone(&state));
+    if let Some(url) = cover_url {
+        load_cover_into_picture(&cover, url, Rc::clone(state));
     }
 
     let play_icon = Image::builder()
@@ -345,143 +365,21 @@ pub fn build_album_card(album: &Album, state: Rc<RefCell<AppState>>) -> Button {
     let cover_overlay = gtk4::Overlay::new();
     cover_overlay.set_halign(Align::Center);
     cover_overlay.set_child(Some(&cover_frame));
-    cover_overlay.add_overlay(&play_overlay_badge);
-
-    if let Some(year) = album.year {
-        let year_badge = Label::builder()
-            .label(&year.to_string())
+    if let Some((badge_text, classes)) = badge {
+        let badge_label = Label::builder()
+            .label(badge_text)
             .halign(Align::Start)
             .valign(Align::Start)
             .margin_start(8)
             .margin_top(8)
-            .css_classes(["album-year-badge", "numeric"])
+            .css_classes(classes.to_vec())
             .build();
-        cover_overlay.add_overlay(&year_badge);
+        cover_overlay.add_overlay(&badge_label);
     }
-
-    let title_label = Label::builder()
-        .label(&album.title)
-        .xalign(0.0)
-        .ellipsize(gtk4::pango::EllipsizeMode::End)
-        .max_width_chars(18)
-        .css_classes(["heading", "album-title"])
-        .build();
-
-    let artist_label = Label::builder()
-        .label(&album.artist)
-        .xalign(0.0)
-        .ellipsize(gtk4::pango::EllipsizeMode::End)
-        .max_width_chars(18)
-        .css_classes(["dim-label", "caption"])
-        .build();
-
-    let meta_text = match album.year {
-        Some(y) => format!("Álbum • {y}"),
-        None => String::from("Álbum"),
-    };
-    let meta_label = Label::builder()
-        .label(&meta_text)
-        .xalign(0.0)
-        .ellipsize(gtk4::pango::EllipsizeMode::End)
-        .css_classes(["dim-label", "caption"])
-        .build();
-    meta_label.set_opacity(0.75);
-
-    let text_box = GtkBox::new(Orientation::Vertical, 2);
-    text_box.append(&title_label);
-    text_box.append(&artist_label);
-    text_box.append(&meta_label);
-
-    let card_box = GtkBox::new(Orientation::Vertical, 10);
-    card_box.append(&cover_overlay);
-    card_box.append(&text_box);
-
-    let btn = Button::builder()
-        .child(&card_box)
-        .css_classes(["flat", "album-featured-card"])
-        .build();
-    btn.set_cursor_from_name(Some("pointer"));
-
-    let album_id = album.id.clone();
-    let album_title = album.title.clone();
-    btn.connect_clicked(move |_| {
-        let backend = state.borrow().backend.clone();
-        state
-            .borrow()
-            .show_toast(&format!("Cargando álbum: {album_title}"));
-
-        let (tx, rx) = async_channel::bounded(1);
-        let id = album_id.clone();
-        runtime().spawn(async move {
-            let res = backend.fetch_album_tracks(&id).await;
-            let _ = tx.send(res).await;
-        });
-
-        let state = Rc::clone(&state);
-        glib::spawn_future_local(async move {
-            if let Ok(result) = rx.recv().await {
-                match result {
-                    Ok((title, tracks)) if !tracks.is_empty() => {
-                        {
-                            let mut s = state.borrow_mut();
-                            s.queue = tracks;
-                            s.source_name = title;
-                        }
-                        play_queue_index(Rc::clone(&state), 0);
-                    }
-                    Ok(_) => state.borrow().show_toast("El álbum no tiene pistas disponibles."),
-                    Err(err) => state.borrow().show_toast(&err),
-                }
-            }
-        });
-    });
-
-    btn
-}
-
-pub fn build_playlist_card(playlist: &Playlist, state: Rc<RefCell<AppState>>) -> Button {
-    let (cover_frame, cover) = clamped_cover(156, 156, "cover-art");
-    cover_frame.set_halign(Align::Center);
-
-    if let Some(url) = &playlist.cover_url {
-        load_cover_into_picture(&cover, url, Rc::clone(&state));
-    }
-
-    let play_icon = Image::builder()
-        .icon_name("media-playback-start-symbolic")
-        .pixel_size(18)
-        .halign(Align::Center)
-        .valign(Align::Center)
-        .hexpand(true)
-        .build();
-    let play_overlay_badge = GtkBox::builder()
-        .halign(Align::End)
-        .valign(Align::End)
-        .margin_end(8)
-        .margin_bottom(8)
-        .width_request(40)
-        .height_request(40)
-        .css_classes(["album-play-overlay"])
-        .build();
-    play_overlay_badge.append(&play_icon);
-
-    let type_badge = Label::builder()
-        .label("Playlist")
-        .halign(Align::Start)
-        .valign(Align::Start)
-        .margin_start(8)
-        .margin_top(8)
-        .css_classes(["album-year-badge"])
-        .build();
-
-    let cover_overlay = gtk4::Overlay::new();
-    cover_overlay.set_halign(Align::Center);
-    cover_overlay.set_child(Some(&cover_frame));
-    cover_overlay.add_overlay(&type_badge);
     cover_overlay.add_overlay(&play_overlay_badge);
 
     let title_label = Label::builder()
-        .label(&playlist.name)
+        .label(title)
         .xalign(0.0)
         .ellipsize(gtk4::pango::EllipsizeMode::End)
         .max_width_chars(18)
@@ -489,7 +387,7 @@ pub fn build_playlist_card(playlist: &Playlist, state: Rc<RefCell<AppState>>) ->
         .build();
 
     let sub_label = Label::builder()
-        .label(&playlist.subtitle)
+        .label(subtitle)
         .xalign(0.0)
         .ellipsize(gtk4::pango::EllipsizeMode::End)
         .max_width_chars(18)
@@ -499,6 +397,16 @@ pub fn build_playlist_card(playlist: &Playlist, state: Rc<RefCell<AppState>>) ->
     let text_box = GtkBox::new(Orientation::Vertical, 2);
     text_box.append(&title_label);
     text_box.append(&sub_label);
+    if let Some(meta_text) = meta {
+        let meta_label = Label::builder()
+            .label(meta_text)
+            .xalign(0.0)
+            .ellipsize(gtk4::pango::EllipsizeMode::End)
+            .css_classes(["dim-label", "caption"])
+            .build();
+        meta_label.set_opacity(0.75);
+        text_box.append(&meta_label);
+    }
 
     let card_box = GtkBox::new(Orientation::Vertical, 10);
     card_box.append(&cover_overlay);
@@ -509,6 +417,75 @@ pub fn build_playlist_card(playlist: &Playlist, state: Rc<RefCell<AppState>>) ->
         .css_classes(["flat", "album-featured-card"])
         .build();
     btn.set_cursor_from_name(Some("pointer"));
+    btn
+}
+
+fn handle_fetched_queue(
+    result: Result<(String, Vec<Track>), String>,
+    empty_msg: &str,
+    state: Rc<RefCell<AppState>>,
+) {
+    match result {
+        Ok((source, tracks)) if !tracks.is_empty() => {
+            {
+                let mut s = state.borrow_mut();
+                s.queue = tracks;
+                s.source_name = source;
+            }
+            play_queue_index(state, 0);
+        }
+        Ok(_) => state.borrow().show_toast(empty_msg),
+        Err(err) => state.borrow().show_toast(&err),
+    }
+}
+
+pub fn build_album_card(album: &Album, state: Rc<RefCell<AppState>>) -> Button {
+    let year_str = album.year.map(|y| y.to_string());
+    let badge = year_str
+        .as_deref()
+        .map(|y| (y, ["album-year-badge", "numeric"].as_slice()));
+    let meta_text = match album.year {
+        Some(y) => format!("Álbum • {y}"),
+        None => String::from("Álbum"),
+    };
+    let btn = build_media_card(
+        album.cover_url.as_deref(),
+        badge,
+        &album.title,
+        &album.artist,
+        Some(&meta_text),
+        &state,
+    );
+
+    let album_id = album.id.clone();
+    let album_title = album.title.clone();
+    btn.connect_clicked(move |_| {
+        let backend = state.borrow().backend.clone();
+        state
+            .borrow()
+            .show_toast(&format!("Cargando álbum: {album_title}"));
+        let id = album_id.clone();
+        let state = Rc::clone(&state);
+        spawn_bg(
+            move || async move { backend.fetch_album_tracks(&id).await },
+            move |result| {
+                handle_fetched_queue(result, "El álbum no tiene pistas disponibles.", state);
+            },
+        );
+    });
+
+    btn
+}
+
+pub fn build_playlist_card(playlist: &Playlist, state: Rc<RefCell<AppState>>) -> Button {
+    let btn = build_media_card(
+        playlist.cover_url.as_deref(),
+        Some(("Playlist", ["album-year-badge"].as_slice())),
+        &playlist.name,
+        &playlist.subtitle,
+        None,
+        &state,
+    );
 
     let playlist_id = playlist.id.clone();
     let playlist_name = playlist.name.clone();
@@ -517,31 +494,14 @@ pub fn build_playlist_card(playlist: &Playlist, state: Rc<RefCell<AppState>>) ->
         state
             .borrow()
             .show_toast(&format!("Cargando playlist: {playlist_name}"));
-
-        let (tx, rx) = async_channel::bounded(1);
         let id = playlist_id.clone();
-        runtime().spawn(async move {
-            let res = backend.fetch_playlist_tracks(&id).await;
-            let _ = tx.send(res).await;
-        });
-
         let state = Rc::clone(&state);
-        glib::spawn_future_local(async move {
-            if let Ok(result) = rx.recv().await {
-                match result {
-                    Ok((name, tracks)) if !tracks.is_empty() => {
-                        {
-                            let mut s = state.borrow_mut();
-                            s.queue = tracks;
-                            s.source_name = name;
-                        }
-                        play_queue_index(Rc::clone(&state), 0);
-                    }
-                    Ok(_) => state.borrow().show_toast("La playlist está vacía."),
-                    Err(err) => state.borrow().show_toast(&err),
-                }
-            }
-        });
+        spawn_bg(
+            move || async move { backend.fetch_playlist_tracks(&id).await },
+            move |result| {
+                handle_fetched_queue(result, "La playlist está vacía.", state);
+            },
+        );
     });
 
     btn

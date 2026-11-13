@@ -59,6 +59,7 @@ fn build_quick_card(
     let title_label = Label::builder()
         .label(title)
         .xalign(0.0)
+        .max_width_chars(20)
         .ellipsize(gtk4::pango::EllipsizeMode::End)
         .css_classes(["heading"])
         .build();
@@ -66,11 +67,12 @@ fn build_quick_card(
     let sub_label = Label::builder()
         .label(subtitle)
         .xalign(0.0)
+        .max_width_chars(22)
         .ellipsize(gtk4::pango::EllipsizeMode::End)
         .css_classes(["dim-label", "caption"])
         .build();
 
-    let card_box = GtkBox::new(Orientation::Vertical, 20);
+    let card_box = GtkBox::new(Orientation::Vertical, 12);
     card_box.append(&top_row);
     let text_box = GtkBox::new(Orientation::Vertical, 3);
     text_box.append(&title_label);
@@ -435,21 +437,21 @@ fn build_home_skeleton() -> GtkBox {
 pub fn build_home_page(
     state: Rc<RefCell<AppState>>,
     content_view_stack: adw::ViewStack,
-) -> ScrolledWindow {
+) -> (ScrolledWindow, FlowBox) {
     let container = GtkBox::new(Orientation::Vertical, 26);
     container.set_margin_top(16);
     container.set_margin_bottom(28);
     container.set_margin_start(20);
     container.set_margin_end(20);
 
-    // 1. Quick-category 4-card adaptive grid (4 -> 2 -> 1 columns)
+    // 1. Quick-category 4-card adaptive grid (4 in 1 row on desktop -> 2x2 on tablet/mobile)
     let quick_grid = FlowBox::builder()
         .valign(Align::Start)
         .homogeneous(true)
-        .min_children_per_line(1)
+        .min_children_per_line(4)
         .max_children_per_line(4)
-        .row_spacing(12)
-        .column_spacing(12)
+        .row_spacing(10)
+        .column_spacing(10)
         .selection_mode(SelectionMode::None)
         .build();
     let card_new = build_quick_card(
@@ -670,9 +672,14 @@ pub fn build_home_page(
     container.append(&albums_section);
     container.append(&stations_section);
 
+    let clamp = adw::Clamp::builder()
+        .maximum_size(1100)
+        .child(&container)
+        .build();
+
     let scrolled = ScrolledWindow::builder()
         .hscrollbar_policy(PolicyType::Never)
-        .child(&container)
+        .child(&clamp)
         .build();
 
     let cached_trending: Rc<RefCell<Vec<Track>>> = Rc::new(RefCell::new(Vec::new()));
@@ -1024,5 +1031,5 @@ pub fn build_home_page(
         load_home(true);
     });
 
-    scrolled
+    (scrolled, quick_grid)
 }
