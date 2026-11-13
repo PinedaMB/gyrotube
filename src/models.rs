@@ -404,6 +404,24 @@ pub fn save_search_history(history: &[String]) {
     save_json_file("search_history.json", history);
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct SessionState {
+    pub sidebar_collapsed: bool,
+    pub queue: Vec<Track>,
+    pub current_index: Option<usize>,
+    pub source_name: String,
+}
+
+pub fn load_session_state() -> SessionState {
+    let mut state: SessionState = load_json_file("session.json");
+    upgrade_tracks_covers(&mut state.queue);
+    state
+}
+
+pub fn save_session_state(state: &SessionState) {
+    save_json_file("session.json", state);
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct SyncedLyricLine {
     pub time_secs: f64,

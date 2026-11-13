@@ -699,13 +699,21 @@ pub fn wire_media_signals(
         let state = Rc::clone(&state);
         let play_pause_btn = state.borrow().play_pause_btn.clone();
         play_pause_btn.connect_clicked(move |_| {
-            let (active, standby) = {
+            let (active, standby, current_idx) = {
                 let s = state.borrow();
-                (s.active_media().clone(), s.standby_media().clone())
+                (
+                    s.active_media().clone(),
+                    s.standby_media().clone(),
+                    s.current_index,
+                )
             };
             if active.is_playing() {
                 active.pause();
                 standby.pause();
+            } else if active.file().is_none() {
+                if let Some(idx) = current_idx {
+                    play_queue_index(Rc::clone(&state), idx);
+                }
             } else {
                 active.play();
             }
@@ -925,4 +933,50 @@ pub fn wire_media_signals(
             glib::ControlFlow::Continue
         });
     }
+}
+
+pub fn restore_last_track(state: Rc<RefCell<AppState>>) {
+    let (track, player_cover, cached_stream, current_gen) = {
+        let mut s = state.borrow_mut();
+        let Some(idx) = s.current_index else {
+            return;
+        };
+        let Some(track) = s.queue.get(idx).cloned() else {
+            s.current_index = None;
+            return;
+        };
+        let is_fav = s.favorites.iter().any(|t| t.id == track.id);
+        let cached = s.backend.cached_stream(&track.id);
+        s.player_source_label.set_label(&s.source_name);
+        s.player_title.set_label(&track.title);
+        s.player_artist.set_label(&track.artist);
+        s.player_fav_btn.set_sensitive(true);
+        s.player_fav_btn.set_active(is_fav);
+        s.player_fav_btn.set_icon_name(if is_fav {
+            "starred-symbolic"
+        } else {
+            "non-starred-symbolic"
+        });
+        s.player_radio_btn.set_sensitive(true);
+        s.prev_btn.set_sensitive(idx > 0);
+        s.next_btn.set_sensitive(idx + 1 < s.queue.len());
+        if let Some(dur) = track.duration_secs {
+            s.duration_label.set_label(&format_duration(dur));
+            s.seek_scale.set_range(0.0, dur as f64);
+        }
+        s.pending_autoplay = false;
+        (track, s.player_cover.clone(), cached, s.loading_generation)
+    };
+
+    if let Some(cover_url) = track.cover_url.as_deref() {
+        load_player_cover(&player_cover, cover_url, current_gen, Rc::clone(&state));
+    }
+    if let Some(stream) = cached_stream {
+        let s = state.borrow();
+        s.quality_label.set_label(&stream.quality_label);
+        let media = s.active_media().clone();
+        media.set_file(Some(&gio::File::for_path(&stream.url)));
+    }
+    refresh_queue_ui(Rc::clone(&state));
+    load_current_lyrics(state);
 }

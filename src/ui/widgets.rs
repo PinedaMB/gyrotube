@@ -78,7 +78,11 @@ pub fn build_skeleton_box(width: i32, height: i32) -> GtkBox {
 }
 
 pub fn notify_track_changed(state: Rc<RefCell<AppState>>) {
-    let callbacks = state.borrow().on_track_changed.clone();
+    let callbacks = {
+        let s = state.borrow();
+        s.save_session();
+        s.on_track_changed.clone()
+    };
     for cb in callbacks {
         cb();
     }

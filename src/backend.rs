@@ -287,6 +287,12 @@ impl Backend {
         Ok(dir)
     }
 
+    pub fn cached_stream(&self, video_id: &str) -> Option<StreamInfo> {
+        Self::streams_dir()
+            .ok()
+            .and_then(|dir| Self::find_cached_audio(video_id, &dir))
+    }
+
     fn find_cached_audio(video_id: &str, streams_dir: &std::path::Path) -> Option<StreamInfo> {
         for (suffix, label) in [
             ("m4a", "M4A"),

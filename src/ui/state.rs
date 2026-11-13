@@ -11,7 +11,7 @@ use gtk4::{
 use libadwaita as adw;
 
 use crate::backend::Backend;
-use crate::models::{Track, UserPlaylist};
+use crate::models::{SessionState, Track, UserPlaylist, save_session_state};
 use crate::mpris::MprisController;
 
 pub struct AppState {
@@ -75,11 +75,20 @@ pub struct AppState {
     pub playlists_empty_label: GtkBox,
     pub mpris: Option<MprisController>,
     pub pending_autoplay: bool,
+    pub sidebar_collapsed: bool,
     pub loading_generation: u64,
     pub on_track_changed: Vec<Rc<dyn Fn()>>,
 }
 
 impl AppState {
+    pub fn save_session(&self) {
+        save_session_state(&SessionState {
+            sidebar_collapsed: self.sidebar_collapsed,
+            queue: self.queue.clone(),
+            current_index: self.current_index,
+            source_name: self.source_name.clone(),
+        });
+    }
     pub fn active_media(&self) -> &MediaFile {
         &self.decks[self.active_deck]
     }

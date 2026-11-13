@@ -22,8 +22,8 @@ use adw::prelude::AdwApplicationWindowExt;
 
 use crate::backend::Backend;
 use crate::models::{
-    load_favorites, load_recent_tracks, load_search_history, load_user_playlists,
-    save_search_history,
+    load_favorites, load_recent_tracks, load_search_history, load_session_state,
+    load_user_playlists, save_search_history,
 };
 use crate::mpris::{MprisCommand, MprisController};
 use crate::ui::collection::{
@@ -32,7 +32,8 @@ use crate::ui::collection::{
 use crate::ui::explore::build_explore_page;
 use crate::ui::home::build_home_page;
 use crate::ui::player::{
-    load_current_lyrics, play_queue_index, refresh_queue_ui, wire_media_signals,
+    load_current_lyrics, play_queue_index, refresh_queue_ui, restore_last_track,
+    wire_media_signals,
 };
 use crate::ui::state::{AppState, next_queue_index};
 use crate::ui::widgets::{clamped_cover, set_track_favorite, start_track_radio};
@@ -51,6 +52,13 @@ pub fn build_ui(app: &adw::Application) {
     let backend = Backend::new();
     let decks = [MediaFile::new(), MediaFile::new()];
     let toast_overlay = adw::ToastOverlay::new();
+    let saved_session = load_session_state();
+    let initial_sidebar_collapsed = saved_session.sidebar_collapsed;
+    let initial_source_name = if saved_session.source_name.is_empty() {
+        String::from("Sin reproducción")
+    } else {
+        saved_session.source_name
+    };
 
     // --- LEFT PANE: Dedicated Player / Lyrics / Queue Sidebar ---
     // Context header ("Reproduciendo desde ...")
@@ -575,13 +583,13 @@ pub fn build_ui(app: &adw::Application) {
         crossfade_active: false,
         crossfade_generation: 0,
         crossfade_triggered_for: None,
-        queue: Vec::new(),
+        queue: saved_session.queue,
         favorites: load_favorites(),
         recent_tracks: load_recent_tracks(),
         user_playlists: load_user_playlists(),
         search_history: load_search_history(),
-        current_index: None,
-        source_name: String::from("YouTube Music"),
+        current_index: saved_session.current_index,
+        source_name: initial_source_name,
         shuffle: false,
         repeat: false,
         cover_cache: HashMap::new(),
@@ -624,6 +632,7 @@ pub fn build_ui(app: &adw::Application) {
         playlists_empty_label,
         mpris: None,
         pending_autoplay: false,
+        sidebar_collapsed: initial_sidebar_collapsed,
         loading_generation: 0,
         on_track_changed: Vec::new(),
     }));
@@ -823,56 +832,15 @@ pub fn build_ui(app: &adw::Application) {
             }
         }
     };
-    {
-        let run_header_search = Rc::clone(&run_header_search);
-        top_search_entry.connect_activate(move |entry| {
-            let text = entry.text().to_string();
-            run_header_search(&text);
-        });
-    }
-    {
-        let search_popover = search_popover.clone();
-        top_search_entry.connect_stop_search(move |_| {
-            search_popover.popdown();
-        });
-    }
-    {
-        let state = Rc::clone(&state);
-        let show_search_popover = show_search_popover.clone();
-        let top_entry_ref = top_search_entry.clone();
-        let focus_ctrl = gtk4::EventControllerFocus::new();
-        let top_entry_enter = top_entry_ref.clone();
-        focus_ctrl.connect_enter(move |_| {
-            if top_entry_enter.text().trim().is_empty() {
-                let history = state.borrow().search_history.clone();
-                show_search_popover("Búsquedas recientes", "document-open-recent-symbolic", history);
-            }
-        });
-        let popover_leave = search_popover.clone();
-        let top_entry_leave = top_entry_ref.clone();
-        focus_ctrl.connect_leave(move |_| {
-            let pop = popover_leave.clone();
-            let entry = top_entry_leave.clone();
-            glib::timeout_add_local_once(std::time::Duration::from_millis(120), move || {
-                if !entry.has_focus() {
-                    pop.popdown();
-                }
-            });
-        });
-        top_search_entry.add_controller(focus_ctrl);
-    }
-    {
+    let search_focus_ctrl = gtk4::EventControllerFocus::new();
+    let schedule_suggestions = {
         let state = Rc::clone(&state);
         let show_search_popover = show_search_popover.clone();
         let search_popover = search_popover.clone();
         let debounce_id = Rc::clone(&debounce_id);
         let suggest_gen = Rc::clone(&suggest_gen);
-        let suppress_suggest = Rc::clone(&suppress_suggest);
-
-        top_search_entry.connect_search_changed(move |entry| {
-            if suppress_suggest.get() || !entry.has_focus() {
-                return;
-            }
+        let focus_ctrl = search_focus_ctrl.clone();
+        move |entry: &SearchEntry, delay_ms: u64| {
             if let Some(id) = debounce_id.borrow_mut().take() {
                 id.remove();
             }
@@ -898,12 +866,15 @@ pub fn build_ui(app: &adw::Application) {
             let suggest_gen_ref = Rc::clone(&suggest_gen);
             let debounce_id_ref = Rc::clone(&debounce_id);
             let entry_clone = entry.clone();
+            let focus_ctrl_ref = focus_ctrl.clone();
 
             let id = glib::timeout_add_local_once(
-                std::time::Duration::from_millis(320),
+                std::time::Duration::from_millis(delay_ms),
                 move || {
                     *debounce_id_ref.borrow_mut() = None;
-                    if *suggest_gen_ref.borrow() != current_gen || !entry_clone.has_focus() {
+                    if *suggest_gen_ref.borrow() != current_gen
+                        || !(entry_clone.has_focus() || focus_ctrl_ref.contains_focus())
+                    {
                         return;
                     }
                     let backend = state.borrow().backend.clone();
@@ -917,9 +888,11 @@ pub fn build_ui(app: &adw::Application) {
                     let show_search_popover = show_search_popover.clone();
                     let suggest_gen_ref = Rc::clone(&suggest_gen_ref);
                     let entry_clone = entry_clone.clone();
+                    let focus_ctrl_rx = focus_ctrl_ref.clone();
                     glib::spawn_future_local(async move {
                         if let Ok(Ok(terms)) = rx.recv().await
                             && *suggest_gen_ref.borrow() == current_gen
+                            && (entry_clone.has_focus() || focus_ctrl_rx.contains_focus())
                             && !entry_clone.text().trim().is_empty()
                         {
                             show_search_popover(
@@ -932,6 +905,60 @@ pub fn build_ui(app: &adw::Application) {
                 },
             );
             *debounce_id.borrow_mut() = Some(id);
+        }
+    };
+    {
+        let run_header_search = Rc::clone(&run_header_search);
+        top_search_entry.connect_activate(move |entry| {
+            let text = entry.text().to_string();
+            run_header_search(&text);
+        });
+    }
+    {
+        let search_popover = search_popover.clone();
+        let debounce_id = Rc::clone(&debounce_id);
+        let suggest_gen = Rc::clone(&suggest_gen);
+        top_search_entry.connect_stop_search(move |entry| {
+            if let Some(id) = debounce_id.borrow_mut().take() {
+                id.remove();
+            }
+            *suggest_gen.borrow_mut() += 1;
+            search_popover.popdown();
+            if let Some(root) = entry.root() {
+                root.set_focus(None::<&gtk4::Widget>);
+            }
+        });
+    }
+    {
+        let schedule_enter = schedule_suggestions.clone();
+        let top_entry_enter = top_search_entry.clone();
+        search_focus_ctrl.connect_enter(move |_| {
+            schedule_enter(&top_entry_enter, 80);
+        });
+        let popover_leave = search_popover.clone();
+        let top_entry_leave = top_search_entry.clone();
+        let focus_ctrl_leave = search_focus_ctrl.clone();
+        search_focus_ctrl.connect_leave(move |_| {
+            let pop = popover_leave.clone();
+            let entry = top_entry_leave.clone();
+            let fc = focus_ctrl_leave.clone();
+            glib::timeout_add_local_once(std::time::Duration::from_millis(120), move || {
+                if !(entry.has_focus() || fc.contains_focus()) {
+                    pop.popdown();
+                }
+            });
+        });
+        top_search_entry.add_controller(search_focus_ctrl.clone());
+    }
+    {
+        let suppress_suggest = Rc::clone(&suppress_suggest);
+        let focus_ctrl = search_focus_ctrl.clone();
+        let schedule_changed = schedule_suggestions.clone();
+        top_search_entry.connect_search_changed(move |entry| {
+            if suppress_suggest.get() || !(entry.has_focus() || focus_ctrl.contains_focus()) {
+                return;
+            }
+            schedule_changed(entry, 320);
         });
     }
     for (btn, page) in [
@@ -1063,92 +1090,106 @@ pub fn build_ui(app: &adw::Application) {
 
     wire_media_signals(Rc::clone(&state), &volume_scale, &volume_btn);
 
+    let build_mini_bar = |compact: bool| -> (GtkBox, Button) {
+        let (cover_frame, cover) = crate::ui::widgets::clamped_cover(40, 40, "cover-art");
+        let title_builder = Label::builder()
+            .xalign(0.0)
+            .ellipsize(gtk4::pango::EllipsizeMode::End)
+            .css_classes(["heading"]);
+        let title = if compact {
+            title_builder.max_width_chars(18).build()
+        } else {
+            title_builder.build()
+        };
+        let artist_builder = Label::builder()
+            .xalign(0.0)
+            .ellipsize(gtk4::pango::EllipsizeMode::End)
+            .css_classes(["caption", "dim-label"]);
+        let artist = if compact {
+            artist_builder.max_width_chars(20).build()
+        } else {
+            artist_builder.build()
+        };
+
+        let mini_play_btn = Button::builder()
+            .icon_name("media-playback-start-symbolic")
+            .css_classes(["circular", "flat"])
+            .build();
+        {
+            let s = state.borrow();
+            s.player_cover
+                .bind_property("paintable", &cover, "paintable")
+                .sync_create()
+                .build();
+            s.player_title
+                .bind_property("label", &title, "label")
+                .sync_create()
+                .build();
+            s.player_artist
+                .bind_property("label", &artist, "label")
+                .sync_create()
+                .build();
+            s.play_pause_btn
+                .bind_property("icon-name", &mini_play_btn, "icon-name")
+                .sync_create()
+                .build();
+        }
+
+        let text_col = GtkBox::new(Orientation::Vertical, 1);
+        text_col.set_hexpand(true);
+        text_col.set_valign(Align::Center);
+        text_col.append(&title);
+        text_col.append(&artist);
+
+        let open_box = GtkBox::new(Orientation::Horizontal, 10);
+        open_box.append(&cover_frame);
+        open_box.append(&text_col);
+        let open_btn = Button::builder()
+            .child(&open_box)
+            .hexpand(true)
+            .css_classes(["flat"])
+            .build();
+
+        let mini_next_btn = Button::builder()
+            .icon_name("media-skip-forward-symbolic")
+            .css_classes(["circular", "flat"])
+            .build();
+        {
+            let play_btn = play_pause_btn.clone();
+            mini_play_btn.connect_clicked(move |_| play_btn.emit_clicked());
+        }
+        {
+            let nxt_btn = next_btn.clone();
+            mini_next_btn.connect_clicked(move |_| nxt_btn.emit_clicked());
+        }
+
+        let bar = GtkBox::builder()
+            .orientation(Orientation::Horizontal)
+            .spacing(6)
+            .visible(false)
+            .build();
+        bar.append(&open_btn);
+        bar.append(&mini_play_btn);
+        bar.append(&mini_next_btn);
+        (bar, open_btn)
+    };
+
+    // Docked full-width bottom bar for mobile viewports
+    let (mobile_mini_bar, mobile_open_btn) = build_mini_bar(false);
+    mobile_mini_bar.add_css_class("mobile-mini-player");
+
     let content_toolbar = adw::ToolbarView::new();
     content_toolbar.add_top_bar(&top_nav_bar);
     content_toolbar.set_content(Some(&content_view_stack));
+    content_toolbar.add_bottom_bar(&mobile_mini_bar);
 
-    // Floating bottom-right mini-player when the player panel is hidden
-    let (mini_cover_frame, mini_cover) =
-        crate::ui::widgets::clamped_cover(40, 40, "cover-art");
-    let mini_title = Label::builder()
-        .xalign(0.0)
-        .max_width_chars(18)
-        .ellipsize(gtk4::pango::EllipsizeMode::End)
-        .css_classes(["heading"])
-        .build();
-    let mini_artist = Label::builder()
-        .xalign(0.0)
-        .max_width_chars(20)
-        .ellipsize(gtk4::pango::EllipsizeMode::End)
-        .css_classes(["caption", "dim-label"])
-        .build();
-    {
-        let s = state.borrow();
-        s.player_cover
-            .bind_property("paintable", &mini_cover, "paintable")
-            .sync_create()
-            .build();
-        s.player_title
-            .bind_property("label", &mini_title, "label")
-            .sync_create()
-            .build();
-        s.player_artist
-            .bind_property("label", &mini_artist, "label")
-            .sync_create()
-            .build();
-    }
-    let mini_text_col = GtkBox::new(Orientation::Vertical, 1);
-    mini_text_col.set_hexpand(true);
-    mini_text_col.set_valign(Align::Center);
-    mini_text_col.append(&mini_title);
-    mini_text_col.append(&mini_artist);
-
-    let mini_open_box = GtkBox::new(Orientation::Horizontal, 10);
-    mini_open_box.append(&mini_cover_frame);
-    mini_open_box.append(&mini_text_col);
-    let mini_open_btn = Button::builder()
-        .child(&mini_open_box)
-        .hexpand(true)
-        .css_classes(["flat"])
-        .build();
-
-    let mini_play_btn = Button::builder()
-        .icon_name("media-playback-start-symbolic")
-        .css_classes(["circular", "flat"])
-        .build();
-    let mini_next_btn = Button::builder()
-        .icon_name("media-skip-forward-symbolic")
-        .css_classes(["circular", "flat"])
-        .build();
-    {
-        let s = state.borrow();
-        s.play_pause_btn
-            .bind_property("icon-name", &mini_play_btn, "icon-name")
-            .sync_create()
-            .build();
-    }
-    {
-        let play_btn = play_pause_btn.clone();
-        mini_play_btn.connect_clicked(move |_| play_btn.emit_clicked());
-    }
-    {
-        let nxt_btn = next_btn.clone();
-        mini_next_btn.connect_clicked(move |_| nxt_btn.emit_clicked());
-    }
-
-    let mini_player_bar = GtkBox::builder()
-        .orientation(Orientation::Horizontal)
-        .spacing(6)
-        .halign(Align::End)
-        .valign(Align::End)
-        .margin_end(18)
-        .margin_bottom(18)
-        .visible(false)
-        .css_classes(["floating-mini-player"])
-        .build();
-    mini_player_bar.append(&mini_open_btn);
-    mini_player_bar.append(&mini_play_btn);
-    mini_player_bar.append(&mini_next_btn);
+    // Floating bottom-right mini-player for tablet and desktop viewports
+    let (mini_player_bar, mini_open_btn) = build_mini_bar(true);
+    mini_player_bar.set_halign(Align::End);
+    mini_player_bar.set_valign(Align::End);
+    mini_player_bar.set_margin_end(18);
+    mini_player_bar.set_margin_bottom(18);
+    mini_player_bar.add_css_class("floating-mini-player");
 
     let split_view = adw::OverlaySplitView::builder()
         .sidebar(&sidebar_toolbar)
@@ -1156,7 +1197,7 @@ pub fn build_ui(app: &adw::Application) {
         .min_sidebar_width(280.0)
         .max_sidebar_width(360.0)
         .sidebar_width_fraction(0.32)
-        .show_sidebar(true)
+        .show_sidebar(!initial_sidebar_collapsed)
         .build();
 
     let bottom_drawer_revealer = gtk4::Revealer::builder()
@@ -1178,19 +1219,28 @@ pub fn build_ui(app: &adw::Application) {
     main_overlay.add_overlay(&mini_player_bar);
     main_overlay.add_overlay(&bottom_drawer_revealer);
 
-    {
+    let is_mobile = Rc::new(Cell::new(false));
+
+    let update_mini_bar = {
         let mini_bar = mini_player_bar.clone();
+        let mobile_bar = mobile_mini_bar.clone();
         let sv_ref = split_view.clone();
         let rev_ref = bottom_drawer_revealer.clone();
-        let update_mini_bar = move || {
+        let is_mobile_ref = Rc::clone(&is_mobile);
+        move || {
             let player_visible = if sv_ref.is_collapsed() {
                 rev_ref.reveals_child()
             } else {
                 sv_ref.shows_sidebar()
             };
-            mini_bar.set_visible(!player_visible);
-        };
+            let show_mini = !player_visible;
+            let mobile = is_mobile_ref.get();
+            mini_bar.set_visible(show_mini && !mobile);
+            mobile_bar.set_visible(show_mini && mobile);
+        }
+    };
 
+    {
         let update_rev = update_mini_bar.clone();
         bottom_drawer_revealer.connect_reveal_child_notify(move |_| update_rev());
         bottom_drawer_revealer.connect_child_revealed_notify(|r| {
@@ -1202,32 +1252,58 @@ pub fn build_ui(app: &adw::Application) {
         let update_sv_show = update_mini_bar.clone();
         split_view.connect_show_sidebar_notify(move |_| update_sv_show());
 
-        let sv_for_mini = split_view.clone();
-        let rev_for_mini = bottom_drawer_revealer.clone();
-        mini_open_btn.connect_clicked(move |_| {
-            if sv_for_mini.is_collapsed() {
-                rev_for_mini.set_visible(true);
-                rev_for_mini.set_reveal_child(true);
-            } else {
-                sv_for_mini.set_show_sidebar(true);
+        let open_player = {
+            let sv_for_mini = split_view.clone();
+            let rev_for_mini = bottom_drawer_revealer.clone();
+            let state_for_mini = Rc::clone(&state);
+            move || {
+                if sv_for_mini.is_collapsed() {
+                    rev_for_mini.set_visible(true);
+                    rev_for_mini.set_reveal_child(true);
+                } else {
+                    sv_for_mini.set_show_sidebar(true);
+                    let mut s = state_for_mini.borrow_mut();
+                    s.sidebar_collapsed = false;
+                    s.save_session();
+                }
             }
-        });
+        };
+        {
+            let open_fn = open_player.clone();
+            mini_open_btn.connect_clicked(move |_| open_fn());
+        }
+        mobile_open_btn.connect_clicked(move |_| open_player());
 
         let sv_for_collapse = split_view.clone();
         let rev_for_collapse_btn = bottom_drawer_revealer.clone();
-        sidebar_collapse_btn.connect_clicked(move |_| {
+        let state_for_collapse = Rc::clone(&state);
+        sidebar_collapse_btn.connect_clicked(move |btn| {
+            if let Some(root) = btn.root() {
+                root.set_focus(None::<&gtk4::Widget>);
+            }
             if sv_for_collapse.is_collapsed() {
                 rev_for_collapse_btn.set_reveal_child(false);
             } else {
                 sv_for_collapse.set_show_sidebar(false);
+                let mut s = state_for_collapse.borrow_mut();
+                s.sidebar_collapsed = true;
+                s.save_session();
             }
         });
 
         let rev_for_collapse = bottom_drawer_revealer.clone();
         let sidebar_tb = sidebar_toolbar.clone();
         let collapse_btn_ref = sidebar_collapse_btn.clone();
+        let state_for_split = Rc::clone(&state);
         let update_collapse = update_mini_bar.clone();
+        let top_search_for_split = top_search_entry.clone();
+        let focus_ctrl_for_split = search_focus_ctrl.clone();
         split_view.connect_collapsed_notify(move |sv| {
+            let search_focused =
+                top_search_for_split.has_focus() || focus_ctrl_for_split.contains_focus();
+            if !search_focused && let Some(root) = sv.root() {
+                root.set_focus(None::<&gtk4::Widget>);
+            }
             if sv.is_collapsed() {
                 sv.set_sidebar(None::<&gtk4::Widget>);
                 rev_for_collapse.set_child(Some(&sidebar_tb));
@@ -1240,10 +1316,17 @@ pub fn build_ui(app: &adw::Application) {
                 rev_for_collapse.set_child(None::<&gtk4::Widget>);
                 collapse_btn_ref.set_icon_name("go-previous-symbolic");
                 sv.set_sidebar(Some(&sidebar_tb));
-                sv.set_show_sidebar(true);
+                let show = !state_for_split.borrow().sidebar_collapsed;
+                sv.set_show_sidebar(show);
+            }
+            if !search_focused && let Some(root) = sv.root() {
+                root.set_focus(None::<&gtk4::Widget>);
             }
             update_collapse();
         });
+
+        restore_last_track(Rc::clone(&state));
+        update_mini_bar();
     }
 
     let main_toolbar = adw::ToolbarView::new();
@@ -1274,6 +1357,20 @@ pub fn build_ui(app: &adw::Application) {
         "placeholder-text",
         Some(&"Buscar…".to_value()),
     );
+    {
+        let is_mobile_apply = Rc::clone(&is_mobile);
+        let update_apply = update_mini_bar.clone();
+        mobile_bp.connect_apply(move |_| {
+            is_mobile_apply.set(true);
+            update_apply();
+        });
+        let is_mobile_unapply = Rc::clone(&is_mobile);
+        let update_unapply = update_mini_bar.clone();
+        mobile_bp.connect_unapply(move |_| {
+            is_mobile_unapply.set(false);
+            update_unapply();
+        });
+    }
     window.add_breakpoint(mobile_bp);
 
     let mpris = {
