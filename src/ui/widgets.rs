@@ -17,7 +17,7 @@ use crate::models::{
     save_user_playlists,
 };
 use crate::ui::collection::{refresh_favorites_ui, refresh_playlists_ui, refresh_recent_ui};
-use crate::ui::player::{play_queue_index, refresh_queue_ui};
+use crate::ui::player::{play_queue_index, refresh_queue_ui, show_player_loading};
 use crate::ui::state::AppState;
 
 pub fn spawn_bg<F, Fut, T, C>(work: F, on_done: C)
@@ -546,8 +546,20 @@ fn play_fetched_queue(
             }
             play_queue_index(state, 0);
         }
-        Ok(_) => state.borrow().show_toast(empty_msg),
-        Err(err) => state.borrow().show_toast(&err),
+        Ok(_) => {
+            let s = state.borrow();
+            s.play_spinner.set_spinning(false);
+            s.play_pause_btn.set_icon_name("media-playback-start-symbolic");
+            s.play_pause_btn.set_sensitive(true);
+            s.show_toast(empty_msg);
+        }
+        Err(err) => {
+            let s = state.borrow();
+            s.play_spinner.set_spinning(false);
+            s.play_pause_btn.set_icon_name("media-playback-start-symbolic");
+            s.play_pause_btn.set_sensitive(true);
+            s.show_toast(&err);
+        }
     }
 }
 
@@ -587,6 +599,7 @@ pub fn build_album_card(album: &Album, state: Rc<RefCell<AppState>>) -> GtkBox {
 
     let album_id = album.id.clone();
     let album_title = album.title.clone();
+    let album_title_play = album.title.clone();
     let album_cover = album.cover_url.clone();
     {
         let album_id = album_id.clone();
@@ -617,6 +630,7 @@ pub fn build_album_card(album: &Album, state: Rc<RefCell<AppState>>) -> GtkBox {
     }
 
     play_btn.connect_clicked(move |_| {
+        show_player_loading(&state, &album_title_play);
         let backend = state.borrow().backend.clone();
         let id = album_id.clone();
         let state = Rc::clone(&state);
@@ -643,6 +657,7 @@ pub fn build_playlist_card(playlist: &Playlist, state: Rc<RefCell<AppState>>) ->
 
     let playlist_id = playlist.id.clone();
     let playlist_name = playlist.name.clone();
+    let playlist_name_play = playlist.name.clone();
     let playlist_cover = playlist.cover_url.clone();
     {
         let playlist_id = playlist_id.clone();
@@ -668,6 +683,7 @@ pub fn build_playlist_card(playlist: &Playlist, state: Rc<RefCell<AppState>>) ->
     }
 
     play_btn.connect_clicked(move |_| {
+        show_player_loading(&state, &playlist_name_play);
         let backend = state.borrow().backend.clone();
         let id = playlist_id.clone();
         let state = Rc::clone(&state);

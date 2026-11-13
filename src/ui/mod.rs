@@ -45,7 +45,28 @@ use crate::ui::sidebar_player::{build_mini_bar, build_sidebar_player};
 use crate::ui::state::{AppState, next_queue_index};
 use crate::ui::widgets::{empty_state_card, set_track_favorite, start_track_radio};
 
-const APP_ID: &str = "com.github.gyrotube.GyroTube";
+pub const APP_ID: &str = "com.github.gyrotube.GyroTube";
+const APP_ICON_SVG: &[u8] = include_bytes!("../../gyrotube.svg");
+
+fn register_app_icon() {
+    if let Some(cache) = crate::models::cache_dir() {
+        let icons_root = cache.join("icons");
+        let apps_dir = icons_root.join("hicolor/scalable/apps");
+        if std::fs::create_dir_all(&apps_dir).is_ok() {
+            let icon_path = apps_dir.join(format!("{APP_ID}.svg"));
+            let needs_write = std::fs::metadata(&icon_path)
+                .map(|m| m.len() != APP_ICON_SVG.len() as u64)
+                .unwrap_or(true);
+            if needs_write {
+                let _ = std::fs::write(&icon_path, APP_ICON_SVG);
+            }
+            if let Some(display) = gdk::Display::default() {
+                gtk4::IconTheme::for_display(&display).add_search_path(&icons_root);
+            }
+        }
+    }
+    gtk4::Window::set_default_icon_name(APP_ID);
+}
 
 pub fn run() -> glib::ExitCode {
     let app = adw::Application::builder().application_id(APP_ID).build();
@@ -55,6 +76,7 @@ pub fn run() -> glib::ExitCode {
 
 pub fn build_ui(app: &adw::Application) {
     load_css();
+    register_app_icon();
 
     let backend = Backend::new();
     let decks = [MediaFile::new(), MediaFile::new()];

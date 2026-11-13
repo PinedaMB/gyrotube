@@ -1,7 +1,8 @@
-use std::sync::{Arc, OnceLock, RwLock};
+use std::collections::HashSet;
+use std::sync::{Arc, Mutex, OnceLock, RwLock};
 use std::time::{Duration, Instant};
 
-use rustypipe::client::RustyPipe;
+use rustypipe::client::{ClientType, RustyPipe};
 use rustypipe::model::MusicItem;
 use rustypipe::model::traits::YtEntity;
 use rustypipe::param::StreamFilter;
@@ -37,6 +38,8 @@ pub struct Backend {
     http: reqwest::Client,
     home_cache: Arc<RwLock<Option<(Instant, HomeFeed)>>>,
     genres_cache: Arc<RwLock<Option<(Instant, Vec<Genre>)>>>,
+    preferred_client: Arc<RwLock<Option<ClientType>>>,
+    in_flight_downloads: Arc<Mutex<HashSet<String>>>,
 }
 
 impl Backend {
@@ -59,6 +62,8 @@ impl Backend {
             http: reqwest::Client::new(),
             home_cache: Arc::new(RwLock::new(None)),
             genres_cache: Arc::new(RwLock::new(None)),
+            preferred_client: Arc::new(RwLock::new(None)),
+            in_flight_downloads: Arc::new(Mutex::new(HashSet::new())),
         }
     }
 
@@ -342,10 +347,128 @@ impl Backend {
                 return Some(StreamInfo {
                     url: path.to_string_lossy().into_owned(),
                     quality_label: label.to_string(),
+                    stream: None,
                 });
             }
         }
         None
+    }
+
+    fn ordered_clients(&self) -> Vec<ClientType> {
+        let mut clients: Vec<ClientType> = self
+            .rp
+            .query()
+            .player_client_order()
+            .iter()
+            .copied()
+            .take(2)
+            .collect();
+        if let Ok(guard) = self.preferred_client.read()
+            && let Some(pref) = *guard
+            && let Some(pos) = clients.iter().position(|&c| c == pref)
+            && pos > 0
+        {
+            clients.swap(0, pos);
+        }
+        clients
+    }
+
+    async fn resolve_with_client(
+        &self,
+        client: ClientType,
+        video_id: &str,
+        streams_dir: &std::path::Path,
+        stream_progressive: bool,
+    ) -> Result<StreamInfo, (bool, String)> {
+        let query = self.rp.query();
+        let player = match tokio::time::timeout(
+            Duration::from_secs(4),
+            query.player_from_clients(video_id, &[client]),
+        )
+        .await
+        {
+            Ok(Ok(player)) => player,
+            Ok(Err(e)) => return Err((false, format!("{client:?}: {e}"))),
+            Err(_) => return Err((false, format!("{client:?}: tiempo de espera agotado"))),
+        };
+
+        let Some(stream) = player.select_audio_stream(&StreamFilter::default()) else {
+            return Err((false, format!("{client:?}: no hay un flujo de audio disponible")));
+        };
+
+        let kbps = stream.bitrate / 1000;
+        let codec = format!("{:?}", stream.codec).to_uppercase();
+        let quality_label = if kbps > 0 {
+            format!("{codec} {kbps}k")
+        } else {
+            codec
+        };
+
+        let ext = if stream.mime.contains("mp4") || stream.mime.contains("m4a") {
+            "m4a"
+        } else {
+            "webm"
+        };
+        let file_path = streams_dir.join(format!("{video_id}.{ext}"));
+        let mut live_stream = None;
+        if !file_path.exists() {
+            let ua = query.user_agent(player.client_type);
+            if stream_progressive {
+                match crate::stream_input::StreamSource::open(
+                    self.http.clone(),
+                    stream.url.clone(),
+                    ua.into_owned(),
+                    Some(file_path.clone()),
+                )
+                .await
+                {
+                    Ok(source) => live_stream = Some(source),
+                    Err(e) if e.status() == Some(reqwest::StatusCode::FORBIDDEN) => {
+                        if let Some(visitor_data) = &player.visitor_data {
+                            query.remove_visitor_data(visitor_data);
+                        }
+                        return Err((false, format!("{client:?}: HTTP 403 al abrir audio")));
+                    }
+                    Err(e) => {
+                        return Err((
+                            true,
+                            format!("Error al abrir audio: {}", e.without_url()),
+                        ));
+                    }
+                }
+            } else {
+                match self.download_audio(&stream.url, ua.as_ref()).await {
+                    Ok(bytes) => {
+                        let tmp = streams_dir.join(format!("{video_id}.{ext}.part"));
+                        std::fs::write(&tmp, bytes)
+                            .and_then(|_| std::fs::rename(&tmp, &file_path))
+                            .map_err(|e| (true, format!("Error al guardar audio: {e}")))?;
+                    }
+                    Err(e) if e.status() == Some(reqwest::StatusCode::FORBIDDEN) => {
+                        if let Some(visitor_data) = &player.visitor_data {
+                            query.remove_visitor_data(visitor_data);
+                        }
+                        return Err((false, format!("{client:?}: HTTP 403 al descargar audio")));
+                    }
+                    Err(e) => {
+                        return Err((
+                            true,
+                            format!("Error al descargar audio: {}", e.without_url()),
+                        ));
+                    }
+                }
+            }
+        }
+
+        if let Ok(mut guard) = self.preferred_client.write() {
+            *guard = Some(client);
+        }
+
+        Ok(StreamInfo {
+            url: file_path.to_string_lossy().into_owned(),
+            quality_label,
+            stream: live_stream,
+        })
     }
 
     pub async fn resolve_audio_stream(&self, video_id: &str) -> Result<StreamInfo, String> {
@@ -362,69 +485,16 @@ impl Backend {
             return Ok(cached);
         }
 
-        let query = self.rp.query();
         let mut errors = Vec::new();
-        for &client in query.player_client_order().iter().take(2) {
-            let player = match tokio::time::timeout(
-                std::time::Duration::from_secs(8),
-                query.player_from_clients(video_id, &[client]),
-            )
-            .await
+        for client in self.ordered_clients() {
+            match self
+                .resolve_with_client(client, video_id, &streams_dir, true)
+                .await
             {
-                Ok(Ok(player)) => player,
-                Ok(Err(e)) => {
-                    errors.push(format!("{client:?}: {e}"));
-                    continue;
-                }
-                Err(_) => {
-                    errors.push(format!("{client:?}: tiempo de espera agotado"));
-                    continue;
-                }
-            };
-
-            let Some(stream) = player.select_audio_stream(&StreamFilter::default()) else {
-                errors.push(format!("{client:?}: no hay un flujo de audio disponible"));
-                continue;
-            };
-
-            let kbps = stream.bitrate / 1000;
-            let codec = format!("{:?}", stream.codec).to_uppercase();
-            let quality_label = if kbps > 0 {
-                format!("{codec} {kbps}k")
-            } else {
-                codec
-            };
-
-            let ext = if stream.mime.contains("mp4") || stream.mime.contains("m4a") {
-                "m4a"
-            } else {
-                "webm"
-            };
-            let file_path = streams_dir.join(format!("{video_id}.{ext}"));
-            if !file_path.exists() {
-                let ua = query.user_agent(player.client_type);
-                match self.download_audio(&stream.url, ua.as_ref()).await {
-                    Ok(bytes) => {
-                        let tmp = streams_dir.join(format!("{video_id}.{ext}.part"));
-                        std::fs::write(&tmp, bytes)
-                            .and_then(|_| std::fs::rename(&tmp, &file_path))
-                            .map_err(|e| format!("Error al guardar audio: {e}"))?;
-                    }
-                    Err(e) if e.status() == Some(reqwest::StatusCode::FORBIDDEN) => {
-                        if let Some(visitor_data) = &player.visitor_data {
-                            query.remove_visitor_data(visitor_data);
-                        }
-                        errors.push(format!("{client:?}: HTTP 403 al descargar audio"));
-                        continue;
-                    }
-                    Err(e) => return Err(format!("Error al descargar audio: {}", e.without_url())),
-                }
+                Ok(info) => return Ok(info),
+                Err((true, fatal)) => return Err(fatal),
+                Err((false, err)) => errors.push(err),
             }
-
-            return Ok(StreamInfo {
-                url: file_path.to_string_lossy().into_owned(),
-                quality_label,
-            });
         }
 
         Self::download_with_ytdlp(video_id, &streams_dir)
@@ -449,37 +519,33 @@ impl Backend {
         if Self::find_cached_audio(video_id, &streams_dir).is_some() {
             return;
         }
-
-        let query = self.rp.query();
-        for &client in query.player_client_order().iter().take(2) {
-            let Ok(Ok(player)) = tokio::time::timeout(
-                std::time::Duration::from_secs(8),
-                query.player_from_clients(video_id, &[client]),
-            )
-            .await
-            else {
-                continue;
+        {
+            let Ok(mut in_flight) = self.in_flight_downloads.lock() else {
+                return;
             };
-            let Some(stream) = player.select_audio_stream(&StreamFilter::default()) else {
-                continue;
-            };
-            let ext = if stream.mime.contains("mp4") || stream.mime.contains("m4a") {
-                "m4a"
-            } else {
-                "webm"
-            };
-            let file_path = streams_dir.join(format!("{video_id}.{ext}"));
-            let ua = query.user_agent(player.client_type);
-            if let Ok(bytes) = self.download_audio(&stream.url, ua.as_ref()).await {
-                let tmp = streams_dir.join(format!("{video_id}.{ext}.part"));
-                if std::fs::write(&tmp, bytes).is_ok() {
-                    let _ = std::fs::rename(&tmp, &file_path);
-                }
+            if !in_flight.insert(video_id.to_string()) {
                 return;
             }
         }
 
-        let _ = Self::download_with_ytdlp(video_id, &streams_dir).await;
+        let mut done = false;
+        for client in self.ordered_clients() {
+            if self
+                .resolve_with_client(client, video_id, &streams_dir, false)
+                .await
+                .is_ok()
+            {
+                done = true;
+                break;
+            }
+        }
+        if !done {
+            let _ = Self::download_with_ytdlp(video_id, &streams_dir).await;
+        }
+
+        if let Ok(mut in_flight) = self.in_flight_downloads.lock() {
+            in_flight.remove(video_id);
+        }
     }
 
     async fn download_with_ytdlp(
@@ -501,6 +567,8 @@ impl Backend {
                     "--ignore-config",
                     "--no-playlist",
                     "--no-progress",
+                    "--concurrent-fragments",
+                    "4",
                     "--js-runtimes",
                     "node",
                     "--remote-components",
@@ -545,6 +613,7 @@ impl Backend {
                 .unwrap_or_default()
                 .to_string_lossy()
                 .to_uppercase(),
+            stream: None,
         })
     }
 

@@ -286,6 +286,24 @@ fn update_synced_lyrics_position(s: &mut AppState, pos_secs_exact: f64) {
     }
 }
 
+fn set_stream_on_media(media: &gtk4::MediaFile, stream: crate::models::StreamInfo) {
+    if let Some(source) = stream.stream {
+        media.set_input_stream(Some(&source.into_gio_stream()));
+    } else {
+        media.set_file(Some(&gio::File::for_path(&stream.url)));
+    }
+}
+
+pub fn show_player_loading(state: &Rc<RefCell<AppState>>, title: &str) {
+    let s = state.borrow();
+    s.player_title.set_label(title);
+    s.player_artist.set_text("Cargando...");
+    s.play_pause_btn.set_sensitive(false);
+    s.play_spinner.set_spinning(true);
+    s.play_pause_btn.set_child(Some(&s.play_spinner));
+    s.quality_label.set_label("...");
+}
+
 pub fn play_queue_index(state: Rc<RefCell<AppState>>, index: usize) {
     let (track, backend, current_gen, decks, player_cover, player_fav_btn, is_fav) = {
         let mut s = state.borrow_mut();
@@ -433,7 +451,7 @@ pub fn play_queue_index(state: Rc<RefCell<AppState>>, index: usize) {
                     }
                     Some((
                         s.active_media().clone(),
-                        stream.url,
+                        stream,
                         s.backend.clone(),
                         next_id,
                     ))
@@ -448,10 +466,9 @@ pub fn play_queue_index(state: Rc<RefCell<AppState>>, index: usize) {
             }
         };
 
-        if let Some((media_file, path, backend, next_id)) = stream_to_play {
-            let file = gio::File::for_path(&path);
+        if let Some((media_file, stream, backend, next_id)) = stream_to_play {
             media_file.pause();
-            media_file.set_file(Some(&file));
+            set_stream_on_media(&media_file, stream);
             if media_file.is_prepared() {
                 state.borrow_mut().pending_autoplay = false;
                 media_file.play();
@@ -597,9 +614,8 @@ fn start_crossfade_to(state: Rc<RefCell<AppState>>, next_index: usize) {
         record_recent_track(Rc::clone(&state), &track);
         notify_track_changed(Rc::clone(&state));
 
-        let file = gio::File::for_path(&stream.url);
         new_media.pause();
-        new_media.set_file(Some(&file));
+        set_stream_on_media(&new_media, stream);
         new_media.set_volume(0.0);
         if new_media.is_prepared() {
             state.borrow_mut().pending_autoplay = false;
@@ -868,12 +884,29 @@ pub fn wire_media_signals(
     {
         let state = Rc::clone(&state);
         let seek_scale = state.borrow().seek_scale.clone();
-        seek_scale.connect_change_value(move |_, _, val| {
-            if val >= 0.0 {
-                let target_us = (val * 1_000_000.0) as i64;
+        let pending_seek_source: Rc<RefCell<Option<glib::SourceId>>> = Rc::new(RefCell::new(None));
+        seek_scale.connect_change_value(move |scale, _, val| {
+            let max_dur = scale.adjustment().upper();
+            let clamped = if max_dur > 0.5 {
+                val.clamp(0.0, max_dur - 0.5)
+            } else {
+                val.max(0.0)
+            };
+            let target_us = (clamped * 1_000_000.0) as i64;
+            {
+                let mut s = state.borrow_mut();
+                s.crossfade_triggered_for = None;
+                s.time_label.set_label(&format_duration(clamped as u32));
+            }
+            if let Some(id) = pending_seek_source.borrow_mut().take() {
+                id.remove();
+            }
+            let state_cb = Rc::clone(&state);
+            let pending_ref = Rc::clone(&pending_seek_source);
+            let id = glib::timeout_add_local_once(std::time::Duration::from_millis(60), move || {
+                *pending_ref.borrow_mut() = None;
                 let (media, mpris) = {
-                    let mut s = state.borrow_mut();
-                    s.crossfade_triggered_for = None;
+                    let s = state_cb.borrow();
                     (s.active_media().clone(), s.mpris.clone())
                 };
                 media.seek(target_us);
@@ -881,7 +914,8 @@ pub fn wire_media_signals(
                     mpris.set_position_us(target_us);
                     mpris.emit_seeked(target_us);
                 }
-            }
+            });
+            *pending_seek_source.borrow_mut() = Some(id);
             glib::Propagation::Proceed
         });
     }
@@ -1004,7 +1038,7 @@ pub fn restore_last_track(state: Rc<RefCell<AppState>>, position_secs: f64) {
                 }
             });
         }
-        media.set_file(Some(&gio::File::for_path(&stream.url)));
+        set_stream_on_media(&media, stream);
     }
     refresh_queue_ui(Rc::clone(&state));
     load_current_lyrics(state);

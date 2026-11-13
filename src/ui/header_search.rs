@@ -1,6 +1,8 @@
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
+use adw::prelude::*;
+use gtk4::gdk;
 use gtk4::glib;
 use gtk4::prelude::*;
 use gtk4::{
@@ -20,17 +22,24 @@ pub struct HeaderWidgets {
 }
 
 pub fn build_header_bar(content_view_stack: &adw::ViewStack) -> HeaderWidgets {
-    let brand_icon = Image::builder()
-        .icon_name("media-playback-start-symbolic")
-        .pixel_size(14)
-        .halign(Align::Center)
-        .valign(Align::Center)
-        .build();
-    let brand_icon_box = GtkBox::new(Orientation::Horizontal, 0);
-    brand_icon_box.add_css_class("brand-icon");
-    brand_icon_box.set_halign(Align::Center);
-    brand_icon_box.set_valign(Align::Center);
-    brand_icon_box.append(&brand_icon);
+    let brand_icon = match gdk::Texture::from_bytes(&glib::Bytes::from_static(include_bytes!(
+        "../../gyrotube.svg"
+    ))) {
+        Ok(tex) => Image::builder()
+            .paintable(&tex)
+            .pixel_size(28)
+            .halign(Align::Center)
+            .valign(Align::Center)
+            .css_classes(["brand-icon"])
+            .build(),
+        Err(_) => Image::builder()
+            .icon_name(crate::ui::APP_ID)
+            .pixel_size(28)
+            .halign(Align::Center)
+            .valign(Align::Center)
+            .css_classes(["brand-icon"])
+            .build(),
+    };
 
     let brand_title = Label::builder()
         .label("GyroTube")
@@ -43,7 +52,7 @@ pub fn build_header_bar(content_view_stack: &adw::ViewStack) -> HeaderWidgets {
 
     let brand_box = GtkBox::new(Orientation::Horizontal, 8);
     brand_box.set_valign(Align::Center);
-    brand_box.append(&brand_icon_box);
+    brand_box.append(&brand_icon);
     brand_box.append(&brand_title);
     brand_box.append(&brand_badge);
 
@@ -77,9 +86,16 @@ pub fn build_header_bar(content_view_stack: &adw::ViewStack) -> HeaderWidgets {
     menu_box.set_margin_bottom(6);
     menu_box.set_margin_start(6);
     menu_box.set_margin_end(6);
+    let about_btn = Button::builder()
+        .label("Acerca de GyroTube")
+        .css_classes(["flat"])
+        .halign(Align::Fill)
+        .build();
     menu_box.append(&nav_home_btn);
     menu_box.append(&nav_explore_btn);
     menu_box.append(&nav_collection_btn);
+    menu_box.append(&gtk4::Separator::new(Orientation::Horizontal));
+    menu_box.append(&about_btn);
 
     let profile_popover = Popover::builder().child(&menu_box).build();
     let profile_btn = MenuButton::builder()
@@ -88,6 +104,21 @@ pub fn build_header_bar(content_view_stack: &adw::ViewStack) -> HeaderWidgets {
         .popover(&profile_popover)
         .css_classes(["profile-pill"])
         .build();
+
+    {
+        let pop = profile_popover.clone();
+        about_btn.connect_clicked(move |btn| {
+            pop.popdown();
+            let dialog = adw::AboutDialog::builder()
+                .application_name("GyroTube")
+                .application_icon(crate::ui::APP_ID)
+                .version(env!("CARGO_PKG_VERSION"))
+                .comments("Reproductor de música para YouTube Music")
+                .build();
+            let root = btn.root().and_then(|r| r.downcast::<gtk4::Window>().ok());
+            dialog.present(root.as_ref());
+        });
+    }
 
     for (btn, page) in [
         (&nav_home_btn, "home"),

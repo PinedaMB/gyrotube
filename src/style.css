@@ -159,11 +159,8 @@
 }
 
 .brand-icon {
-    min-width: 26px;
-    min-height: 26px;
-    border-radius: 7px;
-    background: linear-gradient(135deg, #ff2a55, #d5002f);
-    color: white;
+    min-width: 28px;
+    min-height: 28px;
 }
 
 .brand-title {

@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=GyroTube
+Comment=Reproductor de música para YouTube Music
+Exec=gyrotube
+Icon=com.github.gyrotube.GyroTube
+Terminal=false
+Type=Application
+Categories=AudioVideo;Audio;Music;Player;GTK;
+StartupNotify=true
+StartupWMClass=com.github.gyrotube.GyroTube
