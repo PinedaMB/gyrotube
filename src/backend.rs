@@ -128,6 +128,7 @@ impl Backend {
         Ok((album.name, tracks))
     }
 
+    #[allow(dead_code)]
     pub async fn fetch_genres(&self) -> Result<Vec<Genre>, String> {
         self.fetch_genres_cached(false).await
     }

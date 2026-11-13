@@ -302,6 +302,7 @@ fn open_genre_page(
 
     let playlists_flow = FlowBox::builder()
         .valign(Align::Start)
+        .homogeneous(true)
         .max_children_per_line(4)
         .min_children_per_line(1)
         .row_spacing(12)

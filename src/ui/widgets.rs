@@ -239,38 +239,75 @@ pub fn build_album_card(album: &Album, state: Rc<RefCell<AppState>>) -> Button {
 }
 
 pub fn build_playlist_card(playlist: &Playlist, state: Rc<RefCell<AppState>>) -> Button {
-    let (cover_frame, cover) = clamped_cover(140, 140, "cover-art");
+    let (cover_frame, cover) = clamped_cover(156, 156, "cover-art");
+    cover_frame.set_halign(Align::Center);
 
     if let Some(url) = &playlist.cover_url {
         load_cover_into_picture(&cover, url, Rc::clone(&state));
     }
 
+    let play_icon = Image::builder()
+        .icon_name("media-playback-start-symbolic")
+        .pixel_size(18)
+        .halign(Align::Center)
+        .valign(Align::Center)
+        .hexpand(true)
+        .build();
+    let play_overlay_badge = GtkBox::builder()
+        .halign(Align::End)
+        .valign(Align::End)
+        .margin_end(8)
+        .margin_bottom(8)
+        .width_request(40)
+        .height_request(40)
+        .css_classes(["album-play-overlay"])
+        .build();
+    play_overlay_badge.append(&play_icon);
+
+    let type_badge = Label::builder()
+        .label("Playlist")
+        .halign(Align::Start)
+        .valign(Align::Start)
+        .margin_start(8)
+        .margin_top(8)
+        .css_classes(["album-year-badge"])
+        .build();
+
+    let cover_overlay = gtk4::Overlay::new();
+    cover_overlay.set_halign(Align::Center);
+    cover_overlay.set_child(Some(&cover_frame));
+    cover_overlay.add_overlay(&type_badge);
+    cover_overlay.add_overlay(&play_overlay_badge);
+
     let title_label = Label::builder()
         .label(&playlist.name)
         .xalign(0.0)
         .ellipsize(gtk4::pango::EllipsizeMode::End)
-        .max_width_chars(16)
-        .css_classes(["heading"])
+        .max_width_chars(18)
+        .css_classes(["heading", "album-title"])
         .build();
 
     let sub_label = Label::builder()
         .label(&playlist.subtitle)
         .xalign(0.0)
         .ellipsize(gtk4::pango::EllipsizeMode::End)
-        .max_width_chars(16)
+        .max_width_chars(18)
         .css_classes(["dim-label", "caption"])
         .build();
 
-    let card_box = GtkBox::new(Orientation::Vertical, 6);
-    card_box.set_width_request(140);
-    card_box.append(&cover_frame);
-    card_box.append(&title_label);
-    card_box.append(&sub_label);
+    let text_box = GtkBox::new(Orientation::Vertical, 2);
+    text_box.append(&title_label);
+    text_box.append(&sub_label);
+
+    let card_box = GtkBox::new(Orientation::Vertical, 10);
+    card_box.append(&cover_overlay);
+    card_box.append(&text_box);
 
     let btn = Button::builder()
         .child(&card_box)
-        .css_classes(["flat", "media-card"])
+        .css_classes(["flat", "album-featured-card"])
         .build();
+    btn.set_cursor_from_name(Some("pointer"));
 
     let playlist_id = playlist.id.clone();
     let playlist_name = playlist.name.clone();

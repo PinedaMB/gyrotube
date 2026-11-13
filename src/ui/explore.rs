@@ -28,6 +28,22 @@ pub fn build_explore_page(
     container.set_margin_start(20);
     container.set_margin_end(20);
 
+    let explore_header_box = GtkBox::new(Orientation::Vertical, 2);
+    explore_header_box.append(
+        &Label::builder()
+            .label("Explorar")
+            .xalign(0.0)
+            .css_classes(["title-1"])
+            .build(),
+    );
+    explore_header_box.append(
+        &Label::builder()
+            .label("Estados de ánimo, momentos y géneros musicales de YouTube Music")
+            .xalign(0.0)
+            .css_classes(["dim-label", "caption"])
+            .build(),
+    );
+
     let search_entry = SearchEntry::builder()
         .placeholder_text("Buscar canciones, artistas o álbumes en YouTube Music…")
         .hexpand(true)
@@ -141,44 +157,63 @@ pub fn build_explore_page(
     artist_section.append(&artist_similar_section);
 
     // Genres & moods grid
-    let genres_title = Label::builder()
-        .label("Géneros y estados de ánimo")
+    let moods_title = Label::builder()
+        .label("Estados de ánimo y momentos")
         .xalign(0.0)
+        .css_classes(["title-3"])
+        .build();
+    let moods_flow = FlowBox::builder()
+        .selection_mode(SelectionMode::None)
+        .column_spacing(12)
+        .row_spacing(10)
+        .min_children_per_line(1)
+        .max_children_per_line(4)
+        .homogeneous(true)
+        .build();
+
+    let genres_title = Label::builder()
+        .label("Géneros musicales")
+        .xalign(0.0)
+        .margin_top(8)
         .css_classes(["title-3"])
         .build();
     let genres_flow = FlowBox::builder()
         .selection_mode(SelectionMode::None)
-        .column_spacing(10)
+        .column_spacing(12)
         .row_spacing(10)
-        .min_children_per_line(2)
-        .max_children_per_line(5)
+        .min_children_per_line(1)
+        .max_children_per_line(4)
         .homogeneous(true)
         .build();
 
     let genres_section = GtkBox::new(Orientation::Vertical, 12);
+    genres_section.append(&moods_title);
+    genres_section.append(&moods_flow);
     genres_section.append(&genres_title);
     genres_section.append(&genres_flow);
 
     // Genre playlists sub-view
     let genre_back_btn = Button::builder()
         .icon_name("go-previous-symbolic")
+        .tooltip_text("Volver a géneros")
         .css_classes(["flat", "circular"])
         .build();
     let genre_heading = Label::builder()
         .label("Playlists")
         .xalign(0.0)
         .hexpand(true)
-        .css_classes(["title-3"])
+        .css_classes(["title-2"])
         .build();
-    let genre_header = GtkBox::new(Orientation::Horizontal, 8);
+    let genre_header = GtkBox::new(Orientation::Horizontal, 10);
     genre_header.append(&genre_back_btn);
     genre_header.append(&genre_heading);
 
     let playlists_flow = FlowBox::builder()
         .selection_mode(SelectionMode::None)
+        .homogeneous(true)
         .column_spacing(12)
         .row_spacing(12)
-        .min_children_per_line(2)
+        .min_children_per_line(1)
         .max_children_per_line(4)
         .build();
 
@@ -187,6 +222,7 @@ pub fn build_explore_page(
     genre_playlists_section.append(&genre_header);
     genre_playlists_section.append(&playlists_flow);
 
+    container.append(&explore_header_box);
     container.append(&search_entry);
     container.append(&spinner);
     container.append(&status_label);
@@ -196,7 +232,7 @@ pub fn build_explore_page(
     container.append(&genre_playlists_section);
 
     let clamp = adw::Clamp::builder()
-        .maximum_size(900)
+        .maximum_size(1100)
         .child(&container)
         .build();
 
@@ -205,16 +241,17 @@ pub fn build_explore_page(
         .child(&clamp)
         .build();
 
-    // Load genres on startup
+    // Load genres on startup (cached)
     {
         let backend = state.borrow().backend.clone();
         let (tx, rx) = async_channel::bounded(1);
         runtime().spawn(async move {
-            let res = backend.fetch_genres().await;
+            let res = backend.fetch_genres_cached(false).await;
             let _ = tx.send(res).await;
         });
 
         let state = Rc::clone(&state);
+        let moods_flow = moods_flow.clone();
         let genres_flow = genres_flow.clone();
         let genres_section = genres_section.clone();
         let genre_playlists_section = genre_playlists_section.clone();
@@ -224,6 +261,10 @@ pub fn build_explore_page(
 
         glib::spawn_future_local(async move {
             if let Ok(Ok(genres)) = rx.recv().await {
+                let mood_names = [
+                    "chill", "christmas", "commute", "energize", "feel good", "focus",
+                    "gaming", "party", "romance", "sad", "sleep", "workout",
+                ];
                 for genre in genres {
                     let btn = build_genre_button(
                         &genre,
@@ -234,7 +275,12 @@ pub fn build_explore_page(
                         &playlists_flow,
                         &spinner,
                     );
-                    genres_flow.insert(&btn, -1);
+                    let lower = genre.name.to_lowercase();
+                    if mood_names.iter().any(|m| lower.contains(m)) {
+                        moods_flow.insert(&btn, -1);
+                    } else {
+                        genres_flow.insert(&btn, -1);
+                    }
                 }
             }
         });
@@ -637,29 +683,52 @@ fn build_genre_button(
     playlists_flow: &FlowBox,
     spinner: &Spinner,
 ) -> Button {
-    let dot = Label::builder()
-        .label("●")
+    let color = &genre.color_hex;
+
+    let accent_bar = GtkBox::builder()
+        .valign(Align::Center)
+        .css_classes(["genre-accent-bar"])
         .build();
-    let dot_css = CssProvider::new();
-    dot_css.load_from_string(&format!("label {{ color: {}; }}", genre.color_hex));
+    let bar_css = CssProvider::new();
+    bar_css.load_from_string(&format!("box {{ background-color: {color}; }}"));
     #[allow(deprecated)]
-    dot.style_context()
-        .add_provider(&dot_css, gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION);
+    accent_bar
+        .style_context()
+        .add_provider(&bar_css, gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION);
 
     let name_label = Label::builder()
         .label(&genre.name)
         .xalign(0.0)
+        .hexpand(true)
         .ellipsize(gtk4::pango::EllipsizeMode::End)
+        .css_classes(["heading"])
         .build();
 
-    let inner = GtkBox::new(Orientation::Horizontal, 8);
-    inner.append(&dot);
+    let arrow = gtk4::Image::builder()
+        .icon_name("go-next-symbolic")
+        .pixel_size(14)
+        .valign(Align::Center)
+        .css_classes(["genre-arrow"])
+        .build();
+
+    let inner = GtkBox::new(Orientation::Horizontal, 10);
+    inner.append(&accent_bar);
     inner.append(&name_label);
+    inner.append(&arrow);
 
     let btn = Button::builder()
         .child(&inner)
         .css_classes(["flat", "genre-chip"])
         .build();
+    btn.set_cursor_from_name(Some("pointer"));
+    let card_css = CssProvider::new();
+    card_css.load_from_string(&format!(
+        "button {{ background-image: linear-gradient(90deg, alpha({color}, 0.14) 0%, alpha(@window_fg_color, 0.04) 60%); }}
+         button:hover {{ background-image: linear-gradient(90deg, alpha({color}, 0.24) 0%, alpha(@window_fg_color, 0.07) 65%); border-color: alpha({color}, 0.45); }}"
+    ));
+    #[allow(deprecated)]
+    btn.style_context()
+        .add_provider(&card_css, gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION);
 
     let genre_id = genre.id.clone();
     let genre_name = genre.name.clone();
