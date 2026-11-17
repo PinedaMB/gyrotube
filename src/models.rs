@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+use rustypipe::model::{AlbumItem, ArtistItem, MusicPlaylistItem, TrackItem};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -155,6 +156,87 @@ pub fn upgrade_cover_url(url: &str, target_size: i32) -> String {
     }
 
     url.to_string()
+}
+
+pub fn pick_cover(covers: &[rustypipe::model::Thumbnail], target_width: i32) -> Option<String> {
+    covers
+        .iter()
+        .min_by_key(|t| (t.width as i32 - target_width).abs())
+        .or_else(|| covers.last())
+        .map(|t| upgrade_cover_url(&t.url, target_width))
+}
+
+impl From<&TrackItem> for Track {
+    fn from(item: &TrackItem) -> Self {
+        let artist = if item.artists.is_empty() {
+            String::from("Artista desconocido")
+        } else {
+            item.artists
+                .iter()
+                .map(|a| a.name.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+
+        Self {
+            id: item.id.clone(),
+            title: clean_track_title(&item.name),
+            artist,
+            album: item.album.as_ref().map(|a| a.name.clone()),
+            duration_secs: item.duration,
+            cover_url: pick_cover(&item.cover, 240),
+            cover_large_url: pick_cover(&item.cover, 800),
+        }
+    }
+}
+
+impl From<&AlbumItem> for Album {
+    fn from(item: &AlbumItem) -> Self {
+        let artist = if item.artists.is_empty() {
+            String::from("Artista desconocido")
+        } else {
+            item.artists
+                .iter()
+                .map(|a| a.name.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+
+        Self {
+            id: item.id.clone(),
+            title: item.name.clone(),
+            artist,
+            year: item.year,
+            cover_url: pick_cover(&item.cover, 544),
+        }
+    }
+}
+
+impl From<&MusicPlaylistItem> for Playlist {
+    fn from(item: &MusicPlaylistItem) -> Self {
+        let subtitle = item
+            .channel
+            .as_ref()
+            .map(|c| c.name.clone())
+            .unwrap_or_else(|| String::from("YouTube Music"));
+        Self {
+            id: item.id.clone(),
+            name: item.name.clone(),
+            subtitle,
+            cover_url: pick_cover(&item.thumbnail, 544),
+        }
+    }
+}
+
+impl From<&ArtistItem> for Artist {
+    fn from(item: &ArtistItem) -> Self {
+        Self {
+            id: item.id.clone(),
+            name: item.name.clone(),
+            avatar_url: pick_cover(&item.avatar, 360),
+            subscriber_count: item.subscriber_count,
+        }
+    }
 }
 
 pub fn color_to_hex(color: u32) -> String {

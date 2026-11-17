@@ -7,6 +7,8 @@ use rs_ytmusic_api::types::{
     AlbumDetailed as RsAlbum, ArtistDetailed as RsArtist, HomeContent, PlaylistDetailed as RsPlaylist,
     SongDetailed as RsSong,
 };
+use rustypipe::client::RustyPipe;
+use rustypipe::model::TrackType;
 use ytmapi_rs::YtMusic;
 use ytmapi_rs::auth::noauth::NoAuthToken;
 use ytmapi_rs::common::{
@@ -46,6 +48,7 @@ pub struct HomeFeed {
 pub struct Backend {
     ytm: Arc<tokio::sync::OnceCell<YtMusic<NoAuthToken>>>,
     rs_ytm: Arc<tokio::sync::OnceCell<MusicClient>>,
+    rp: RustyPipe,
     http: reqwest::Client,
     home_cache: Arc<RwLock<Option<(Instant, HomeFeed)>>>,
     genres_cache: Arc<RwLock<Option<(Instant, Vec<Genre>)>>>,
@@ -55,9 +58,16 @@ pub struct Backend {
 
 impl Backend {
     pub fn new() -> Self {
+        let mut rp_builder = RustyPipe::builder();
+        if let Some(dir) = cache_dir()
+            && std::fs::create_dir_all(&dir).is_ok()
+        {
+            rp_builder = rp_builder.storage_dir(dir);
+        }
         Self {
             ytm: Arc::new(tokio::sync::OnceCell::new()),
             rs_ytm: Arc::new(tokio::sync::OnceCell::new()),
+            rp: rp_builder.build().unwrap_or_else(|_| RustyPipe::new()),
             http: reqwest::Client::new(),
             home_cache: Arc::new(RwLock::new(None)),
             genres_cache: Arc::new(RwLock::new(None)),
@@ -105,7 +115,31 @@ impl Backend {
         let mut top = Vec::new();
         let mut new_albums = Vec::new();
 
-        if let Ok(rs) = self.fallback().await
+        let rp_q = self.rp.query();
+        let (charts_res, releases_res) =
+            tokio::join!(rp_q.music_charts(None), rp_q.music_new_albums());
+        if let Ok(charts) = charts_res {
+            trending = charts
+                .trending_tracks
+                .iter()
+                .filter(|t| t.track_type == TrackType::Track)
+                .take(12)
+                .map(Track::from)
+                .collect();
+            top = charts
+                .top_tracks
+                .iter()
+                .filter(|t| t.track_type == TrackType::Track)
+                .take(12)
+                .map(Track::from)
+                .collect();
+        }
+        if let Ok(releases) = releases_res {
+            new_albums = releases.iter().take(12).map(Album::from).collect();
+        }
+
+        if trending.is_empty()
+            && let Ok(rs) = self.fallback().await
             && let Ok(sections) = rs.fetch_home().await
         {
             for section in sections {
@@ -170,6 +204,13 @@ impl Backend {
     }
 
     pub async fn fetch_album_tracks(&self, album_id: &str) -> Result<(String, Vec<Track>), String> {
+        if let Ok(album) = self.rp.query().music_album(album_id).await {
+            let tracks: Vec<Track> = album.tracks.iter().map(Track::from).collect();
+            if !tracks.is_empty() {
+                return Ok((album.name, tracks));
+            }
+        }
+
         if let Ok(ytm) = self.primary().await
             && let Ok(album) = ytm.get_album(AlbumID::from_raw(album_id)).await
         {
@@ -360,6 +401,18 @@ impl Backend {
     }
 
     pub async fn fetch_radio_tracks(&self, video_id: &str) -> Result<Vec<Track>, String> {
+        if let Ok(radio) = self.rp.query().music_radio(video_id).await {
+            let tracks: Vec<Track> = radio
+                .items
+                .iter()
+                .filter(|t| t.track_type == TrackType::Track)
+                .map(Track::from)
+                .collect();
+            if !tracks.is_empty() {
+                return Ok(tracks);
+            }
+        }
+
         if let Ok(rs) = self.fallback().await
             && let Ok(up_next) = rs.fetch_watch_queue(video_id).await
             && !up_next.is_empty()
@@ -422,6 +475,40 @@ impl Backend {
     }
 
     pub async fn search_all(&self, query_str: &str) -> Result<SearchResults, String> {
+        let rp_q = self.rp.query();
+        let (rp_tracks, rp_albums, rp_artists, rp_playlists) = tokio::join!(
+            rp_q.music_search_tracks(query_str),
+            rp_q.music_search_albums(query_str),
+            rp_q.music_search_artists(query_str),
+            rp_q.music_search_playlists(query_str, false),
+        );
+        if let Ok(tr) = rp_tracks {
+            let tracks: Vec<Track> = tr
+                .items
+                .items
+                .iter()
+                .filter(|t| t.track_type == TrackType::Track)
+                .map(Track::from)
+                .collect();
+            let albums: Vec<Album> = rp_albums
+                .map(|a| a.items.items.iter().map(Album::from).collect())
+                .unwrap_or_default();
+            let artists: Vec<Artist> = rp_artists
+                .map(|a| a.items.items.iter().map(Artist::from).collect())
+                .unwrap_or_default();
+            let playlists: Vec<Playlist> = rp_playlists
+                .map(|p| p.items.items.iter().map(Playlist::from).collect())
+                .unwrap_or_default();
+            if !tracks.is_empty() || !albums.is_empty() || !artists.is_empty() {
+                return Ok(SearchResults {
+                    tracks,
+                    albums,
+                    artists,
+                    playlists,
+                });
+            }
+        }
+
         if let Ok(ytm) = self.primary().await {
             let (songs_res, albums_res, artists_res, playlists_res) = tokio::join!(
                 ytm.search_songs(query_str),
@@ -495,6 +582,27 @@ impl Backend {
     }
 
     pub async fn fetch_artist(&self, artist_id: &str) -> Result<ArtistDetails, String> {
+        if let Ok(rp_artist) = self.rp.query().music_artist(artist_id, true).await {
+            let tracks: Vec<Track> = rp_artist
+                .tracks
+                .iter()
+                .filter(|t| t.track_type == TrackType::Track)
+                .map(Track::from)
+                .collect();
+            if !tracks.is_empty() || !rp_artist.albums.is_empty() {
+                return Ok(ArtistDetails {
+                    name: rp_artist.name,
+                    header_url: crate::models::pick_cover(&rp_artist.header_image, 1000),
+                    description: rp_artist.description,
+                    subscriber_count: rp_artist.subscriber_count,
+                    tracks,
+                    albums: rp_artist.albums.iter().map(Album::from).collect(),
+                    playlists: rp_artist.playlists.iter().map(Playlist::from).collect(),
+                    similar_artists: rp_artist.similar_artists.iter().map(Artist::from).collect(),
+                });
+            }
+        }
+
         let (ytm_res, rs_res) = tokio::join!(
             async {
                 match self.primary().await {
@@ -712,6 +820,23 @@ impl Backend {
         }
 
         let query_str = format!("{} {}", track.artist, track.title);
+        if let Ok(Some(Ok(res))) = tokio::time::timeout(
+            Duration::from_secs(3),
+            self.rp.query().music_search_tracks(&query_str),
+        )
+        .await
+        .map(Some)
+        {
+            if let Some(studio) = res
+                .items
+                .items
+                .into_iter()
+                .find(|t| t.track_type == TrackType::Track)
+            {
+                return studio.id;
+            }
+        }
+
         if let Ok(ytm) = self.primary().await
             && let Some(songs) = tokio::time::timeout(
                 Duration::from_secs(3),
@@ -1178,6 +1303,7 @@ impl Backend {
         let resp = self
             .http
             .get(url)
+            .header(reqwest::header::USER_AGENT, "GyroTube/0.1 (Linux GTK4)")
             .send()
             .await
             .map_err(|e| format!("Error de imagen: {e}"))?;

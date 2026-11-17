@@ -1152,6 +1152,16 @@ pub fn load_player_cover(
     expected_gen: u64,
     state: Rc<RefCell<AppState>>,
 ) {
+    load_player_cover_with_fallback(picture, url, None, expected_gen, state);
+}
+
+pub fn load_player_cover_with_fallback(
+    picture: &Picture,
+    url: &str,
+    fallback_url: Option<&str>,
+    expected_gen: u64,
+    state: Rc<RefCell<AppState>>,
+) {
     let cached = state.borrow().cover_cache.get(url).cloned();
     if let Some(texture) = cached {
         let s = state.borrow();
@@ -1164,17 +1174,34 @@ pub fn load_player_cover(
         return;
     }
 
+    if let Some(fb) = fallback_url
+        && let Some(fb_tex) = state.borrow().cover_cache.get(fb).cloned()
+    {
+        let s = state.borrow();
+        if s.loading_generation == expected_gen {
+            picture.set_paintable(Some(&fb_tex));
+            update_ambient_color(Some(&fb_tex));
+        }
+    }
+
     let backend = state.borrow().backend.clone();
     let url_owned = url.to_string();
+    let fallback_owned = fallback_url.filter(|fb| *fb != url).map(str::to_string);
     let (tx, rx) = async_channel::bounded(1);
 
     runtime().spawn(async move {
-        let res = backend.fetch_image_bytes(&url_owned).await;
+        let mut res = backend.fetch_image_bytes(&url_owned).await;
+        if res.is_err()
+            && let Some(ref fb) = fallback_owned
+        {
+            res = backend.fetch_image_bytes(fb).await;
+        }
         let _ = tx.send(res).await;
     });
 
     let picture = picture.clone();
     let url_key = url.to_string();
+    let fb_key = fallback_url.filter(|fb| *fb != url).map(str::to_string);
     glib::spawn_future_local(async move {
         let maybe_tex = match rx.recv().await {
             Ok(Ok(bytes)) => gdk::Texture::from_bytes(&glib::Bytes::from_owned(bytes)).ok(),
@@ -1191,6 +1218,11 @@ pub fn load_player_cover(
             if let Some(texture) = maybe_tex {
                 picture.set_paintable(Some(&texture));
                 update_ambient_color(Some(&texture));
+            } else if let Some(ref fb) = fb_key
+                && let Some(fb_tex) = s.cover_cache.get(fb).cloned()
+            {
+                picture.set_paintable(Some(&fb_tex));
+                update_ambient_color(Some(&fb_tex));
             } else {
                 update_ambient_color(None);
             }

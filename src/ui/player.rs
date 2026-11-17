@@ -11,7 +11,7 @@ use crate::models::{LyricsData, format_duration, is_ytm_square_cover};
 use crate::ui::state::{AppState, next_queue_index};
 use crate::ui::widgets::{
     clamped_cover, clear_box, clear_list_box, load_cover_into_picture, load_player_cover,
-    notify_track_changed, record_recent_track,
+    load_player_cover_with_fallback, notify_track_changed, record_recent_track,
 };
 
 pub fn refresh_queue_ui(state: Rc<RefCell<AppState>>) {
@@ -377,7 +377,13 @@ pub fn play_queue_index(state: Rc<RefCell<AppState>>, index: usize) {
 
     if let Some(url) = track.cover_large_url.as_deref().or(track.cover_url.as_deref()) {
         if is_ytm_square_cover(url) {
-            load_player_cover(&player_cover, url, current_gen, Rc::clone(&state));
+            load_player_cover_with_fallback(
+                &player_cover,
+                url,
+                track.cover_url.as_deref(),
+                current_gen,
+                Rc::clone(&state),
+            );
         } else {
             let (cov_tx, cov_rx) = async_channel::bounded(1);
             let backend_cov = backend.clone();
