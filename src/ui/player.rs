@@ -8,6 +8,7 @@ use gtk4::{
 };
 
 use crate::backend::runtime;
+use crate::i18n::tr;
 use crate::models::{LyricsData, format_duration};
 use crate::ui::state::{AppState, next_queue_index};
 use crate::ui::widgets::{
@@ -32,9 +33,14 @@ pub fn refresh_queue_ui(state: Rc<RefCell<AppState>>) {
     queue_empty_label.set_visible(is_empty);
     queue_list.set_visible(!is_empty);
     if is_empty {
-        queue_title_label.set_label("Cola");
+        queue_title_label.set_label(tr("Cola", "Queue"));
     } else {
-        queue_title_label.set_label(&format!("Cola • {} pistas", queue.len()));
+        let unit = if queue.len() == 1 {
+            tr("pista", "track")
+        } else {
+            tr("pistas", "tracks")
+        };
+        queue_title_label.set_label(&format!("{} • {} {unit}", tr("Cola", "Queue"), queue.len()));
     }
 
     for (idx, track) in queue.iter().enumerate() {
@@ -83,7 +89,7 @@ pub fn refresh_queue_ui(state: Rc<RefCell<AppState>>) {
 
         let move_up_btn = Button::builder()
             .icon_name("go-up-symbolic")
-            .tooltip_text("Subir en la cola")
+            .tooltip_text(tr("Subir en la cola", "Move up in queue"))
             .valign(Align::Center)
             .sensitive(idx > 0)
             .css_classes(["flat", "circular"])
@@ -100,7 +106,7 @@ pub fn refresh_queue_ui(state: Rc<RefCell<AppState>>) {
 
         let move_down_btn = Button::builder()
             .icon_name("go-down-symbolic")
-            .tooltip_text("Bajar en la cola")
+            .tooltip_text(tr("Bajar en la cola", "Move down in queue"))
             .valign(Align::Center)
             .sensitive(idx + 1 < queue.len())
             .css_classes(["flat", "circular"])
@@ -118,7 +124,7 @@ pub fn refresh_queue_ui(state: Rc<RefCell<AppState>>) {
 
         let remove_btn = Button::builder()
             .icon_name("list-remove-symbolic")
-            .tooltip_text("Quitar de la cola")
+            .tooltip_text(tr("Quitar de la cola", "Remove from queue"))
             .valign(Align::Center)
             .css_classes(["flat", "circular"])
             .build();

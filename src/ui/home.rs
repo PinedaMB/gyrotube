@@ -185,7 +185,7 @@ fn build_chart_track_row(
             "heart-regular"
         })
         .active(is_fav)
-        .tooltip_text("Favorito")
+        .tooltip_text(tr("Favorito", "Favorite"))
         .valign(Align::Center)
         .css_classes(["flat", "circular"])
         .build();
@@ -204,7 +204,7 @@ fn build_chart_track_row(
 
     let queue_btn = Button::builder()
         .icon_name("add-regular")
-        .tooltip_text("Agregar a la cola")
+        .tooltip_text(tr("Agregar a la cola", "Add to queue"))
         .valign(Align::Center)
         .css_classes(["flat", "circular"])
         .build();
@@ -228,7 +228,7 @@ fn build_chart_track_row(
 
     let play_btn = Button::builder()
         .icon_name("play-filled")
-        .tooltip_text("Reproducir ahora")
+        .tooltip_text(tr("Reproducir ahora", "Play now"))
         .valign(Align::Center)
         .css_classes(["flat", "circular"])
         .build();
@@ -533,21 +533,21 @@ pub fn build_home_page(
     );
     chart_cols.append(
         &Label::builder()
-            .label("TÍTULO Y ARTISTA")
+            .label(tr("TÍTULO Y ARTISTA", "TITLE & ARTIST"))
             .xalign(0.0)
             .hexpand(true)
             .build(),
     );
     chart_cols.append(
         &Label::builder()
-            .label("ÁLBUM")
+            .label(tr("ÁLBUM", "ALBUM"))
             .xalign(0.0)
             .width_chars(16)
             .build(),
     );
     chart_cols.append(
         &Label::builder()
-            .label("DURACIÓN")
+            .label(tr("DURACIÓN", "DURATION"))
             .xalign(1.0)
             .width_chars(8)
             .build(),
@@ -588,13 +588,13 @@ pub fn build_home_page(
 
     let albums_prev_btn = Button::builder()
         .icon_name("go-previous-symbolic")
-        .tooltip_text("Página anterior")
+        .tooltip_text(tr("Página anterior", "Previous page"))
         .valign(Align::Center)
         .css_classes(["circular", "flat"])
         .build();
     let albums_next_btn = Button::builder()
         .icon_name("go-next-symbolic")
-        .tooltip_text("Página siguiente")
+        .tooltip_text(tr("Página siguiente", "Next page"))
         .valign(Align::Center)
         .css_classes(["circular", "flat"])
         .build();

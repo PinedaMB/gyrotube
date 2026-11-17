@@ -12,6 +12,7 @@ use gtk4::{
 use libadwaita as adw;
 
 use crate::backend::runtime;
+use crate::i18n::tr;
 use crate::models::{
     Album, Playlist, Track, format_duration, save_favorites, save_recent_tracks,
     save_user_playlists,
@@ -364,7 +365,7 @@ fn build_media_card(
         .margin_bottom(8)
         .width_request(40)
         .height_request(40)
-        .tooltip_text("Reproducir")
+        .tooltip_text(tr("Reproducir", "Play"))
         .css_classes(["album-play-overlay"])
         .build();
     play_btn.set_cursor_from_name(Some("pointer"));
@@ -771,7 +772,7 @@ pub fn build_track_row(
             "heart-regular"
         })
         .active(is_fav)
-        .tooltip_text("Favorito")
+        .tooltip_text(tr("Favorito", "Favorite"))
         .valign(Align::Center)
         .css_classes(["flat", "circular"])
         .build();
@@ -790,7 +791,7 @@ pub fn build_track_row(
 
     let queue_btn = Button::builder()
         .icon_name("add-regular")
-        .tooltip_text("Agregar a la cola")
+        .tooltip_text(tr("Agregar a la cola", "Add to queue"))
         .valign(Align::Center)
         .css_classes(["flat", "circular"])
         .build();
@@ -895,7 +896,7 @@ pub fn build_track_row(
 
     let play_btn = Button::builder()
         .icon_name("play-filled")
-        .tooltip_text("Reproducir ahora")
+        .tooltip_text(tr("Reproducir ahora", "Play now"))
         .valign(Align::Center)
         .css_classes(["flat", "circular"])
         .build();

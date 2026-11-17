@@ -172,8 +172,11 @@ pub fn build_ui(app: &adw::Application) {
         .build();
     let favorites_empty_label = empty_state_card(
         "heart-filled",
-        "Aún no tienes canciones favoritas",
-        "Pulsa el ícono de estrella en cualquier canción para guardarla.",
+        tr("Aún no tienes canciones favoritas", "No favorite songs yet"),
+        tr(
+            "Pulsa el ícono de estrella en cualquier canción para guardarla.",
+            "Click the heart icon on any song to save it.",
+        ),
     );
     let recent_list = ListBox::builder()
         .selection_mode(SelectionMode::None)
@@ -181,14 +184,20 @@ pub fn build_ui(app: &adw::Application) {
         .build();
     let recent_empty_label = empty_state_card(
         "document-open-recent-symbolic",
-        "Sin historial reciente",
-        "Las canciones que reproduzcas aparecerán aquí.",
+        tr("Sin historial reciente", "No recent history"),
+        tr(
+            "Las canciones que reproduzcas aparecerán aquí.",
+            "Songs you play will appear here.",
+        ),
     );
     let playlists_box = GtkBox::new(Orientation::Vertical, 8);
     let playlists_empty_label = empty_state_card(
         "music-note-2-regular",
-        "No tienes playlists locales",
-        "Escribe un nombre arriba y pulsa Crear para organizar tus canciones.",
+        tr("No tienes playlists locales", "No local playlists yet"),
+        tr(
+            "Escribe un nombre arriba y pulsa Crear para organizar tus canciones.",
+            "Enter a name above and click Create to organize your songs.",
+        ),
     );
 
     let initial_cf_secs = saved_session.crossfade_secs.min(10);
@@ -313,17 +322,17 @@ pub fn build_ui(app: &adw::Application) {
     refresh_playlists_ui(Rc::clone(&state));
 
     content_view_stack
-        .add_titled_with_icon(&home_page, Some("home"), "Inicio", "home-regular");
+        .add_titled_with_icon(&home_page, Some("home"), tr("Inicio", "Home"), "home-regular");
     content_view_stack.add_titled_with_icon(
         &explore_page,
         Some("explore"),
-        "Explorar",
+        tr("Explorar", "Explore"),
         "search-regular",
     );
     content_view_stack.add_titled_with_icon(
         &collection_page,
         Some("collection"),
-        "Colección",
+        tr("Colección", "Collection"),
         "library-regular",
     );
 

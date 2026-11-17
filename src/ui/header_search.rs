@@ -478,7 +478,11 @@ pub fn wire_search_popover(
             let text = entry.text().trim().to_string();
             if text.is_empty() {
                 let history = state.borrow().search_history.clone();
-                show_search_popover("Búsquedas recientes", "document-open-recent-symbolic", history);
+                show_search_popover(
+                    tr("Búsquedas recientes", "Recent searches"),
+                    "document-open-recent-symbolic",
+                    history,
+                );
                 return;
             }
             if text.chars().count() < 2 {

@@ -8,6 +8,7 @@ use gtk4::{
 };
 use libadwaita as adw;
 
+use crate::i18n::tr;
 use crate::models::{UserPlaylist, save_recent_tracks, save_user_playlists};
 use crate::ui::player::play_queue_index;
 use crate::ui::state::AppState;
@@ -23,14 +24,17 @@ pub fn build_collection_page(state: Rc<RefCell<AppState>>) -> ScrolledWindow {
     let page_header = GtkBox::new(Orientation::Vertical, 2);
     page_header.append(
         &Label::builder()
-            .label("Colección")
+            .label(tr("Colección", "Collection"))
             .xalign(0.0)
             .css_classes(["title-1"])
             .build(),
     );
     page_header.append(
         &Label::builder()
-            .label("Tus playlists locales, historial reciente y canciones favoritas")
+            .label(tr(
+                "Tus playlists locales, historial reciente y canciones favoritas",
+                "Your local playlists, recent history, and favorite songs",
+            ))
             .xalign(0.0)
             .css_classes(["dim-label", "caption"])
             .build(),
@@ -41,7 +45,7 @@ pub fn build_collection_page(state: Rc<RefCell<AppState>>) -> ScrolledWindow {
     let pl_header = GtkBox::new(Orientation::Horizontal, 8);
     pl_header.append(
         &Label::builder()
-            .label("Playlists locales")
+            .label(tr("Playlists locales", "Local playlists"))
             .xalign(0.0)
             .hexpand(true)
             .css_classes(["title-2"])
@@ -49,13 +53,13 @@ pub fn build_collection_page(state: Rc<RefCell<AppState>>) -> ScrolledWindow {
     );
 
     let new_pl_entry = Entry::builder()
-        .placeholder_text("Nueva playlist...")
+        .placeholder_text(tr("Nueva playlist...", "New playlist..."))
         .width_chars(10)
         .max_width_chars(18)
         .build();
     let new_pl_btn = Button::builder()
         .icon_name("add-regular")
-        .label("Crear")
+        .label(tr("Crear", "Create"))
         .css_classes(["suggested-action"])
         .build();
     pl_header.append(&new_pl_entry);
@@ -106,7 +110,7 @@ pub fn build_collection_page(state: Rc<RefCell<AppState>>) -> ScrolledWindow {
     let recent_header = GtkBox::new(Orientation::Horizontal, 8);
     recent_header.append(
         &Label::builder()
-            .label("Escuchado recientemente")
+            .label(tr("Escuchado recientemente", "Recently played"))
             .xalign(0.0)
             .hexpand(true)
             .css_classes(["title-2"])
@@ -114,7 +118,7 @@ pub fn build_collection_page(state: Rc<RefCell<AppState>>) -> ScrolledWindow {
     );
     let play_recent_btn = Button::builder()
         .icon_name("play-filled")
-        .label("Reproducir todo")
+        .label(tr("Reproducir todo", "Play all"))
         .css_classes(["flat", "pill-switch"])
         .build();
     play_recent_btn.set_cursor_from_name(Some("pointer"));
@@ -138,7 +142,7 @@ pub fn build_collection_page(state: Rc<RefCell<AppState>>) -> ScrolledWindow {
     }
     let clear_recent_btn = Button::builder()
         .icon_name("delete-regular")
-        .tooltip_text("Limpiar historial")
+        .tooltip_text(tr("Limpiar historial", "Clear history"))
         .css_classes(["flat", "circular"])
         .build();
     {
@@ -175,7 +179,7 @@ pub fn build_collection_page(state: Rc<RefCell<AppState>>) -> ScrolledWindow {
     let fav_header = GtkBox::new(Orientation::Horizontal, 8);
     fav_header.append(
         &Label::builder()
-            .label("Favoritos")
+            .label(tr("Favoritos", "Favorites"))
             .xalign(0.0)
             .hexpand(true)
             .css_classes(["title-2"])
@@ -183,7 +187,7 @@ pub fn build_collection_page(state: Rc<RefCell<AppState>>) -> ScrolledWindow {
     );
     let play_fav_btn = Button::builder()
         .icon_name("play-filled")
-        .label("Reproducir todo")
+        .label(tr("Reproducir todo", "Play all"))
         .css_classes(["flat", "pill-switch"])
         .build();
     play_fav_btn.set_cursor_from_name(Some("pointer"));

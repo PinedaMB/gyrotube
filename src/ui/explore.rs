@@ -43,14 +43,17 @@ pub fn build_explore_page(
     let explore_header_box = GtkBox::new(Orientation::Vertical, 2);
     explore_header_box.append(
         &Label::builder()
-            .label("Explorar")
+            .label(tr("Explorar", "Explore"))
             .xalign(0.0)
             .css_classes(["title-1"])
             .build(),
     );
     explore_header_box.append(
         &Label::builder()
-            .label("Estados de ánimo, momentos y géneros musicales de YouTube Music")
+            .label(tr(
+                "Estados de ánimo, momentos y géneros musicales de YouTube Music",
+                "Moods, moments, and music genres from YouTube Music",
+            ))
             .xalign(0.0)
             .wrap(true)
             .max_width_chars(32)
@@ -386,7 +389,7 @@ pub fn build_explore_page(
 
     // Genres & moods grid
     let moods_title = Label::builder()
-        .label("Estados de ánimo y momentos")
+        .label(tr("Estados de ánimo y momentos", "Moods & moments"))
         .xalign(0.0)
         .css_classes(["title-3"])
         .build();

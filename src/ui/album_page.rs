@@ -9,6 +9,7 @@ use gtk4::{
 };
 use libadwaita as adw;
 
+use crate::i18n::tr;
 use crate::models::{Track, format_duration};
 use crate::ui::collection::refresh_playlists_ui;
 use crate::ui::player::{play_queue_index, refresh_queue_ui};
@@ -103,7 +104,7 @@ pub fn build_album_page(
 
     let shuffle_btn = Button::builder()
         .icon_name("arrow-shuffle-regular")
-        .tooltip_text("Reproducción aleatoria")
+        .tooltip_text(tr("Reproducción aleatoria", "Shuffle play"))
         .valign(Align::Center)
         .css_classes(["circular", "album-action-btn"])
         .build();
@@ -111,7 +112,7 @@ pub fn build_album_page(
 
     let play_all_btn = Button::builder()
         .icon_name("play-filled")
-        .tooltip_text("Reproducir todo")
+        .tooltip_text(tr("Reproducir todo", "Play all"))
         .valign(Align::Center)
         .css_classes(["circular", "suggested-action", "album-play-fab"])
         .build();
@@ -119,7 +120,7 @@ pub fn build_album_page(
 
     let add_queue_btn = Button::builder()
         .icon_name("add-regular")
-        .tooltip_text("Añadir a la cola")
+        .tooltip_text(tr("Añadir a la cola", "Add to queue"))
         .valign(Align::Center)
         .css_classes(["circular", "album-action-btn"])
         .build();
@@ -127,7 +128,7 @@ pub fn build_album_page(
 
     let save_fav_btn = Button::builder()
         .icon_name("heart-regular")
-        .tooltip_text("Guardar canciones en favoritos")
+        .tooltip_text(tr("Guardar canciones en favoritos", "Save songs to favorites"))
         .valign(Align::Center)
         .css_classes(["circular", "album-action-btn"])
         .build();
@@ -135,7 +136,7 @@ pub fn build_album_page(
 
     let radio_btn = Button::builder()
         .icon_name("sound-wave-circle-regular")
-        .tooltip_text("Iniciar radio")
+        .tooltip_text(tr("Iniciar radio", "Start radio"))
         .valign(Align::Center)
         .css_classes(["circular", "album-action-btn"])
         .build();
@@ -217,7 +218,7 @@ pub fn build_album_page(
     );
     list_header.append(
         &Label::builder()
-            .label("Título")
+            .label(tr("Título", "Title"))
             .xalign(0.0)
             .hexpand(true)
             .css_classes(["dim-label", "caption"])
