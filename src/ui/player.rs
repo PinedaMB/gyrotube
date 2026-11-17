@@ -568,7 +568,7 @@ pub fn show_player_loading(state: &Rc<RefCell<AppState>>, title: &str) {
 }
 
 pub fn play_queue_index(state: Rc<RefCell<AppState>>, index: usize) {
-    let (track, backend, current_gen, decks, player_cover, player_fav_btn, is_fav) = {
+    let (track, backend, current_gen, decks, player_cover, player_fav_btn, is_fav, fast_stream) = {
         let mut s = state.borrow_mut();
         let Some(track) = s.queue.get(index).cloned() else {
             return;
@@ -581,19 +581,31 @@ pub fn play_queue_index(state: Rc<RefCell<AppState>>, index: usize) {
         s.crossfade_triggered_for = None;
         s.lyrics_loaded_for = None;
 
+        let fast_stream = s.backend.fast_cached_stream(&track.id);
         crate::ui::widgets::set_source_link(
             &s.player_source_label,
             track.album.as_deref(),
             &s.source_name,
         );
         s.player_title.set_label(&track.title);
-        s.player_artist
-            .set_text(&format!("Cargando • {}", track.artist));
         crate::ui::widgets::set_album_link(&s.player_album_label, track.album.as_deref());
-        s.play_pause_btn.set_sensitive(false);
-        s.play_spinner.set_spinning(true);
-        s.play_pause_btn.set_child(Some(&s.play_spinner));
-        s.seek_scale.set_sensitive(false);
+        if let Some(ref stream) = fast_stream {
+            crate::ui::widgets::set_artist_links(&s.player_artist, &track.artist);
+            s.play_spinner.set_spinning(false);
+            s.play_pause_btn.set_icon_name("play-filled");
+            s.play_pause_btn.set_sensitive(true);
+            s.seek_scale.set_sensitive(true);
+            s.quality_label.set_label(&stream.quality_label);
+            s.pending_autoplay = true;
+        } else {
+            s.player_artist
+                .set_text(&format!("{} • {}", tr("Cargando", "Loading"), track.artist));
+            s.play_pause_btn.set_sensitive(false);
+            s.play_spinner.set_spinning(true);
+            s.play_pause_btn.set_child(Some(&s.play_spinner));
+            s.seek_scale.set_sensitive(false);
+            s.quality_label.set_label("...");
+        }
         s.seek_scale.set_value(0.0);
         s.time_label.set_label("0:00");
         s.duration_label.set_label(
@@ -602,7 +614,6 @@ pub fn play_queue_index(state: Rc<RefCell<AppState>>, index: usize) {
                 .map(format_duration)
                 .unwrap_or_else(|| String::from("0:00")),
         );
-        s.quality_label.set_label("...");
         s.pending_restore_seek = None;
 
         let is_fav = s.is_favorite(&track.id);
@@ -627,6 +638,7 @@ pub fn play_queue_index(state: Rc<RefCell<AppState>>, index: usize) {
             s.player_cover.clone(),
             s.player_fav_btn.clone(),
             is_fav,
+            fast_stream,
         )
     };
 
@@ -642,6 +654,31 @@ pub fn play_queue_index(state: Rc<RefCell<AppState>>, index: usize) {
     refresh_queue_ui(Rc::clone(&state));
     record_recent_track(Rc::clone(&state), &track);
     notify_track_changed(Rc::clone(&state));
+
+    if let Some(stream) = fast_stream {
+        let (media_file, next_id) = {
+            let mut s = state.borrow_mut();
+            let next_id = next_queue_index(&s)
+                .and_then(|ni| s.queue.get(ni))
+                .cloned()
+                .filter(|t| s.preloading_id.as_deref() != Some(t.id.as_str()));
+            if let Some(ref id) = next_id {
+                s.preloading_id = Some(id.id.clone());
+            }
+            (s.active_media().clone(), next_id)
+        };
+        set_stream_on_media(&media_file, stream);
+        if media_file.is_prepared() {
+            state.borrow_mut().pending_autoplay = false;
+            media_file.play();
+        }
+        if let Some(next_track) = next_id {
+            runtime().spawn(async move {
+                backend.prefetch_audio(&next_track).await;
+            });
+        }
+        return;
+    }
 
     let (tx, rx) = async_channel::bounded(1);
     let track_res = track.clone();
@@ -1336,6 +1373,12 @@ pub fn restore_last_track(state: Rc<RefCell<AppState>>, position_secs: f64) {
         s.quality_label.set_label(&stream.quality_label);
         let media = s.active_media().clone();
         set_stream_on_media(&media, stream);
+    } else {
+        let backend = state.borrow().backend.clone();
+        let track_warm = track.clone();
+        runtime().spawn(async move {
+            let _ = backend.resolve_track_stream(&track_warm).await;
+        });
     }
     refresh_queue_ui(Rc::clone(&state));
     load_current_lyrics(state);

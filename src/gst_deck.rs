@@ -48,6 +48,7 @@ impl GStreamerDeck {
         let playbin = gst::ElementFactory::make("playbin")
             .build()
             .expect("Failed to create GStreamer playbin element");
+        playbin.set_property_from_str("flags", "audio+soft-volume");
 
         let pending_user_agent: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
         let pending_headers: Arc<Mutex<HashMap<String, String>>> =

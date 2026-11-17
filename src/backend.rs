@@ -630,6 +630,17 @@ impl Backend {
         Self::find_cached_audio(video_id, &dir)
     }
 
+    pub fn fast_cached_stream(&self, video_id: &str) -> Option<StreamInfo> {
+        validate_video_id(video_id).ok()?;
+        if let Ok(cache) = self.stream_cache.read()
+            && let Some((ts, stream)) = cache.get(video_id)
+            && stream_url_is_fresh(*ts, stream)
+        {
+            return Some(stream.clone());
+        }
+        self.cached_stream(video_id)
+    }
+
     fn find_cached_audio(video_id: &str, streams_dir: &std::path::Path) -> Option<StreamInfo> {
         for (ext, label) in [
             ("m4a", "M4A"),
@@ -656,6 +667,9 @@ impl Backend {
 
     pub async fn resolve_track_stream(&self, track: &Track) -> Result<StreamInfo, String> {
         validate_video_id(&track.id)?;
+        if let Some(cached) = self.fast_cached_stream(&track.id) {
+            return Ok(cached);
+        }
         if !track.is_music {
             let details = self
                 .rp
@@ -699,7 +713,6 @@ impl Backend {
                 "0",
                 "--dump-single-json",
                 "--skip-download",
-                "--check-formats",
                 "--js-runtimes",
                 "node",
                 "--remote-components",
