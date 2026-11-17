@@ -18,12 +18,13 @@ use gtk4::gdk;
 use gtk4::glib;
 use gtk4::prelude::*;
 use gtk4::{
-    Align, Box as GtkBox, CssProvider, Image, Label, ListBox, MediaFile, Orientation,
-    SelectionMode, ToggleButton,
+    Align, Box as GtkBox, CssProvider, Image, Label, ListBox, Orientation, SelectionMode,
+    ToggleButton,
 };
 use libadwaita as adw;
 
 use crate::backend::Backend;
+use crate::gst_deck::GStreamerDeck;
 use crate::models::{
     load_favorites, load_recent_tracks, load_search_history, load_session_state,
     load_user_playlists, save_user_playlists,
@@ -79,7 +80,7 @@ pub fn build_ui(app: &adw::Application) {
     register_app_icon();
 
     let backend = Backend::new();
-    let decks = [MediaFile::new(), MediaFile::new()];
+    let decks = [GStreamerDeck::new(), GStreamerDeck::new()];
     let toast_overlay = adw::ToastOverlay::new();
     let saved_session = load_session_state();
     let initial_sidebar_collapsed = saved_session.sidebar_collapsed;

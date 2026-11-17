@@ -1001,7 +1001,7 @@ fn populate_artist_page(
 }
 
 fn apply_artist_tracks_collapse(list: &ListBox, toggle: &Button, expanded: bool) {
-    const INITIAL_TRACKS: usize = 10;
+    const INITIAL_TRACKS: usize = 5;
     let mut total = 0usize;
     let mut child = list.first_child();
     while let Some(row) = child {

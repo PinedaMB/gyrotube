@@ -1,8 +1,5 @@
 use std::path::PathBuf;
 
-use rustypipe::model::{
-    AlbumItem, ArtistItem, MusicArtist, MusicGenreItem, MusicPlaylistItem, TrackItem,
-};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -72,7 +69,8 @@ pub struct SearchResults {
 pub struct StreamInfo {
     pub url: String,
     pub quality_label: String,
-    pub stream: Option<crate::stream_input::StreamSource>,
+    pub user_agent: Option<String>,
+    pub headers: std::collections::HashMap<String, String>,
 }
 
 pub fn upgrade_cover_url(url: &str, target_size: i32) -> String {
@@ -139,117 +137,11 @@ pub fn upgrade_cover_url(url: &str, target_size: i32) -> String {
     url.to_string()
 }
 
-pub fn pick_cover(covers: &[rustypipe::model::Thumbnail], target_width: i32) -> Option<String> {
-    covers
-        .iter()
-        .min_by_key(|t| (t.width as i32 - target_width).abs())
-        .or_else(|| covers.last())
-        .map(|t| upgrade_cover_url(&t.url, target_width))
-}
-
-impl From<&TrackItem> for Track {
-    fn from(item: &TrackItem) -> Self {
-        let artist = if item.artists.is_empty() {
-            String::from("Artista desconocido")
-        } else {
-            item.artists
-                .iter()
-                .map(|a| a.name.as_str())
-                .collect::<Vec<_>>()
-                .join(", ")
-        };
-
-        Self {
-            id: item.id.clone(),
-            title: item.name.clone(),
-            artist,
-            album: item.album.as_ref().map(|a| a.name.clone()),
-            duration_secs: item.duration,
-            cover_url: pick_cover(&item.cover, 240),
-            cover_large_url: pick_cover(&item.cover, 800),
-        }
-    }
-}
-
-impl From<&AlbumItem> for Album {
-    fn from(item: &AlbumItem) -> Self {
-        let artist = if item.artists.is_empty() {
-            String::from("Artista desconocido")
-        } else {
-            item.artists
-                .iter()
-                .map(|a| a.name.as_str())
-                .collect::<Vec<_>>()
-                .join(", ")
-        };
-
-        Self {
-            id: item.id.clone(),
-            title: item.name.clone(),
-            artist,
-            year: item.year,
-            cover_url: pick_cover(&item.cover, 544),
-        }
-    }
-}
-
 pub fn color_to_hex(color: u32) -> String {
     let r = (color >> 16) & 0xFF;
     let g = (color >> 8) & 0xFF;
     let b = color & 0xFF;
     format!("#{r:02x}{g:02x}{b:02x}")
-}
-
-impl From<&MusicGenreItem> for Genre {
-    fn from(item: &MusicGenreItem) -> Self {
-        Self {
-            id: item.id.clone(),
-            name: item.name.clone(),
-            color_hex: color_to_hex(item.color),
-        }
-    }
-}
-
-impl From<&MusicPlaylistItem> for Playlist {
-    fn from(item: &MusicPlaylistItem) -> Self {
-        let subtitle = item
-            .channel
-            .as_ref()
-            .map(|c| c.name.clone())
-            .unwrap_or_else(|| String::from("YouTube Music"));
-        Self {
-            id: item.id.clone(),
-            name: item.name.clone(),
-            subtitle,
-            cover_url: pick_cover(&item.thumbnail, 544),
-        }
-    }
-}
-
-impl From<&ArtistItem> for Artist {
-    fn from(item: &ArtistItem) -> Self {
-        Self {
-            id: item.id.clone(),
-            name: item.name.clone(),
-            avatar_url: pick_cover(&item.avatar, 360),
-            subscriber_count: item.subscriber_count,
-        }
-    }
-}
-
-impl From<&MusicArtist> for ArtistDetails {
-    fn from(artist: &MusicArtist) -> Self {
-        Self {
-            name: artist.name.clone(),
-            header_url: pick_cover(&artist.header_image, 1000),
-            description: artist.description.clone(),
-            subscriber_count: artist.subscriber_count,
-            tracks: artist.tracks.iter().map(Track::from).collect(),
-            albums: artist.albums.iter().map(Album::from).collect(),
-            playlists: artist.playlists.iter().map(Playlist::from).collect(),
-            similar_artists: artist.similar_artists.iter().map(Artist::from).collect(),
-        }
-    }
 }
 
 pub fn format_subscribers(count: u64) -> String {

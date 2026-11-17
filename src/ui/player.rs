@@ -2,7 +2,6 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use gtk4::gdk;
-use gtk4::gio;
 use gtk4::glib;
 use gtk4::prelude::*;
 use gtk4::{Align, Box as GtkBox, Button, Image, Label, ListBoxRow, MenuButton, Orientation, Scale};
@@ -286,12 +285,8 @@ fn update_synced_lyrics_position(s: &mut AppState, pos_secs_exact: f64) {
     }
 }
 
-fn set_stream_on_media(media: &gtk4::MediaFile, stream: crate::models::StreamInfo) {
-    if let Some(source) = stream.stream {
-        media.set_input_stream(Some(&source.into_gio_stream()));
-    } else {
-        media.set_file(Some(&gio::File::for_path(&stream.url)));
-    }
+fn set_stream_on_media(media: &crate::gst_deck::GStreamerDeck, stream: crate::models::StreamInfo) {
+    media.set_stream(&stream.url, stream.user_agent.as_deref(), &stream.headers);
 }
 
 pub fn show_player_loading(state: &Rc<RefCell<AppState>>, title: &str) {
@@ -551,11 +546,13 @@ fn start_crossfade_to(state: Rc<RefCell<AppState>>, next_index: usize) {
                 mpris.update_track(&track);
             }
 
-            let next_prefetch = if !s.shuffle {
-                s.queue.get(next_index + 1).map(|t| t.id.clone())
-            } else {
-                None
-            };
+            let next_prefetch = next_queue_index(&s)
+                .and_then(|ni| s.queue.get(ni))
+                .map(|t| t.id.clone())
+                .filter(|id| s.preloading_id.as_deref() != Some(id.as_str()));
+            if let Some(ref id) = next_prefetch {
+                s.preloading_id = Some(id.clone());
+            }
 
             (
                 old_deck,
@@ -699,7 +696,7 @@ pub fn wire_media_signals(
                 }
             };
             if let Some(media) = target_media
-                && media.file().is_some()
+                && media.has_stream()
             {
                 media.set_volume(val);
             }
@@ -731,7 +728,7 @@ pub fn wire_media_signals(
             if active.is_playing() {
                 active.pause();
                 standby.pause();
-            } else if active.file().is_none() {
+            } else if !active.has_stream() {
                 if let Some(idx) = current_idx {
                     play_queue_index(Rc::clone(&state), idx);
                 }
@@ -872,9 +869,62 @@ pub fn wire_media_signals(
             let state = Rc::clone(&state);
             media_file.connect_error_notify(move |media| {
                 if let Some(err) = media.error() {
-                    let s = state.borrow();
-                    if s.active_deck == deck_idx {
-                        s.show_toast(&format!("Error de reproducción: {err}"));
+                    let fallback_req = {
+                        let mut s = state.borrow_mut();
+                        if s.active_deck != deck_idx {
+                            None
+                        } else if media.is_remote_stream()
+                            && let Some(track) = s.current_index.and_then(|i| s.queue.get(i)).cloned()
+                        {
+                            s.play_spinner.set_visible(true);
+                            s.play_spinner.set_spinning(true);
+                            s.play_pause_btn.set_child(Some(&s.play_spinner));
+                            s.play_pause_btn.set_sensitive(false);
+                            s.pending_autoplay = true;
+                            Some((track.id, s.backend.clone(), s.loading_generation))
+                        } else {
+                            s.show_toast(&format!("Error de reproducción: {err}"));
+                            None
+                        }
+                    };
+
+                    if let Some((video_id, backend, load_gen)) = fallback_req {
+                        let (tx, rx) = async_channel::bounded(1);
+                        runtime().spawn(async move {
+                            let res = backend.download_with_ytdlp_fallback(&video_id).await;
+                            let _ = tx.send(res).await;
+                        });
+                        let state_cb = Rc::clone(&state);
+                        glib::spawn_future_local(async move {
+                            let recv = rx.recv().await;
+                            let media_opt = {
+                                let mut s = state_cb.borrow_mut();
+                                if s.loading_generation != load_gen {
+                                    return;
+                                }
+                                s.play_spinner.set_spinning(false);
+                                s.play_pause_btn.set_icon_name("media-playback-start-symbolic");
+                                s.play_pause_btn.set_sensitive(true);
+                                match recv {
+                                    Ok(Ok(stream)) => {
+                                        s.quality_label.set_label(&stream.quality_label);
+                                        s.pending_autoplay = true;
+                                        Some((s.active_media().clone(), stream))
+                                    }
+                                    Ok(Err(e)) => {
+                                        s.show_toast(&e);
+                                        None
+                                    }
+                                    Err(_) => {
+                                        s.show_toast("Error al descargar el audio de respaldo.");
+                                        None
+                                    }
+                                }
+                            };
+                            if let Some((m, stream)) = media_opt {
+                                set_stream_on_media(&m, stream);
+                            }
+                        });
                     }
                 }
             });
@@ -952,7 +1002,7 @@ pub fn wire_media_signals(
                         && s.crossfade_triggered_for != Some(s.loading_generation)
                     {
                         let remaining_us = dur_us - pos_us;
-                        if (500_000..=4_500_000).contains(&remaining_us) {
+                        if (500_000..=5_000_000).contains(&remaining_us) {
                             s.crossfade_triggered_for = Some(s.loading_generation);
                             next_queue_index(&s)
                         } else {

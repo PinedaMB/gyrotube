@@ -5,18 +5,18 @@ use std::rc::Rc;
 use adw::prelude::*;
 use gtk4::gdk;
 use gtk4::{
-    Box as GtkBox, Button, Label, ListBox, MediaFile, Picture, Scale, ScrolledWindow, Spinner,
-    ToggleButton,
+    Box as GtkBox, Button, Label, ListBox, Picture, Scale, ScrolledWindow, Spinner, ToggleButton,
 };
 use libadwaita as adw;
 
 use crate::backend::Backend;
+use crate::gst_deck::GStreamerDeck;
 use crate::models::{SessionState, Track, UserPlaylist, save_session_state};
 use crate::mpris::MprisController;
 
 pub struct AppState {
     pub backend: Backend,
-    pub decks: [MediaFile; 2],
+    pub decks: [GStreamerDeck; 2],
     pub active_deck: usize,
     pub user_volume: f64,
     pub crossfade_enabled: bool,
@@ -98,11 +98,11 @@ impl AppState {
             position_secs: pos_secs,
         });
     }
-    pub fn active_media(&self) -> &MediaFile {
+    pub fn active_media(&self) -> &GStreamerDeck {
         &self.decks[self.active_deck]
     }
 
-    pub fn standby_media(&self) -> &MediaFile {
+    pub fn standby_media(&self) -> &GStreamerDeck {
         &self.decks[1 - self.active_deck]
     }
 
