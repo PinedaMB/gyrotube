@@ -216,6 +216,7 @@ pub fn refresh_queue_ui(state: Rc<RefCell<AppState>>) {
         queue_list.append(&row);
     }
     crate::ui::party_mode::refresh_party_next_up(&state);
+    crate::ui::jam_dialog::sync_jam_snapshot(&state.borrow());
 }
 
 fn make_lyric_line_button(
@@ -1082,6 +1083,7 @@ pub fn wire_media_signals(
                 if let Some(mpris) = &s.mpris {
                     mpris.set_status(playing, s.current_index.is_none());
                 }
+                crate::ui::jam_dialog::sync_jam_snapshot(&s);
             });
         }
 

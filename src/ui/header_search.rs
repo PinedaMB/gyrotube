@@ -23,6 +23,7 @@ pub struct HeaderWidgets {
     pub settings_btn: Button,
     pub menu_popover: Popover,
     pub party_btn: Button,
+    pub jam_btn: Button,
 }
 
 pub fn build_header_bar(_content_view_stack: &adw::ViewStack) -> HeaderWidgets {
@@ -132,6 +133,13 @@ pub fn build_header_bar(_content_view_stack: &adw::ViewStack) -> HeaderWidgets {
         .build();
     party_btn.set_cursor_from_name(Some("pointer"));
 
+    let jam_btn = Button::builder()
+        .icon_name("people-community-regular")
+        .tooltip_text(tr("Modo SPIN", "SPIN Mode"))
+        .css_classes(["flat", "circular"])
+        .build();
+    jam_btn.set_cursor_from_name(Some("pointer"));
+
     let header_bar = adw::HeaderBar::builder()
         .centering_policy(adw::CenteringPolicy::Loose)
         .title_widget(&top_search_clamp)
@@ -139,6 +147,7 @@ pub fn build_header_bar(_content_view_stack: &adw::ViewStack) -> HeaderWidgets {
     header_bar.pack_start(&brand_box);
     header_bar.pack_end(&menu_btn);
     header_bar.pack_end(&party_btn);
+    header_bar.pack_end(&jam_btn);
 
     HeaderWidgets {
         header_bar,
@@ -148,6 +157,7 @@ pub fn build_header_bar(_content_view_stack: &adw::ViewStack) -> HeaderWidgets {
         settings_btn,
         menu_popover,
         party_btn,
+        jam_btn,
     }
 }
 

@@ -21,6 +21,7 @@ fn main() {
             "music-note-2-regular",
             "next-filled",
             "pause-filled",
+            "people-community-regular",
             "person-account-regular",
             "play-filled",
             "previous-filled",

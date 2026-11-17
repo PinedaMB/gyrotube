@@ -3,6 +3,7 @@ pub mod collection;
 pub mod explore;
 pub mod header_search;
 pub mod home;
+pub mod jam_dialog;
 pub mod party_mode;
 pub mod player;
 pub mod responsive;
@@ -40,6 +41,7 @@ use crate::ui::header_search::{
     build_header_bar, install_unfocus_on_click, wire_search_popover, wire_settings_dialog,
 };
 use crate::ui::home::build_home_page;
+use crate::ui::jam_dialog::{JamRuntime, open_jam_dialog, sync_jam_snapshot, wire_jam_commands};
 use crate::ui::party_mode::{
     build_party_mode, enter_party_mode, exit_party_mode, refresh_party_next_up,
 };
@@ -200,6 +202,7 @@ pub fn build_ui(app: &adw::Application) {
         ),
     );
 
+    let (jam_cmd_tx, jam_cmd_rx) = async_channel::unbounded();
     let initial_cf_secs = saved_session.crossfade_secs.min(10);
     let state = Rc::new(RefCell::new(AppState {
         backend: backend.clone(),
@@ -276,6 +279,7 @@ pub fn build_ui(app: &adw::Application) {
         loading_generation: 0,
         preloading_id: None,
         pending_restore_seek: None,
+        jam: JamRuntime::new(jam_cmd_tx),
         on_track_changed: Vec::new(),
         on_open_collection: None,
         on_cancel_collection_loading: None,
@@ -498,6 +502,13 @@ pub fn build_ui(app: &adw::Application) {
         hdr.party_btn.connect_clicked(move |_| ep());
     }
     {
+        let st_jam = Rc::clone(&state);
+        hdr.jam_btn.connect_clicked(move |btn| {
+            open_jam_dialog(btn, Rc::clone(&st_jam), btn.clone());
+        });
+    }
+    wire_jam_commands(Rc::clone(&state), jam_cmd_rx);
+    {
         let ex = Rc::clone(&exit_party);
         party.exit_btn.connect_clicked(move |_| {
             ex();
@@ -647,6 +658,7 @@ fn wire_sidebar_actions(
             .on_track_changed
             .push(Rc::new(move || {
                 refresh_party_next_up(&state_cb);
+                sync_jam_snapshot(&state_cb.borrow());
                 let party_active = state_cb.borrow().party_active;
                 if tab_lyrics.is_active() || party_active {
                     load_current_lyrics(Rc::clone(&state_cb));
