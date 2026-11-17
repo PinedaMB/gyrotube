@@ -6,7 +6,8 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Track {
     // shortcut: catalog audio includes live albums; require recording metadata to certify studio versions.
-    #[serde(default, rename = "verified_music_audio")]
+    // Older proof flags could be supplied by guests and must be checked again.
+    #[serde(default, rename = "verified_catalog_audio")]
     pub is_music: bool,
     pub id: String,
     pub title: String,
@@ -317,26 +318,91 @@ fn upgrade_tracks_covers(tracks: &mut [Track]) {
     }
 }
 
-fn load_json_file<T: serde::de::DeserializeOwned + Default>(filename: &str) -> T {
-    let Some(path) = data_dir().map(|d| d.join(filename)) else {
-        return T::default();
-    };
-    let Ok(raw) = std::fs::read_to_string(path) else {
-        return T::default();
-    };
-    serde_json::from_str(&raw).unwrap_or_default()
+static LOAD_FAILURES: std::sync::Mutex<Vec<(PathBuf, String)>> = std::sync::Mutex::new(Vec::new());
+
+pub fn data_load_warnings() -> Vec<String> {
+    LOAD_FAILURES
+        .lock()
+        .map(|failures| {
+            failures
+                .iter()
+                .map(|(_, message)| message.clone())
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
-fn save_json_file<T: serde::Serialize + ?Sized>(filename: &str, value: &T) {
-    let Some(dir) = data_dir() else {
-        return;
-    };
-    if std::fs::create_dir_all(&dir).is_err() {
-        return;
+fn load_json_path<T: serde::de::DeserializeOwned + Default>(path: &std::path::Path) -> T {
+    let result = std::fs::read(path)
+        .and_then(|raw| serde_json::from_slice(&raw).map_err(std::io::Error::other));
+    match result {
+        Ok(value) => value,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => T::default(),
+        Err(err) => {
+            let message = format!(
+                "No se pudo cargar {}: {err}. Se conservará el archivo original.",
+                path.display()
+            );
+            eprintln!("{message}");
+            if let Ok(mut failures) = LOAD_FAILURES.lock()
+                && !failures.iter().any(|(failed, _)| failed == path)
+            {
+                failures.push((path.to_path_buf(), message));
+            }
+            T::default()
+        }
     }
-    if let Ok(json) = serde_json::to_string_pretty(value) {
-        let _ = std::fs::write(dir.join(filename), json);
+}
+
+fn load_json_file<T: serde::de::DeserializeOwned + Default>(filename: &str) -> T {
+    data_dir()
+        .map(|dir| load_json_path(&dir.join(filename)))
+        .unwrap_or_default()
+}
+
+fn save_json_path<T: serde::Serialize + ?Sized>(
+    path: &std::path::Path,
+    value: &T,
+) -> std::io::Result<()> {
+    use std::io::Write;
+    let dir = path
+        .parent()
+        .ok_or_else(|| std::io::Error::other("Ruta de datos sin directorio"))?;
+    std::fs::create_dir_all(dir)?;
+    let mut staged = tempfile::NamedTempFile::new_in(dir)?;
+    serde_json::to_writer_pretty(&mut staged, value).map_err(std::io::Error::other)?;
+    staged.flush()?;
+    staged.as_file().sync_all()?;
+
+    let preserve = LOAD_FAILURES
+        .lock()
+        .map_err(|_| std::io::Error::other("Error de sincronización de datos"))?
+        .iter()
+        .any(|(failed, _)| failed == path);
+    if preserve {
+        let raw = std::fs::read(path)?;
+        let prefix = format!(
+            "{}.damaged-",
+            path.file_name().unwrap_or_default().to_string_lossy()
+        );
+        let mut backup = tempfile::Builder::new().prefix(&prefix).tempfile_in(dir)?;
+        backup.write_all(&raw)?;
+        backup.as_file().sync_all()?;
+        let (_, backup_path) = backup.keep().map_err(|err| err.error)?;
+        eprintln!("Archivo dañado conservado en {}", backup_path.display());
     }
+    staged.persist(path).map_err(|err| err.error)?;
+    std::fs::File::open(dir)?.sync_all()?;
+    if let Ok(mut failures) = LOAD_FAILURES.lock() {
+        failures.retain(|(failed, _)| failed != path);
+    }
+    Ok(())
+}
+
+fn save_json_file<T: serde::Serialize + ?Sized>(filename: &str, value: &T) -> std::io::Result<()> {
+    let dir =
+        data_dir().ok_or_else(|| std::io::Error::other("No se encontró el directorio de datos"))?;
+    save_json_path(&dir.join(filename), value)
 }
 
 pub fn load_favorites() -> Vec<Track> {
@@ -345,8 +411,8 @@ pub fn load_favorites() -> Vec<Track> {
     tracks
 }
 
-pub fn save_favorites(favorites: &[Track]) {
-    save_json_file("favorites.json", favorites);
+pub fn save_favorites(favorites: &[Track]) -> std::io::Result<()> {
+    save_json_file("favorites.json", favorites)
 }
 
 pub fn load_recent_tracks() -> Vec<Track> {
@@ -355,8 +421,8 @@ pub fn load_recent_tracks() -> Vec<Track> {
     tracks
 }
 
-pub fn save_recent_tracks(recent: &[Track]) {
-    save_json_file("recent.json", recent);
+pub fn save_recent_tracks(recent: &[Track]) -> std::io::Result<()> {
+    save_json_file("recent.json", recent)
 }
 
 pub fn load_user_playlists() -> Vec<UserPlaylist> {
@@ -367,16 +433,16 @@ pub fn load_user_playlists() -> Vec<UserPlaylist> {
     playlists
 }
 
-pub fn save_user_playlists(playlists: &[UserPlaylist]) {
-    save_json_file("playlists.json", playlists);
+pub fn save_user_playlists(playlists: &[UserPlaylist]) -> std::io::Result<()> {
+    save_json_file("playlists.json", playlists)
 }
 
 pub fn load_search_history() -> Vec<String> {
     load_json_file("search_history.json")
 }
 
-pub fn save_search_history(history: &[String]) {
-    save_json_file("search_history.json", history);
+pub fn save_search_history(history: &[String]) -> std::io::Result<()> {
+    save_json_file("search_history.json", history)
 }
 
 fn default_volume() -> f64 {
@@ -391,6 +457,8 @@ fn default_crossfade_secs() -> u32 {
 pub struct SessionState {
     pub sidebar_collapsed: bool,
     pub queue: Vec<Track>,
+    #[serde(default)]
+    pub unshuffled_queue: Vec<Track>,
     pub current_index: Option<usize>,
     pub source_name: String,
     #[serde(default = "default_volume")]
@@ -410,11 +478,12 @@ pub struct SessionState {
 pub fn load_session_state() -> SessionState {
     let mut state: SessionState = load_json_file("session.json");
     upgrade_tracks_covers(&mut state.queue);
+    upgrade_tracks_covers(&mut state.unshuffled_queue);
     state
 }
 
-pub fn save_session_state(state: &SessionState) {
-    save_json_file("session.json", state);
+pub fn save_session_state(state: &SessionState) -> std::io::Result<()> {
+    save_json_file("session.json", state)
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -466,6 +535,94 @@ mod tests {
     use super::*;
 
     #[test]
+    fn interrupted_serialization_keeps_previous_json_and_cleans_staging() {
+        struct Fails;
+        impl Serialize for Fails {
+            fn serialize<S: serde::Serializer>(&self, _: S) -> Result<S::Ok, S::Error> {
+                Err(serde::ser::Error::custom("simulated serialization failure"))
+            }
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("favorites.json");
+        let original = br#"["saved favorite"]"#;
+        std::fs::write(&path, original).unwrap();
+        assert!(save_json_path(&path, &Fails).is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), original);
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
+        save_json_path(&path, &["new favorite"]).unwrap();
+        assert_eq!(load_json_path::<Vec<String>>(&path), vec!["new favorite"]);
+    }
+
+    #[test]
+    fn malformed_or_wrong_schema_data_is_preserved_before_replacement() {
+        for raw in [
+            br#"[{"#.as_slice(),
+            br#"{"valid_json":"wrong schema"}"#.as_slice(),
+        ] {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("playlists.json");
+            std::fs::write(&path, raw).unwrap();
+            assert!(load_json_path::<Vec<UserPlaylist>>(&path).is_empty());
+            assert_eq!(std::fs::read(&path).unwrap(), raw);
+            assert!(
+                data_load_warnings()
+                    .iter()
+                    .any(|message| message.contains(path.to_str().unwrap()))
+            );
+            save_json_path(&path, &Vec::<UserPlaylist>::new()).unwrap();
+            let backup = std::fs::read_dir(dir.path())
+                .unwrap()
+                .flatten()
+                .find(|entry| {
+                    entry
+                        .file_name()
+                        .to_string_lossy()
+                        .starts_with("playlists.json.damaged-")
+                })
+                .unwrap();
+            assert_eq!(std::fs::read(backup.path()).unwrap(), raw);
+            assert!(
+                serde_json::from_slice::<Vec<UserPlaylist>>(&std::fs::read(&path).unwrap()).is_ok()
+            );
+        }
+    }
+
+    #[test]
+    fn failed_directory_creation_does_not_replace_existing_data() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("blocked");
+        std::fs::write(&file, b"original").unwrap();
+        assert!(save_json_path(&file.join("session.json"), &SessionState::default()).is_err());
+        assert_eq!(std::fs::read(&file).unwrap(), b"original");
+    }
+
+    #[test]
+    fn shuffled_order_survives_session_roundtrip_and_older_sessions_still_load() {
+        let state = SessionState {
+            queue: vec![serde_json::from_value(serde_json::json!({
+                "id":"audio123456", "title":"Song", "artist":"Artist", "verified_catalog_audio":true
+            })).unwrap()],
+            shuffle: true,
+            ..SessionState::default()
+        };
+        let mut state = state;
+        state.unshuffled_queue = state.queue.clone();
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("session.json");
+        save_json_path(&path, &state).unwrap();
+        let loaded: SessionState = load_json_path(&path);
+        assert_eq!(loaded.unshuffled_queue, state.unshuffled_queue);
+        let mut old = serde_json::to_value(&state).unwrap();
+        old.as_object_mut().unwrap().remove("unshuffled_queue");
+        assert!(
+            serde_json::from_value::<SessionState>(old)
+                .unwrap()
+                .unshuffled_queue
+                .is_empty()
+        );
+    }
+
+    #[test]
     fn music_provenance_comes_from_catalog_type() {
         for (kind, expected) in [("track", true), ("video", false), ("episode", false)] {
             let item: TrackItem = serde_json::from_value(serde_json::json!({
@@ -481,7 +638,7 @@ mod tests {
     fn old_saved_tracks_require_music_verification() {
         let track: Track = serde_json::from_value(serde_json::json!({
             "id":"Abc_123-xyz", "title":"Song", "artist":"Artist", "album":"Album",
-            "is_music":true,
+            "is_music":true, "verified_music_audio":true,
             "duration_secs":180,"cover_url":"https://lh3.googleusercontent.com/cover",
             "cover_large_url":null
         }))

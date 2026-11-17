@@ -380,7 +380,7 @@ pub fn wire_search_popover(
                 s.search_history.retain(|q| !q.eq_ignore_ascii_case(trimmed));
                 s.search_history.insert(0, trimmed.to_string());
                 s.search_history.truncate(8);
-                save_search_history(&s.search_history);
+                s.report_save_result(save_search_history(&s.search_history));
             }
             allow_run.set(false);
             top_entry_focus.set_can_focus(false);
@@ -443,7 +443,7 @@ pub fn wire_search_popover(
                     {
                         let mut s = st_clear.borrow_mut();
                         s.search_history.clear();
-                        save_search_history(&s.search_history);
+                        s.report_save_result(save_search_history(&s.search_history));
                     }
                     items_clear.borrow_mut().clear();
                     pop_clear.popdown();
@@ -504,7 +504,7 @@ pub fn wire_search_popover(
                         {
                             let mut s = st_del.borrow_mut();
                             s.search_history.retain(|t| t != &term_del);
-                            save_search_history(&s.search_history);
+                            s.report_save_result(save_search_history(&s.search_history));
                         }
                         items_del.borrow_mut().retain(|(_, t)| t != &term_del);
                         box_ref.remove(&wrap_ref);

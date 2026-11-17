@@ -131,25 +131,22 @@ pub fn refresh_queue_ui(state: Rc<RefCell<AppState>>) {
         {
             let state = Rc::clone(&state);
             remove_btn.connect_clicked(move |_| {
-                {
-                    let mut s = state.borrow_mut();
-                    if idx < s.queue.len() {
-                        s.queue.remove(idx);
-                        if let Some(cur) = s.current_index {
-                            if idx < cur {
-                                s.current_index = Some(cur - 1);
-                            } else if idx == cur {
-                                if s.queue.is_empty() {
-                                    s.current_index = None;
-                                } else {
-                                    s.current_index = Some(cur.min(s.queue.len() - 1));
-                                }
-                            }
-                        }
-                        s.update_nav_buttons();
+                let autoplay = {
+                    let s = state.borrow();
+                    s.active_media().is_playing() || s.pending_autoplay
+                };
+                let removed_current = state.borrow_mut().remove_queue_item(idx);
+                if removed_current {
+                    let next = state.borrow().current_index;
+                    if let Some(next) = next {
+                        load_queue_index(Rc::clone(&state), next, autoplay);
+                    } else {
+                        clear_playback(Rc::clone(&state));
                     }
+                } else {
+                    refresh_queue_ui(Rc::clone(&state));
+                    notify_track_changed(Rc::clone(&state));
                 }
-                refresh_queue_ui(Rc::clone(&state));
             });
         }
 
@@ -188,7 +185,9 @@ pub fn refresh_queue_ui(state: Rc<RefCell<AppState>>) {
             .actions(gtk4::gdk::DragAction::MOVE)
             .build();
         drag_source.connect_prepare(move |_, _, _| {
-            Some(gtk4::gdk::ContentProvider::for_value(&idx.to_string().to_value()))
+            Some(gtk4::gdk::ContentProvider::for_value(
+                &idx.to_string().to_value(),
+            ))
         });
         row.add_controller(drag_source);
 
@@ -472,15 +471,13 @@ pub fn scroll_party_lyric_centered(s: &AppState, animate: bool) {
     let lyrics_box = s.party_lyrics_box.clone();
     let scroll = s.party_lyrics_scroll.clone();
 
-    let compute_target = move |b: &Button, lb: &gtk4::Box, sc: &gtk4::ScrolledWindow| -> Option<f64> {
-        let bounds = b.compute_bounds(lb)?;
-        let adj = sc.vadjustment();
-        let max_val = (adj.upper() - adj.page_size()).max(0.0);
-        Some(
-            (bounds.y() as f64 - adj.page_size() * 0.35)
-                .clamp(0.0, max_val),
-        )
-    };
+    let compute_target =
+        move |b: &Button, lb: &gtk4::Box, sc: &gtk4::ScrolledWindow| -> Option<f64> {
+            let bounds = b.compute_bounds(lb)?;
+            let adj = sc.vadjustment();
+            let max_val = (adj.upper() - adj.page_size()).max(0.0);
+            Some((bounds.y() as f64 - adj.page_size() * 0.35).clamp(0.0, max_val))
+        };
 
     if !animate {
         if let Some(target) = compute_target(&btn, &lyrics_box, &scroll) {
@@ -568,7 +565,54 @@ pub fn show_player_loading(state: &Rc<RefCell<AppState>>, title: &str) {
     s.quality_label.set_label("...");
 }
 
+pub fn clear_playback(state: Rc<RefCell<AppState>>) {
+    let (decks, mpris) = {
+        let mut s = state.borrow_mut();
+        s.replace_queue(Vec::new(), String::new());
+        s.loading_generation = s.loading_generation.wrapping_add(1);
+        s.crossfade_generation = s.crossfade_generation.wrapping_add(1);
+        s.crossfade_active = false;
+        s.crossfade_triggered_for = None;
+        s.pending_autoplay = false;
+        s.pending_restore_seek = None;
+        s.play_spinner.set_spinning(false);
+        s.play_pause_btn.set_icon_name("play-filled");
+        s.play_pause_btn.set_sensitive(false);
+        s.seek_scale.set_sensitive(false);
+        s.seek_scale.set_value(0.0);
+        s.player_fav_btn.set_sensitive(false);
+        s.player_radio_btn.set_sensitive(false);
+        s.player_title
+            .set_label(tr("Nada reproduciéndose", "Nothing playing"));
+        s.player_artist
+            .set_text(tr("Selecciona una canción", "Select a song"));
+        s.player_album_label.set_visible(false);
+        s.player_source_label
+            .set_text(tr("Sin reproducción", "Not playing"));
+        s.player_cover.set_paintable(None::<&gtk4::gdk::Paintable>);
+        s.player_cover_spinner.set_spinning(false);
+        s.player_cover_spinner.set_visible(false);
+        crate::ui::widgets::update_ambient_color(None);
+        s.time_label.set_label("0:00");
+        s.duration_label.set_label("0:00");
+        s.quality_label.set_label("YTM");
+        s.update_nav_buttons();
+        (s.decks.clone(), s.mpris.clone())
+    };
+    decks[0].clear();
+    decks[1].clear();
+    if let Some(mpris) = mpris {
+        mpris.clear_track();
+    }
+    refresh_queue_ui(Rc::clone(&state));
+    notify_track_changed(state);
+}
+
 pub fn play_queue_index(state: Rc<RefCell<AppState>>, index: usize) {
+    load_queue_index(state, index, true);
+}
+
+fn load_queue_index(state: Rc<RefCell<AppState>>, index: usize, autoplay: bool) {
     let (track, backend, current_gen, decks, player_cover, player_fav_btn, is_fav, fast_stream) = {
         let mut s = state.borrow_mut();
         let Some(track) = s.queue.get(index).cloned() else {
@@ -582,7 +626,7 @@ pub fn play_queue_index(state: Rc<RefCell<AppState>>, index: usize) {
         s.crossfade_triggered_for = None;
         s.lyrics_loaded_for = None;
 
-        let fast_stream = s.backend.fast_cached_stream(&track.id);
+        let fast_stream = s.backend.cached_track_stream(&track);
         crate::ui::widgets::set_source_link(
             &s.player_source_label,
             track.album.as_deref(),
@@ -597,7 +641,7 @@ pub fn play_queue_index(state: Rc<RefCell<AppState>>, index: usize) {
             s.play_pause_btn.set_sensitive(true);
             s.seek_scale.set_sensitive(true);
             s.quality_label.set_label(&stream.quality_label);
-            s.pending_autoplay = true;
+            s.pending_autoplay = autoplay;
         } else {
             s.player_artist
                 .set_text(&format!("{} • {}", tr("Cargando", "Loading"), track.artist));
@@ -643,8 +687,8 @@ pub fn play_queue_index(state: Rc<RefCell<AppState>>, index: usize) {
         )
     };
 
-    decks[0].pause();
-    decks[1].pause();
+    decks[0].clear();
+    decks[1].clear();
 
     if player_fav_btn.is_active() != is_fav {
         player_fav_btn.set_active(is_fav);
@@ -669,7 +713,7 @@ pub fn play_queue_index(state: Rc<RefCell<AppState>>, index: usize) {
             (s.active_media().clone(), next_id)
         };
         set_stream_on_media(&media_file, stream);
-        if media_file.is_prepared() {
+        if autoplay && media_file.is_prepared() {
             state.borrow_mut().pending_autoplay = false;
             media_file.play();
         }
@@ -709,13 +753,17 @@ pub fn play_queue_index(state: Rc<RefCell<AppState>>, index: usize) {
             s.play_spinner.set_spinning(false);
             match result {
                 Ok(stream) => {
+                    if let Some(index) = s.current_index {
+                        s.queue[index].is_music = true;
+                    }
+                    s.save_session();
                     crate::ui::widgets::set_artist_links(&s.player_artist, &track.artist);
                     s.quality_label.set_label(&stream.quality_label);
                     s.play_pause_btn
                         .set_icon_name("play-filled");
                     s.play_pause_btn.set_sensitive(true);
                     s.seek_scale.set_sensitive(true);
-                    s.pending_autoplay = true;
+                    s.pending_autoplay = autoplay;
                     let next_id = next_queue_index(&s)
                         .and_then(|ni| s.queue.get(ni))
                         .cloned()
@@ -739,7 +787,7 @@ pub fn play_queue_index(state: Rc<RefCell<AppState>>, index: usize) {
         if let Some((media_file, stream, backend, next_id)) = stream_to_play {
             media_file.pause();
             set_stream_on_media(&media_file, stream);
-            if media_file.is_prepared() {
+            if autoplay && media_file.is_prepared() {
                 state.borrow_mut().pending_autoplay = false;
                 media_file.play();
             }
@@ -790,6 +838,7 @@ fn start_crossfade_to(state: Rc<RefCell<AppState>>, next_index: usize) {
             s.active_deck = new_deck;
             s.crossfade_active = true;
             s.current_index = Some(next_index);
+            s.queue[next_index].is_music = true;
             s.loading_generation = s.loading_generation.wrapping_add(1);
             let current_gen = s.loading_generation;
             s.crossfade_triggered_for = None;
@@ -1358,7 +1407,7 @@ pub fn restore_last_track(state: Rc<RefCell<AppState>>, position_secs: f64) {
             return;
         };
         let is_fav = s.favorites.iter().any(|t| t.id == track.id);
-        let cached = s.backend.cached_stream(&track.id);
+        let cached = s.backend.cached_track_stream(&track);
         s.pending_restore_seek = if position_secs > 1.0 {
             Some(position_secs)
         } else {

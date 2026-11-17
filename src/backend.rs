@@ -308,9 +308,12 @@ impl Backend {
                         MoodCategoryParams::from_raw(genre_id),
                     ))
                     .await
-                    .map_err(|_| format!("Error obteniendo playlists del género: {primary_err:?}"))?;
-                let json: serde_json::Value = serde_json::from_str(&raw)
-                    .map_err(|_| format!("Error obteniendo playlists del género: {primary_err:?}"))?;
+                    .map_err(|_| {
+                        format!("Error obteniendo playlists del género: {primary_err:?}")
+                    })?;
+                let json: serde_json::Value = serde_json::from_str(&raw).map_err(|_| {
+                    format!("Error obteniendo playlists del género: {primary_err:?}")
+                })?;
                 let parsed = parse_mood_playlists_json(&json);
                 if parsed.1.is_empty() {
                     Err(format!("Error obteniendo playlists del género: {primary_err:?}"))
@@ -624,13 +627,17 @@ impl Backend {
         Ok(base)
     }
 
-    pub fn cached_stream(&self, video_id: &str) -> Option<StreamInfo> {
+    fn cached_stream(&self, video_id: &str) -> Option<StreamInfo> {
         validate_video_id(video_id).ok()?;
         let dir = Self::streams_dir().ok()?;
         Self::find_cached_audio(video_id, &dir)
     }
 
-    pub fn fast_cached_stream(&self, video_id: &str) -> Option<StreamInfo> {
+    pub fn cached_track_stream(&self, track: &Track) -> Option<StreamInfo> {
+        if !track.is_music {
+            return None;
+        }
+        let video_id = &track.id;
         validate_video_id(video_id).ok()?;
         if let Ok(cache) = self.stream_cache.read()
             && let Some((ts, stream)) = cache.get(video_id)
@@ -665,31 +672,26 @@ impl Backend {
         None
     }
 
+    pub async fn verify_music_track(&self, video_id: &str) -> Result<Track, String> {
+        validate_video_id(video_id)?;
+        let details = self
+            .rp
+            .query()
+            .music_details(video_id)
+            .await
+            .map_err(|e| format!("No se pudo verificar la canción de YouTube Music: {e}"))?;
+        verified_music_track(video_id, &details.track)
+    }
+
     pub async fn resolve_track_stream(&self, track: &Track) -> Result<StreamInfo, String> {
         validate_video_id(&track.id)?;
-        if let Some(cached) = self.fast_cached_stream(&track.id) {
-            return Ok(cached);
-        }
         if !track.is_music {
-            let details = self
-                .rp
-                .query()
-                .music_details(&track.id)
-                .await
-                .map_err(|e| format!("No se pudo verificar la canción de YouTube Music: {e}"))?;
-            if details.track.id != track.id
-                || details.track.track_type != TrackType::Track
-                || details.track.unavailable
-            {
-                return Err(String::from(
-                    "Solo se reproducen canciones del catálogo de YouTube Music.",
-                ));
-            }
+            self.verify_music_track(&track.id).await?;
         }
         self.resolve_audio_stream(&track.id).await
     }
 
-    pub async fn resolve_audio_stream(&self, video_id: &str) -> Result<StreamInfo, String> {
+    async fn resolve_audio_stream(&self, video_id: &str) -> Result<StreamInfo, String> {
         validate_video_id(video_id)?;
         if let Some(cached) = self.cached_stream(video_id) {
             return Ok(cached);
@@ -996,6 +998,18 @@ fn stream_url_is_fresh(created: Instant, stream: &StreamInfo) -> bool {
     })
 }
 
+fn verified_music_track(
+    video_id: &str,
+    item: &rustypipe::model::TrackItem,
+) -> Result<Track, String> {
+    if item.id != video_id || item.track_type != TrackType::Track || item.unavailable {
+        return Err(String::from(
+            "Solo se reproducen canciones disponibles del catálogo de YouTube Music.",
+        ));
+    }
+    Ok(Track::from(item))
+}
+
 fn validate_video_id(video_id: &str) -> Result<(), String> {
     if video_id.len() == 11
         && video_id
@@ -1261,6 +1275,89 @@ fn parse_sub_count(raw: &str) -> Option<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unverified_tracks_cannot_use_a_cached_url() {
+        let backend = Backend::new();
+        let mut track: Track = serde_json::from_value(serde_json::json!({
+            "id":"video123456", "title":"Song", "artist":"Artist"
+        }))
+        .unwrap();
+        backend.stream_cache.write().unwrap().insert(
+            track.id.clone(),
+            (
+                Instant::now(),
+                StreamInfo {
+                    url: "https://example.com/audio".into(),
+                    quality_label: "OPUS".into(),
+                    user_agent: None,
+                    headers: HashMap::new(),
+                },
+            ),
+        );
+        assert!(backend.cached_track_stream(&track).is_none());
+        track.is_music = true;
+        assert!(backend.cached_track_stream(&track).is_some());
+    }
+
+    #[tokio::test]
+    async fn cached_audio_cannot_bypass_failed_catalog_verification() {
+        let mut backend = Backend::new();
+        backend.rp = RustyPipe::builder()
+            .timeout(Duration::ZERO)
+            .n_http_retries(1)
+            .no_storage()
+            .visitor_data("test")
+            .build().unwrap();
+        let mut track: Track = serde_json::from_value(serde_json::json!({
+            "id":"video123456", "title":"Song", "artist":"Artist"
+        }))
+        .unwrap();
+        backend.stream_cache.write().unwrap().insert(
+            track.id.clone(),
+            (
+                Instant::now(),
+                StreamInfo {
+                    url: "https://example.com/audio".into(),
+                    quality_label: "OPUS".into(),
+                    user_agent: None,
+                    headers: HashMap::new(),
+                },
+            ),
+        );
+        assert!(backend.resolve_track_stream(&track).await.is_err());
+        track.is_music = true;
+        assert_eq!(
+            backend.resolve_track_stream(&track).await.unwrap().url,
+            "https://example.com/audio"
+        );
+    }
+
+    #[test]
+    fn guest_claims_do_not_override_catalog_metadata_or_type() {
+        let claimed: Track = serde_json::from_value(serde_json::json!({
+            "id":"audio123456", "title":"Forged", "artist":"Forged",
+            "verified_catalog_audio":true, "cover_url":"http://127.0.0.1/private"
+        }))
+        .unwrap();
+        let mut item: rustypipe::model::TrackItem = serde_json::from_value(serde_json::json!({
+            "id":claimed.id, "name":"Catalog song", "cover":[], "artists":[],
+            "track_type":"video", "by_va":false, "unavailable":false
+        }))
+        .unwrap();
+        assert!(verified_music_track(&claimed.id, &item).is_err());
+        item.track_type = TrackType::Episode;
+        assert!(verified_music_track(&claimed.id, &item).is_err());
+        item.track_type = TrackType::Track;
+        item.unavailable = true;
+        assert!(verified_music_track(&claimed.id, &item).is_err());
+        item.unavailable = false;
+        assert!(verified_music_track("other123456", &item).is_err());
+        let verified = verified_music_track(&claimed.id, &item).unwrap();
+        assert_eq!(verified.title, "Catalog song");
+        assert!(verified.is_music);
+        assert_eq!(verified.cover_url, None);
+    }
 
     #[test]
     fn playlist_browse_requests_require_exactly_one_vl_prefix() {

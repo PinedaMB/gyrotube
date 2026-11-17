@@ -101,6 +101,16 @@ impl MprisController {
         }
     }
 
+    pub fn clear_track(&self) {
+        let Some(player) = self.player.borrow().clone() else {
+            return;
+        };
+        glib::spawn_future_local(async move {
+            let _ = player.set_metadata(Metadata::default()).await;
+            let _ = player.set_playback_status(PlaybackStatus::Stopped).await;
+        });
+    }
+
     pub fn update_track(&self, track: &Track) {
         let Some(player) = self.player.borrow().clone() else {
             return;
@@ -123,7 +133,13 @@ impl MprisController {
             let safe_id: String = track
                 .id
                 .chars()
-                .map(|c| if c.is_ascii_alphanumeric() || c == '_' { c } else { '_' })
+                .map(|c| {
+                    if c.is_ascii_alphanumeric() || c == '_' {
+                        c
+                    } else {
+                        '_'
+                    }
+                })
                 .collect();
             if let Ok(tid) = TrackId::try_from(format!("/com/github/gyrotube/track/{safe_id}")) {
                 builder = builder.trackid(tid);

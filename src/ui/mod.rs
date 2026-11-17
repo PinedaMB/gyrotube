@@ -219,7 +219,7 @@ pub fn build_ui(app: &adw::Application) {
         crossfade_generation: 0,
         crossfade_triggered_for: None,
         queue: saved_session.queue,
-        unshuffled_queue: Vec::new(),
+        unshuffled_queue: saved_session.unshuffled_queue,
         favorites: load_favorites(),
         recent_tracks: load_recent_tracks(),
         user_playlists: load_user_playlists(),
@@ -335,8 +335,12 @@ pub fn build_ui(app: &adw::Application) {
     refresh_recent_ui(Rc::clone(&state));
     refresh_playlists_ui(Rc::clone(&state));
 
-    content_view_stack
-        .add_titled_with_icon(&home_page, Some("home"), tr("Inicio", "Home"), "home-regular");
+    content_view_stack.add_titled_with_icon(
+        &home_page,
+        Some("home"),
+        tr("Inicio", "Home"),
+        "home-regular",
+    );
     content_view_stack.add_titled_with_icon(
         &explore_page,
         Some("explore"),
@@ -445,11 +449,7 @@ pub fn build_ui(app: &adw::Application) {
 
     let main_toolbar = adw::ToolbarView::new();
     main_toolbar.add_top_bar(&hdr.header_bar);
-    wire_settings_dialog(
-        &hdr.settings_btn,
-        &hdr.menu_popover,
-        Rc::clone(&state),
-    );
+    wire_settings_dialog(&hdr.settings_btn, &hdr.menu_popover, Rc::clone(&state));
     let party = build_party_mode(&state, &sb.shuffle_btn, &sb.repeat_btn);
     {
         let mut s = state.borrow_mut();
@@ -468,6 +468,10 @@ pub fn build_ui(app: &adw::Application) {
         s.spin_bar = spin_bar.clone();
         s.spin_bar_label = spin_bar_label;
         s.spin_bar_count = spin_bar_count;
+    }
+
+    for warning in crate::models::data_load_warnings() {
+        state.borrow().show_toast(&warning);
     }
 
     main_toolbar.set_content(Some(&main_overlay));
@@ -612,10 +616,7 @@ pub fn build_ui(app: &adw::Application) {
     window.present();
 }
 
-fn wire_sidebar_actions(
-    state: &Rc<RefCell<AppState>>,
-    sb: &sidebar_player::SidebarPlayerWidgets,
-) {
+fn wire_sidebar_actions(state: &Rc<RefCell<AppState>>, sb: &sidebar_player::SidebarPlayerWidgets) {
     {
         let state = Rc::clone(state);
         sb.queue_save_btn.connect_clicked(move |_| {
@@ -643,7 +644,7 @@ fn wire_sidebar_actions(
                         name: name.clone(),
                         tracks,
                     });
-                    save_user_playlists(&s.user_playlists);
+                    s.report_save_result(save_user_playlists(&s.user_playlists));
                     s.show_toast(&format!("Playlist guardada: {name}"));
                     true
                 }
@@ -694,52 +695,42 @@ fn wire_sidebar_actions(
     {
         let state = Rc::clone(state);
         sb.queue_clear_btn.connect_clicked(move |_| {
-            let cleared_all = {
-                let mut s = state.borrow_mut();
-                s.unshuffled_queue.clear();
-                s.crossfade_active = false;
-                s.crossfade_generation = s.crossfade_generation.wrapping_add(1);
-                s.crossfade_triggered_for = None;
-                if let Some(current) = s.current_track().cloned() {
-                    s.queue = vec![current];
+            let current = state.borrow().current_track().cloned();
+            if let Some(current) = current {
+                let (standby, active, volume) = {
+                    let mut s = state.borrow_mut();
+                    let source = s.source_name.clone();
+                    s.replace_queue(vec![current], source);
                     s.current_index = Some(0);
+                    s.crossfade_active = false;
+                    s.crossfade_generation = s.crossfade_generation.wrapping_add(1);
+                    s.crossfade_triggered_for = None;
                     s.update_nav_buttons();
-                    s.save_session();
-                    false
-                } else {
-                    s.queue.clear();
-                    s.current_index = None;
-                    s.play_pause_btn.set_sensitive(false);
-                    s.seek_scale.set_sensitive(false);
-                    s.player_fav_btn.set_sensitive(false);
-                    s.player_radio_btn.set_sensitive(false);
-                    s.player_title
-                        .set_label(tr("Nada reproduciéndose", "Nothing playing"));
-                    s.player_artist
-                        .set_text(tr("Selecciona una canción", "Select a song"));
-                    s.player_album_label.set_visible(false);
-                    s.player_source_label
-                        .set_text(tr("Sin reproducción", "Not playing"));
-                    s.decks[0].pause();
-                    s.decks[1].pause();
-                    s.player_cover.set_paintable(None::<&gdk::Paintable>);
-                    crate::ui::widgets::update_ambient_color(None);
-                    s.time_label.set_label("0:00");
-                    s.duration_label.set_label("0:00");
-                    s.quality_label.set_label("YTM");
-                    s.update_nav_buttons();
-                    s.save_session();
-                    true
-                }
-            };
-            refresh_queue_ui(Rc::clone(&state));
-            if cleared_all {
+                    (
+                        s.standby_media().clone(),
+                        s.active_media().clone(),
+                        s.user_volume,
+                    )
+                };
+                standby.clear();
+                active.set_volume(volume);
+                refresh_queue_ui(Rc::clone(&state));
                 crate::ui::widgets::notify_track_changed(Rc::clone(&state));
+            } else {
+                crate::ui::player::clear_playback(Rc::clone(&state));
             }
         });
     }
     {
         let state = Rc::clone(state);
+        let state_sync = Rc::clone(&state);
+        let shuffle_btn = sb.shuffle_btn.clone();
+        state.borrow_mut().on_track_changed.push(Rc::new(move || {
+            let active = state_sync.borrow().shuffle;
+            if shuffle_btn.is_active() != active {
+                shuffle_btn.set_active(active);
+            }
+        }));
         sb.shuffle_btn.connect_toggled(move |btn| {
             let active = btn.is_active();
             {

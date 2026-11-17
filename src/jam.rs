@@ -40,7 +40,7 @@ pub struct JamSnapshot {
 
 #[derive(Debug, Clone)]
 pub enum JamCommand {
-    AddTrack(Track, String),
+    AddTrack(String, String),
     TogglePlayPause,
     NextTrack,
     PrevTrack,
@@ -195,7 +195,13 @@ async fn handle_connection(
 
     match (method, path) {
         ("GET", "/") => {
-            send_response(&mut stream, "200 OK", "text/html; charset=utf-8", JAM_HTML.as_bytes()).await;
+            send_response(
+                &mut stream,
+                "200 OK",
+                "text/html; charset=utf-8",
+                JAM_HTML.as_bytes(),
+            )
+            .await;
         }
         ("GET", "/api/state") => {
             let json = snapshot
@@ -211,7 +217,11 @@ async fn handle_connection(
                 send_response(&mut stream, "400 Bad Request", "text/plain", b"Missing id").await;
                 return;
             }
-            match backend.resolve_audio_stream(id.trim()).await {
+            let result = match backend.verify_music_track(id.trim()).await {
+                Ok(track) => backend.resolve_track_stream(&track).await,
+                Err(err) => Err(err),
+            };
+            match result {
                 Ok(info) => {
                     if info.url.starts_with("http://") || info.url.starts_with("https://") {
                         let resp = format!(
@@ -224,7 +234,13 @@ async fn handle_connection(
                     }
                 }
                 Err(_) => {
-                    send_response(&mut stream, "404 Not Found", "text/plain", b"Audio unavailable").await;
+                    send_response(
+                        &mut stream,
+                        "404 Not Found",
+                        "text/plain",
+                        b"Audio unavailable",
+                    )
+                    .await;
                 }
             }
         }
@@ -242,28 +258,56 @@ async fn handle_connection(
                 }
                 Err(err) => {
                     let json = serde_json::json!({ "error": err }).to_string();
-                    send_response(&mut stream, "500 Internal Server Error", "application/json", json.as_bytes()).await;
+                    send_response(
+                        &mut stream,
+                        "500 Internal Server Error",
+                        "application/json",
+                        json.as_bytes(),
+                    )
+                    .await;
                 }
             }
         }
         ("POST", "/api/queue/add") => {
-            match serde_json::from_slice::<Track>(&body) {
-                Ok(track) if !track.id.is_empty() => {
-                    if let Ok(mut snap) = snapshot.write() {
-                        snap.added_count += 1;
-                    }
-                    let _ = cmd_tx.send(JamCommand::AddTrack(track, guest_ip)).await;
-                    send_response(&mut stream, "200 OK", "application/json", br#"{"ok":true}"#).await;
+            #[derive(Deserialize)]
+            struct AddReq {
+                id: String,
+            }
+            match serde_json::from_slice::<AddReq>(&body) {
+                Ok(request) if !request.id.is_empty() => {
+                    let _ = cmd_tx
+                        .send(JamCommand::AddTrack(request.id, guest_ip))
+                        .await;
+                    send_response(
+                        &mut stream,
+                        "202 Accepted",
+                        "application/json",
+                        br#"{"accepted":true}"#,
+                    )
+                    .await;
                 }
                 _ => {
-                    send_response(&mut stream, "400 Bad Request", "application/json", br#"{"error":"invalid track"}"#).await;
+                    send_response(
+                        &mut stream,
+                        "400 Bad Request",
+                        "application/json",
+                        br#"{"error":"invalid track"}"#,
+                    )
+                    .await;
                 }
             }
         }
+
         ("POST", "/api/control") => {
             let allowed = snapshot.read().map(|s| s.allow_controls).unwrap_or(false);
             if !allowed {
-                send_response(&mut stream, "403 Forbidden", "application/json", br#"{"error":"controls disabled"}"#).await;
+                send_response(
+                    &mut stream,
+                    "403 Forbidden",
+                    "application/json",
+                    br#"{"error":"controls disabled"}"#,
+                )
+                .await;
                 return;
             }
             #[derive(Deserialize)]
@@ -283,7 +327,13 @@ async fn handle_connection(
                     return;
                 }
             }
-            send_response(&mut stream, "400 Bad Request", "application/json", br#"{"error":"invalid action"}"#).await;
+            send_response(
+                &mut stream,
+                "400 Bad Request",
+                "application/json",
+                br#"{"error":"invalid action"}"#,
+            )
+            .await;
         }
         _ => {
             send_response(&mut stream, "404 Not Found", "text/plain", b"Not Found").await;
@@ -745,8 +795,9 @@ async function doSearch(e){
 }
 async function addTrack(i){
   const t=window._tracks[i];if(!t)return;
-  await fetch('/api/queue/add',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(t)});
-  showToast('Agregada: '+t.title);loadState();
+  const r=await fetch('/api/queue/add',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(t)});
+  if(!r.ok){showToast('No se pudo enviar la canción');return;}
+  showToast('Enviada para verificar: '+t.title);loadState();
 }
 async function ctrl(action){
   await fetch('/api/control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action})});

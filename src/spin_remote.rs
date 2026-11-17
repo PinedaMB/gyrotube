@@ -160,7 +160,7 @@ pub fn start_host_cmd_listener(
                             {
                                 let cmd = match ev {
                                     RemoteGuestEvent::AddTrack(t) => {
-                                        Some(JamCommand::AddTrack(t, String::from("remoto")))
+                                        Some(JamCommand::AddTrack(t.id, String::from("remoto")))
                                     }
                                     RemoteGuestEvent::Control(a) => match a.as_str() {
                                         "play_pause" => Some(JamCommand::TogglePlayPause),
@@ -216,7 +216,7 @@ pub fn start_guest_sync(
                         duration_secs: n.duration_secs,
                         cover_url: n.cover_url.clone(),
                         cover_large_url: n.cover_url,
-                        is_music: true,
+                        is_music: false,
                     });
                     let _ = ui_tx
                         .send(RemoteSyncPayload {

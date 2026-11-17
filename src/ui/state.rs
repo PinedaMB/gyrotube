@@ -114,9 +114,10 @@ impl AppState {
         } else {
             self.seek_scale.value().max(0.0)
         };
-        save_session_state(&SessionState {
+        self.report_save_result(save_session_state(&SessionState {
             sidebar_collapsed: self.sidebar_collapsed,
             queue: self.queue.clone(),
+            unshuffled_queue: self.unshuffled_queue.clone(),
             current_index: self.current_index,
             source_name: self.source_name.clone(),
             user_volume: self.user_volume,
@@ -125,8 +126,15 @@ impl AppState {
             position_secs: pos_secs,
             crossfade_secs: self.crossfade_secs,
             language: self.language,
-        });
+        }));
     }
+    pub fn report_save_result(&self, result: std::io::Result<()>) {
+        if let Err(err) = result {
+            eprintln!("Error al guardar datos: {err}");
+            self.show_toast(&format!("No se pudieron guardar los cambios: {err}"));
+        }
+    }
+
     pub fn active_media(&self) -> &GStreamerDeck {
         &self.decks[self.active_deck]
     }
@@ -151,11 +159,26 @@ impl AppState {
 
     pub fn update_nav_buttons(&self) {
         let has_prev = self.current_index.is_some_and(|idx| idx > 0);
-        let has_next = self
-            .current_index
-            .is_some_and(|idx| idx + 1 < self.queue.len() || (self.repeat && !self.queue.is_empty()));
+        let has_next = self.current_index.is_some_and(|idx| {
+            idx + 1 < self.queue.len() || (self.repeat && !self.queue.is_empty())
+        });
         self.prev_btn.set_sensitive(has_prev);
         self.next_btn.set_sensitive(has_next);
+    }
+
+    pub fn replace_queue(&mut self, tracks: Vec<Track>, source_name: String) {
+        self.queue = tracks;
+        self.unshuffled_queue.clear();
+        self.current_index = None;
+        self.source_name = source_name;
+        self.shuffle = false;
+        self.preloading_id = None;
+    }
+
+    pub fn remove_queue_item(&mut self, index: usize) -> bool {
+        let removed_current = remove_queue_track(&mut self.queue, &mut self.current_index, index);
+        self.update_nav_buttons();
+        removed_current
     }
 
     pub fn set_shuffled_queue(&mut self, tracks: Vec<Track>, source_name: String) {
@@ -185,16 +208,11 @@ impl AppState {
                 }
             }
         } else if !self.unshuffled_queue.is_empty() {
-            let current_id = self.current_track().map(|t| t.id.clone());
-            self.queue = std::mem::take(&mut self.unshuffled_queue);
-            if let Some(id) = current_id {
-                self.current_index = self
-                    .queue
-                    .iter()
-                    .position(|t| t.id == id)
-                    .or_else(|| self.current_index.map(|i| i.min(self.queue.len().saturating_sub(1))));
-            }
+            self.current_index =
+                restore_queue_order(&mut self.queue, &self.unshuffled_queue, self.current_index);
+            self.unshuffled_queue.clear();
         }
+
         self.update_nav_buttons();
         self.save_session();
     }
@@ -219,6 +237,45 @@ impl AppState {
         self.update_nav_buttons();
         self.save_session();
     }
+}
+
+fn remove_queue_track(queue: &mut Vec<Track>, current: &mut Option<usize>, index: usize) -> bool {
+    if index >= queue.len() {
+        return false;
+    }
+    let removed_current = *current == Some(index);
+    queue.remove(index);
+    *current = current.and_then(|cur| {
+        if queue.is_empty() {
+            None
+        } else if index < cur {
+            Some(cur - 1)
+        } else {
+            Some(cur.min(queue.len() - 1))
+        }
+    });
+    removed_current
+}
+
+fn restore_queue_order(
+    queue: &mut Vec<Track>,
+    original: &[Track],
+    current: Option<usize>,
+) -> Option<usize> {
+    let mut positions: HashMap<&str, std::collections::VecDeque<usize>> = HashMap::new();
+    for (index, track) in original.iter().enumerate() {
+        positions.entry(&track.id).or_default().push_back(index);
+    }
+    let mut indexed: Vec<_> = std::mem::take(queue).into_iter().enumerate().collect();
+    indexed.sort_by_cached_key(|(_, track)| {
+        positions
+            .get_mut(track.id.as_str())
+            .and_then(|indices| indices.pop_front())
+            .unwrap_or(usize::MAX)
+    });
+    let current = current.and_then(|index| indexed.iter().position(|(old, _)| *old == index));
+    *queue = indexed.into_iter().map(|(_, track)| track).collect();
+    current
 }
 
 pub fn shuffle_slice(tracks: &mut [Track]) {
@@ -254,5 +311,64 @@ pub fn next_queue_index(s: &AppState) -> Option<usize> {
         Some(0)
     } else {
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn track(id: &str) -> Track {
+        serde_json::from_value(serde_json::json!({"id":id,"title":id,"artist":"Artist"})).unwrap()
+    }
+
+    #[test]
+    fn unshuffle_keeps_additions_removals_and_current_metadata() {
+        let original = vec![track("a"), track("b"), track("c")];
+        let mut queue = vec![track("c"), track("a"), track("d"), track("e")];
+        queue[0].is_music = true;
+        let current = restore_queue_order(&mut queue, &original, Some(0));
+        assert_eq!(
+            queue.iter().map(|t| t.id.as_str()).collect::<Vec<_>>(),
+            ["a", "c", "d", "e"]
+        );
+        assert_eq!(current, Some(1));
+        assert!(queue[1].is_music);
+    }
+
+    #[test]
+    fn unshuffle_preserves_duplicate_counts_and_selected_occurrence() {
+        let original = vec![track("a"), track("b"), track("a")];
+        let mut queue = vec![track("b"), track("a"), track("a"), track("a")];
+        queue[2].title = "Selected occurrence".into();
+        let selected = queue[2].clone();
+        let current = restore_queue_order(&mut queue, &original, Some(2)).unwrap();
+        assert_eq!(queue.len(), 4);
+        assert_eq!(queue.iter().filter(|t| t.id == "a").count(), 3);
+        assert_eq!(queue[current], selected);
+    }
+
+    #[test]
+    fn removing_current_selects_replacement_or_stops_when_empty() {
+        let mut queue = vec![track("a"), track("b"), track("c")];
+        let mut current = Some(1);
+        assert!(remove_queue_track(&mut queue, &mut current, 1));
+        assert_eq!(queue[current.unwrap()].id, "c");
+        assert!(remove_queue_track(&mut queue, &mut current, 1));
+        assert_eq!(queue[current.unwrap()].id, "a");
+        assert!(remove_queue_track(&mut queue, &mut current, 0));
+        assert!(queue.is_empty());
+        assert_eq!(current, None);
+    }
+
+    #[test]
+    fn removing_another_track_preserves_selection_and_invalid_indices_do_nothing() {
+        let mut queue = vec![track("a"), track("b"), track("c")];
+        let mut current = Some(1);
+        assert!(!remove_queue_track(&mut queue, &mut current, 0));
+        assert_eq!(queue[current.unwrap()].id, "b");
+        assert!(!remove_queue_track(&mut queue, &mut current, 10));
+        assert_eq!(queue.len(), 2);
+        assert_eq!(current, Some(0));
     }
 }

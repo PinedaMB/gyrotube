@@ -115,7 +115,7 @@ pub fn record_recent_track(state: Rc<RefCell<AppState>>, track: &Track) {
         s.recent_tracks.retain(|t| t.id != track.id);
         s.recent_tracks.insert(0, track.clone());
         s.recent_tracks.truncate(30);
-        save_recent_tracks(&s.recent_tracks);
+        s.report_save_result(save_recent_tracks(&s.recent_tracks));
     }
     refresh_recent_ui(state);
 }
@@ -541,10 +541,7 @@ fn play_fetched_queue(
         Ok((source, tracks)) if !tracks.is_empty() => {
             {
                 let mut s = state.borrow_mut();
-                s.shuffle = false;
-                s.unshuffled_queue.clear();
-                s.queue = tracks;
-                s.source_name = source;
+                s.replace_queue(tracks, source);
             }
             play_queue_index(state, 0);
         }
@@ -661,7 +658,11 @@ pub fn build_album_card(album: &Album, state: Rc<RefCell<AppState>>) -> GtkBox {
     }
 
     play_btn.connect_clicked(move |_| {
-        play_album_by_id(album_id.clone(), album_title_play.clone(), Rc::clone(&state));
+        play_album_by_id(
+            album_id.clone(),
+            album_title_play.clone(),
+            Rc::clone(&state),
+        );
     });
 
     card
@@ -881,7 +882,7 @@ pub fn build_track_row(
                                 if !target.tracks.iter().any(|t| t.id == track.id) {
                                     target.tracks.push(track.clone());
                                     let name = target.name.clone();
-                                    save_user_playlists(&s.user_playlists);
+                                    s.report_save_result(save_user_playlists(&s.user_playlists));
                                     s.show_toast(&format!("Agregado a {name}"));
                                 } else {
                                     s.show_toast("Ya está en la playlist.");
@@ -925,8 +926,7 @@ pub fn build_track_row(
         play_btn.connect_clicked(move |_| {
             {
                 let mut s = state.borrow_mut();
-                s.queue = section.clone();
-                s.source_name = source.clone();
+                s.replace_queue(section.clone(), source.clone());
             }
             play_queue_index(Rc::clone(&state), section_index);
         });
@@ -986,7 +986,7 @@ pub fn set_track_favorite(state: Rc<RefCell<AppState>>, track: &Track, fav: bool
                 "heart-regular"
             });
         }
-        save_favorites(&s.favorites);
+        s.report_save_result(save_favorites(&s.favorites));
     }
     refresh_favorites_ui(state);
 }
@@ -1011,8 +1011,7 @@ pub fn start_track_radio(state: Rc<RefCell<AppState>>, track: &Track) {
                 Ok(tracks) if !tracks.is_empty() => {
                     {
                         let mut s = state.borrow_mut();
-                        s.queue = tracks;
-                        s.source_name = format!("Radio • {title}");
+                        s.replace_queue(tracks, format!("Radio • {title}"));
                     }
                     play_queue_index(Rc::clone(&state), 0);
                 }

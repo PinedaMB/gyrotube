@@ -48,3 +48,9 @@ cargo test
 Este filtro identifica audio oficial de YouTube Music, no certifica que la grabación sea de estudio: un álbum en vivo también contiene canciones oficiales.
 
 Las pistas sin imagen individual heredan la carátula del álbum. El reproductor muestra la imagen disponible sin esperar una búsqueda y prueba la miniatura si falla la descarga o la decodificación de la imagen grande. Los errores se registran en stderr.
+
+## Integridad de datos y pistas compartidas
+
+La caché solo se utiliza directamente cuando la pista tiene una verificación de audio del catálogo. Las marcas antiguas se vuelven a verificar con conexión antes de reproducirse. JAM y SPIN envían el ID de la canción; el receptor consulta su tipo, disponibilidad y metadatos antes de agregarla. La API LAN responde `202 Accepted` mientras se verifica la solicitud.
+
+Los favoritos, playlists y sesiones se guardan mediante escritura temporal y reemplazo atómico. Si un archivo no pudo cargarse, se conserva una copia con nombre `*.damaged-*` antes de reemplazarlo. Los errores de carga y guardado se muestran en la aplicación. La sesión también conserva el orden anterior al modo aleatorio; al restaurarlo no recupera pistas eliminadas ni descarta las añadidas.

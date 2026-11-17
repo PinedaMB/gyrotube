@@ -218,10 +218,7 @@ pub fn build_explore_page(
             }
             {
                 let mut s = state.borrow_mut();
-                s.shuffle = false;
-                s.unshuffled_queue.clear();
-                s.queue = tracks;
-                s.source_name = name;
+                s.replace_queue(tracks, name);
             }
             play_queue_index(Rc::clone(&state), 0);
         });
@@ -605,7 +602,12 @@ pub fn build_explore_page(
         artist_back_btn.connect_clicked(move |_| {
             if let Some((prev_id, prev_name)) = aw_back.artist_history.borrow_mut().pop() {
                 *aw_back.current_artist.borrow_mut() = None;
-                open_artist_page(&prev_id, &prev_name, aw_back.clone(), Rc::clone(&state_back));
+                open_artist_page(
+                    &prev_id,
+                    &prev_name,
+                    aw_back.clone(),
+                    Rc::clone(&state_back),
+                );
                 return;
             }
             *aw_back.current_artist.borrow_mut() = None;
@@ -850,7 +852,10 @@ pub fn build_explore_page(
                         Ok(None)
                     }
                 },
-                move |res: Result<Option<(String, Option<String>, Vec<crate::models::Track>)>, String>| {
+                move |res: Result<
+                    Option<(String, Option<String>, Vec<crate::models::Track>)>,
+                    String,
+                >| {
                     match res {
                         Ok(Some((title, cover, tracks))) if !tracks.is_empty() => {
                             open_collection_page(title, cover, Some(tracks), state_cb);
@@ -1241,4 +1246,3 @@ fn build_genre_button(
 
     btn
 }
-

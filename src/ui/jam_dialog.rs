@@ -7,7 +7,9 @@ use adw::prelude::*;
 use gtk4::gdk;
 use gtk4::glib;
 use gtk4::prelude::*;
-use gtk4::{Align, Box as GtkBox, Button, Entry, FlowBox, Image, Label, Orientation, Picture, SelectionMode};
+use gtk4::{
+    Align, Box as GtkBox, Button, Entry, FlowBox, Image, Label, Orientation, Picture, SelectionMode,
+};
 use libadwaita as adw;
 
 use crate::i18n::tr;
@@ -246,7 +248,13 @@ pub fn refresh_spin_ui(s: &AppState) {
                 guest_list,
             )
         }
-        RemoteRole::Idle => (false, String::new(), String::new(), String::new(), Vec::new()),
+        RemoteRole::Idle => (
+            false,
+            String::new(),
+            String::new(),
+            String::new(),
+            Vec::new(),
+        ),
     };
 
     if s.spin_bar.is_visible() == active
@@ -349,12 +357,23 @@ pub fn wire_remote_sync(
                     }
                 }
             } else {
+                let (backend, role) = {
+                    let s = state.borrow();
+                    (s.backend.clone(), s.jam.remote_role.clone())
+                };
+                let track = match backend.verify_music_track(&track.id).await {
+                    Ok(track) => track,
+                    Err(err) => {
+                        state.borrow().show_toast(&err);
+                        continue;
+                    }
+                };
+                if state.borrow().jam.remote_role != role {
+                    continue;
+                }
                 {
                     let mut s = state.borrow_mut();
-                    s.shuffle = false;
-                    s.unshuffled_queue.clear();
-                    s.queue = vec![track];
-                    s.source_name = format!("SPIN • {}", payload.source_name);
+                    s.replace_queue(vec![track], format!("SPIN • {}", payload.source_name));
                     s.pending_restore_seek = (target_pos > 1.0).then_some(target_pos);
                 }
                 play_queue_index(Rc::clone(&state), 0);
@@ -374,11 +393,22 @@ pub fn wire_jam_commands(
     glib::spawn_future_local(async move {
         while let Ok(cmd) = cmd_rx.recv().await {
             match cmd {
-                JamCommand::AddTrack(track, _guest) => {
+                JamCommand::AddTrack(video_id, _guest) => {
+                    let backend = state.borrow().backend.clone();
+                    let track = match backend.verify_music_track(&video_id).await {
+                        Ok(track) => track,
+                        Err(err) => {
+                            state.borrow().show_toast(&err);
+                            continue;
+                        }
+                    };
                     let should_start = {
                         let mut s = state.borrow_mut();
                         let was_empty = s.queue.is_empty() || s.current_index.is_none();
                         let start_idx = s.queue.len();
+                        if let Ok(mut snap) = s.jam.snapshot.write() {
+                            snap.added_count += 1;
+                        }
                         s.queue.push(track.clone());
                         s.update_nav_buttons();
                         s.save_session();
@@ -494,7 +524,10 @@ pub fn open_jam_dialog(parent: &Button, state: Rc<RefCell<AppState>>, jam_btn: B
         .build();
 
     let controls_row = adw::SwitchRow::builder()
-        .title(tr("Permitir controles de reproducción", "Allow playback controls"))
+        .title(tr(
+            "Permitir controles de reproducción",
+            "Allow playback controls",
+        ))
         .subtitle(tr(
             "Los invitados podrán pausar y saltar canciones",
             "Guests can pause and skip tracks",
@@ -642,7 +675,10 @@ pub fn open_jam_dialog(parent: &Button, state: Rc<RefCell<AppState>>, jam_btn: B
     room_code_row.add_suffix(&copy_code_btn);
 
     let join_entry = Entry::builder()
-        .placeholder_text(tr("Código (SPIN-XXXXXX) o URL...", "Code (SPIN-XXXXXX) or URL..."))
+        .placeholder_text(tr(
+            "Código (SPIN-XXXXXX) o URL...",
+            "Code (SPIN-XXXXXX) or URL...",
+        ))
         .text(&guest_target_init)
         .valign(Align::Center)
         .width_chars(18)
@@ -879,7 +915,10 @@ pub fn open_jam_dialog(parent: &Button, state: Rc<RefCell<AppState>>, jam_btn: B
             btn.set_label(tr("Desconectar", "Disconnect"));
             btn.remove_css_class("suggested-action");
             btn.add_css_class("destructive-action");
-            join_row.set_subtitle(tr("Sincronizado con anfitrión remoto", "Synced with remote host"));
+            join_row.set_subtitle(tr(
+                "Sincronizado con anfitrión remoto",
+                "Synced with remote host",
+            ));
         });
     }
 

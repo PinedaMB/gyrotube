@@ -128,7 +128,10 @@ pub fn build_album_page(
 
     let save_fav_btn = Button::builder()
         .icon_name("heart-regular")
-        .tooltip_text(tr("Guardar canciones en favoritos", "Save songs to favorites"))
+        .tooltip_text(tr(
+            "Guardar canciones en favoritos",
+            "Save songs to favorites",
+        ))
         .valign(Align::Center)
         .css_classes(["circular", "album-action-btn"])
         .build();
@@ -347,10 +350,7 @@ pub fn build_album_page(
             }
             {
                 let mut s = state.borrow_mut();
-                s.shuffle = false;
-                s.unshuffled_queue.clear();
-                s.queue = tracks;
-                s.source_name = title_ref.borrow().clone();
+                s.replace_queue(tracks, title_ref.borrow().clone());
             }
             play_queue_index(Rc::clone(&state), 0);
         });
@@ -836,8 +836,7 @@ fn build_album_track_row(
         click.connect_released(move |_, _, _, _| {
             {
                 let mut s = state.borrow_mut();
-                s.queue = tracks_vec.clone();
-                s.source_name = src.clone();
+                s.replace_queue(tracks_vec.clone(), src.clone());
             }
             play_queue_index(Rc::clone(&state), section_index);
         });

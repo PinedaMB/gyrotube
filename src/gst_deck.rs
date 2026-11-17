@@ -225,6 +225,14 @@ impl GStreamerDeck {
         *self.inner.last_error.borrow_mut() = None;
     }
 
+    pub fn clear(&self) {
+        self.pause();
+        self.reset_for_new_source();
+        self.inner.playbin.set_property("uri", Option::<&str>::None);
+        self.inner.has_stream.set(false);
+        self.inner.is_remote.set(false);
+    }
+
     pub fn set_stream(
         &self,
         url_or_path: &str,
@@ -370,5 +378,25 @@ impl GStreamerDeck {
 
     pub fn connect_error_notify<F: Fn(&Self) + 'static>(&self, f: F) {
         self.inner.on_error.borrow_mut().push(Box::new(f));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn clearing_a_deck_removes_its_previous_source() {
+        let deck = GStreamerDeck::new();
+        deck.inner
+            .playbin
+            .set_property("uri", "file:///unused-test.wav");
+        deck.inner.has_stream.set(true);
+        deck.inner.is_remote.set(true);
+        deck.clear();
+        assert!(!deck.has_stream());
+        assert!(!deck.is_remote_stream());
+        assert!(!deck.is_prepared());
+        assert_eq!(deck.inner.playbin.property::<Option<String>>("uri"), None);
     }
 }

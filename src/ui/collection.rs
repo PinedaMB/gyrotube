@@ -87,7 +87,7 @@ pub fn build_collection_page(state: Rc<RefCell<AppState>>) -> ScrolledWindow {
                     name: name.clone(),
                     tracks: Vec::new(),
                 });
-                save_user_playlists(&s.user_playlists);
+                s.report_save_result(save_user_playlists(&s.user_playlists));
                 s.show_toast(&format!("Playlist creada: {name}"));
             }
             entry.set_text("");
@@ -130,8 +130,8 @@ pub fn build_collection_page(state: Rc<RefCell<AppState>>) -> ScrolledWindow {
                 if s.recent_tracks.is_empty() {
                     false
                 } else {
-                    s.queue = s.recent_tracks.clone();
-                    s.source_name = String::from("Recientes");
+                    let tracks = s.recent_tracks.clone();
+                    s.replace_queue(tracks, String::from("Recientes"));
                     true
                 }
             };
@@ -151,7 +151,7 @@ pub fn build_collection_page(state: Rc<RefCell<AppState>>) -> ScrolledWindow {
             {
                 let mut s = state.borrow_mut();
                 s.recent_tracks.clear();
-                save_recent_tracks(&s.recent_tracks);
+                s.report_save_result(save_recent_tracks(&s.recent_tracks));
             }
             refresh_recent_ui(Rc::clone(&state));
         });
@@ -199,8 +199,8 @@ pub fn build_collection_page(state: Rc<RefCell<AppState>>) -> ScrolledWindow {
                 if s.favorites.is_empty() {
                     false
                 } else {
-                    s.queue = s.favorites.clone();
-                    s.source_name = String::from("Favoritos");
+                    let tracks = s.favorites.clone();
+                    s.replace_queue(tracks, String::from("Favoritos"));
                     true
                 }
             };
@@ -340,8 +340,7 @@ pub fn refresh_playlists_ui(state: Rc<RefCell<AppState>>) {
                 }
                 {
                     let mut s = state.borrow_mut();
-                    s.queue = tracks.clone();
-                    s.source_name = name.clone();
+                    s.replace_queue(tracks.clone(), name.clone());
                 }
                 play_queue_index(Rc::clone(&state), 0);
             });
@@ -360,7 +359,7 @@ pub fn refresh_playlists_ui(state: Rc<RefCell<AppState>>) {
                 {
                     let mut s = state.borrow_mut();
                     s.user_playlists.retain(|p| p.id != pl_id);
-                    save_user_playlists(&s.user_playlists);
+                    s.report_save_result(save_user_playlists(&s.user_playlists));
                 }
                 refresh_playlists_ui(Rc::clone(&state));
             });

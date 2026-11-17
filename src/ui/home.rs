@@ -239,8 +239,7 @@ fn build_chart_track_row(
         play_btn.connect_clicked(move |_| {
             {
                 let mut s = state.borrow_mut();
-                s.queue = section.clone();
-                s.source_name = source.clone();
+                s.replace_queue(section.clone(), source.clone());
             }
             play_queue_index(Rc::clone(&state), section_index);
         });
@@ -270,8 +269,7 @@ fn build_chart_track_row(
         row.connect_activate(move |_| {
             {
                 let mut s = state.borrow_mut();
-                s.queue = section.clone();
-                s.source_name = source.clone();
+                s.replace_queue(section.clone(), source.clone());
             }
             play_queue_index(Rc::clone(&state), section_index);
         });
@@ -397,8 +395,7 @@ fn quick_play_genre(genre_id: String, genre_name: String, state: Rc<RefCell<AppS
                 Ok((name, tracks)) if !tracks.is_empty() => {
                     {
                         let mut s = state.borrow_mut();
-                        s.queue = tracks;
-                        s.source_name = name;
+                        s.replace_queue(tracks, name);
                     }
                     play_queue_index(Rc::clone(&state), 0);
                 }
@@ -604,10 +601,10 @@ pub fn build_home_page(
                 tile_btn.connect_clicked(move |_| {
                     {
                         let mut s = state_click.borrow_mut();
-                        s.shuffle = false;
-                        s.unshuffled_queue.clear();
-                        s.queue = queue_tracks.clone();
-                        s.source_name = String::from(tr("Escuchar de nuevo", "Listen again"));
+                        s.replace_queue(
+                            queue_tracks.clone(),
+                            String::from(tr("Escuchar de nuevo", "Listen again")),
+                        );
                     }
                     play_queue_index(Rc::clone(&state_click), idx);
                 });
