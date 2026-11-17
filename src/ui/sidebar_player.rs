@@ -52,6 +52,7 @@ pub struct SidebarPlayerWidgets {
     pub queue_title_label: Label,
     pub queue_save_btn: Button,
     pub queue_clear_btn: Button,
+    pub spin_participants_box: GtkBox,
 }
 
 pub fn build_sidebar_player() -> SidebarPlayerWidgets {
@@ -495,7 +496,12 @@ pub fn build_sidebar_player() -> SidebarPlayerWidgets {
     queue_box.set_margin_bottom(12);
     queue_box.set_margin_start(12);
     queue_box.set_margin_end(12);
+    let spin_participants_box = GtkBox::new(Orientation::Vertical, 6);
+    spin_participants_box.add_css_class("spin-participants-card");
+    spin_participants_box.set_visible(false);
+
     queue_box.append(&queue_header);
+    queue_box.append(&spin_participants_box);
     queue_box.append(&queue_empty_label);
     queue_box.append(&queue_list);
 
@@ -593,6 +599,7 @@ pub fn build_sidebar_player() -> SidebarPlayerWidgets {
         queue_title_label,
         queue_save_btn,
         queue_clear_btn,
+        spin_participants_box,
     }
 }
 

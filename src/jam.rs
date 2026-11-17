@@ -25,12 +25,15 @@ pub struct JamTrackInfo {
 pub struct JamSnapshot {
     pub active: bool,
     pub url: String,
+    pub host_name: String,
     pub allow_controls: bool,
     pub is_playing: bool,
+    pub position_secs: f64,
     pub now_playing: Option<JamTrackInfo>,
     pub queue: Vec<JamTrackInfo>,
     pub guest_count: usize,
     pub added_count: usize,
+    pub guest_list: Vec<String>,
     #[serde(skip)]
     pub guests: HashSet<String>,
 }
@@ -158,17 +161,17 @@ async fn handle_connection(
     let method = parts.next().unwrap_or("");
     let target = parts.next().unwrap_or("/");
 
-    let content_length = lines
-        .find_map(|l| {
-            let (k, v) = l.split_once(':')?;
+    let mut content_length = 0usize;
+    let mut range_header: Option<String> = None;
+    for l in lines {
+        if let Some((k, v)) = l.split_once(':') {
             if k.trim().eq_ignore_ascii_case("content-length") {
-                v.trim().parse::<usize>().ok()
-            } else {
-                None
+                content_length = v.trim().parse::<usize>().unwrap_or(0).min(65536);
+            } else if k.trim().eq_ignore_ascii_case("range") {
+                range_header = Some(v.trim().to_string());
             }
-        })
-        .unwrap_or(0)
-        .min(65536);
+        }
+    }
 
     let mut body = req_bytes[header_end..].to_vec();
     while body.len() < content_length {
@@ -184,6 +187,8 @@ async fn handle_connection(
     if let Ok(mut snap) = snapshot.write() {
         snap.guests.insert(guest_ip.clone());
         snap.guest_count = snap.guests.len();
+        snap.guest_list = snap.guests.iter().cloned().collect();
+        snap.guest_list.sort();
     }
 
     let (path, query) = target.split_once('?').unwrap_or((target, ""));
@@ -199,6 +204,29 @@ async fn handle_connection(
                 .and_then(|s| serde_json::to_vec(&*s).ok())
                 .unwrap_or_else(|| b"{}".to_vec());
             send_response(&mut stream, "200 OK", "application/json", &json).await;
+        }
+        ("GET", "/api/audio") => {
+            let id = query_param(query, "id").unwrap_or_default();
+            if id.is_empty() {
+                send_response(&mut stream, "400 Bad Request", "text/plain", b"Missing id").await;
+                return;
+            }
+            match backend.resolve_audio_stream(id.trim()).await {
+                Ok(info) => {
+                    if info.url.starts_with("http://") || info.url.starts_with("https://") {
+                        let resp = format!(
+                            "HTTP/1.1 302 Found\r\nLocation: {}\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n",
+                            info.url
+                        );
+                        let _ = stream.write_all(resp.as_bytes()).await;
+                    } else {
+                        serve_local_audio(&mut stream, &info.url, range_header.as_deref()).await;
+                    }
+                }
+                Err(_) => {
+                    send_response(&mut stream, "404 Not Found", "text/plain", b"Audio unavailable").await;
+                }
+            }
         }
         ("GET", "/api/search") => {
             let q = query_param(query, "q").unwrap_or_default();
@@ -261,6 +289,54 @@ async fn handle_connection(
             send_response(&mut stream, "404 Not Found", "text/plain", b"Not Found").await;
         }
     }
+}
+
+async fn serve_local_audio(stream: &mut TcpStream, path: &str, range_header: Option<&str>) {
+    use tokio::io::AsyncSeekExt;
+    let Ok(mut file) = tokio::fs::File::open(path).await else {
+        send_response(stream, "404 Not Found", "text/plain", b"Not Found").await;
+        return;
+    };
+    let Ok(meta) = file.metadata().await else {
+        send_response(stream, "500 Internal Server Error", "text/plain", b"Error").await;
+        return;
+    };
+    let total = meta.len();
+    let mime = if path.ends_with(".webm") {
+        "audio/webm"
+    } else {
+        "audio/mp4"
+    };
+
+    let (status, start, end) = if let Some(r) = range_header.and_then(|h| h.strip_prefix("bytes=")) {
+        let (s_str, e_str) = r.split_once('-').unwrap_or((r, ""));
+        let start = s_str.parse::<u64>().unwrap_or(0).min(total.saturating_sub(1));
+        let end = e_str
+            .parse::<u64>()
+            .ok()
+            .map(|e| e.min(total.saturating_sub(1)))
+            .unwrap_or_else(|| total.saturating_sub(1));
+        ("206 Partial Content", start, end.max(start))
+    } else {
+        ("200 OK", 0, total.saturating_sub(1))
+    };
+
+    let len = if total == 0 { 0 } else { end - start + 1 };
+    let mut header = format!(
+        "HTTP/1.1 {status}\r\nContent-Type: {mime}\r\nContent-Length: {len}\r\nAccept-Ranges: bytes\r\nCache-Control: no-store\r\nConnection: close\r\n"
+    );
+    if status == "206 Partial Content" {
+        header.push_str(&format!("Content-Range: bytes {start}-{end}/{total}\r\n"));
+    }
+    header.push_str("\r\n");
+    if stream.write_all(header.as_bytes()).await.is_err() {
+        return;
+    }
+    if start > 0 && file.seek(std::io::SeekFrom::Start(start)).await.is_err() {
+        return;
+    }
+    let mut limited = file.take(len);
+    let _ = tokio::io::copy(&mut limited, stream).await;
 }
 
 async fn send_response(stream: &mut TcpStream, status: &str, content_type: &str, body: &[u8]) {
@@ -597,11 +673,15 @@ input:focus{border-color:var(--accent)}
         <div class="sub" id="np-artist">Busca una canción abajo</div>
       </div>
     </div>
+    <div class="ctrls">
+      <button id="listen-btn" onclick="toggleLocalAudio()">🔊 Escuchar aquí</button>
+    </div>
     <div class="ctrls" id="ctrls" style="display:none">
       <button onclick="ctrl('prev')">⏮</button>
       <button class="primary" onclick="ctrl('play_pause')" id="pp-btn">⏯</button>
       <button onclick="ctrl('next')">⏭</button>
     </div>
+    <audio id="local-audio" preload="auto" style="display:none"></audio>
   </div>
   <div class="card">
     <form class="search" onsubmit="doSearch(event)">
@@ -619,6 +699,15 @@ input:focus{border-color:var(--accent)}
 <script>
 function showToast(m){const t=document.getElementById('toast');t.textContent=m;t.style.display='block';setTimeout(()=>t.style.display='none',2200);}
 function esc(s){return (s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+let listenHere=false;let curTrackId=null;
+function toggleLocalAudio(){
+  listenHere=!listenHere;
+  const btn=document.getElementById('listen-btn');
+  const aud=document.getElementById('local-audio');
+  btn.textContent=listenHere?'🔇 Silenciar aquí':'🔊 Escuchar aquí';
+  btn.classList.toggle('primary',listenHere);
+  if(!listenHere){aud.pause();curTrackId=null;}else{loadState();}
+}
 async function loadState(){
   try{
     const r=await fetch('/api/state');const s=await r.json();
@@ -627,6 +716,19 @@ async function loadState(){
       document.getElementById('np-title').textContent=s.now_playing.title;
       document.getElementById('np-artist').textContent=s.now_playing.artist;
       document.getElementById('np-cover').src=s.now_playing.cover_url||'';
+      if(listenHere){
+        const aud=document.getElementById('local-audio');
+        if(curTrackId!==s.now_playing.id){
+          curTrackId=s.now_playing.id;
+          aud.src='/api/audio?id='+encodeURIComponent(curTrackId);
+          aud.currentTime=s.position_secs||0;
+          if(s.is_playing)aud.play().catch(()=>{});
+        }else{
+          if(s.is_playing&&aud.paused)aud.play().catch(()=>{});
+          else if(!s.is_playing&&!aud.paused)aud.pause();
+          if(Math.abs((aud.currentTime||0)-(s.position_secs||0))>2.5)aud.currentTime=s.position_secs||0;
+        }
+      }
     }
     const c=document.getElementById('ctrls');c.style.display=s.allow_controls?'flex':'none';
     document.getElementById('pp-btn').textContent=s.is_playing?'⏸ Pausar':'▶ Reproducir';

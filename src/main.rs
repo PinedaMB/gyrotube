@@ -4,6 +4,7 @@ mod i18n;
 mod jam;
 mod models;
 mod mpris;
+mod spin_remote;
 mod ui;
 
 pub mod icon_names {

@@ -976,6 +976,17 @@ pub fn wire_media_signals(
         let state = Rc::clone(&state);
         let play_pause_btn = state.borrow().play_pause_btn.clone();
         play_pause_btn.connect_clicked(move |_| {
+            let guest_target = match &state.borrow().jam.remote_role {
+                crate::spin_remote::RemoteRole::Guest(t) => Some(t.clone()),
+                _ => None,
+            };
+            if let Some(target) = guest_target {
+                crate::spin_remote::send_guest_event(
+                    target,
+                    crate::spin_remote::RemoteGuestEvent::Control(String::from("play_pause")),
+                );
+                return;
+            }
             let (active, standby, current_idx) = {
                 let s = state.borrow();
                 (
@@ -1003,6 +1014,13 @@ pub fn wire_media_signals(
         let state = Rc::clone(&state);
         let prev_btn = state.borrow().prev_btn.clone();
         prev_btn.connect_clicked(move |_| {
+            if let crate::spin_remote::RemoteRole::Guest(target) = &state.borrow().jam.remote_role {
+                crate::spin_remote::send_guest_event(
+                    target.clone(),
+                    crate::spin_remote::RemoteGuestEvent::Control(String::from("prev")),
+                );
+                return;
+            }
             let target = state
                 .borrow()
                 .current_index
@@ -1017,6 +1035,13 @@ pub fn wire_media_signals(
         let state = Rc::clone(&state);
         let next_btn = state.borrow().next_btn.clone();
         next_btn.connect_clicked(move |_| {
+            if let crate::spin_remote::RemoteRole::Guest(target) = &state.borrow().jam.remote_role {
+                crate::spin_remote::send_guest_event(
+                    target.clone(),
+                    crate::spin_remote::RemoteGuestEvent::Control(String::from("next")),
+                );
+                return;
+            }
             let target = next_queue_index(&state.borrow());
             if let Some(idx) = target {
                 play_queue_index(Rc::clone(&state), idx);
@@ -1274,6 +1299,20 @@ pub fn wire_media_signals(
                         update_synced_lyrics_position(&mut s, pos_us as f64 / 1_000_000.0);
                         if let Some(mpris) = &s.mpris {
                             mpris.set_position_us(pos_us);
+                        }
+                        if s.jam.server.is_some()
+                            && let Ok(mut snap) = s.jam.snapshot.write()
+                        {
+                            snap.is_playing = true;
+                            snap.position_secs = pos_us as f64 / 1_000_000.0;
+                        }
+                        if s.jam.server.is_some()
+                            || matches!(
+                                s.jam.remote_role,
+                                crate::spin_remote::RemoteRole::Host(_)
+                            )
+                        {
+                            crate::ui::jam_dialog::sync_jam_snapshot(&s);
                         }
                     }
 

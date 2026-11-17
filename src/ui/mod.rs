@@ -41,7 +41,10 @@ use crate::ui::header_search::{
     build_header_bar, install_unfocus_on_click, wire_search_popover, wire_settings_dialog,
 };
 use crate::ui::home::build_home_page;
-use crate::ui::jam_dialog::{JamRuntime, open_jam_dialog, sync_jam_snapshot, wire_jam_commands};
+use crate::ui::jam_dialog::{
+    JamRuntime, build_spin_bottom_bar, open_jam_dialog, sync_jam_snapshot, wire_jam_commands,
+    wire_remote_sync,
+};
 use crate::ui::party_mode::{
     build_party_mode, enter_party_mode, exit_party_mode, refresh_party_next_up,
 };
@@ -203,6 +206,7 @@ pub fn build_ui(app: &adw::Application) {
     );
 
     let (jam_cmd_tx, jam_cmd_rx) = async_channel::unbounded();
+    let (remote_tx, remote_rx) = async_channel::unbounded();
     let initial_cf_secs = saved_session.crossfade_secs.min(10);
     let state = Rc::new(RefCell::new(AppState {
         backend: backend.clone(),
@@ -279,7 +283,12 @@ pub fn build_ui(app: &adw::Application) {
         loading_generation: 0,
         preloading_id: None,
         pending_restore_seek: None,
-        jam: JamRuntime::new(jam_cmd_tx),
+        jam: JamRuntime::new(jam_cmd_tx, remote_tx),
+        spin_bar: GtkBox::new(Orientation::Horizontal, 0),
+        spin_bar_label: Label::new(None),
+        spin_bar_count: Label::new(None),
+        spin_participants_box: sb.spin_participants_box.clone(),
+        remote_host_name: None,
         on_track_changed: Vec::new(),
         on_open_collection: None,
         on_cancel_collection_loading: None,
@@ -453,7 +462,16 @@ pub fn build_ui(app: &adw::Application) {
         s.party_next_artist = party.next_artist.clone();
     }
 
+    let (spin_bar, spin_bar_label, spin_bar_count) = build_spin_bottom_bar(&state, &hdr.jam_btn);
+    {
+        let mut s = state.borrow_mut();
+        s.spin_bar = spin_bar.clone();
+        s.spin_bar_label = spin_bar_label;
+        s.spin_bar_count = spin_bar_count;
+    }
+
     main_toolbar.set_content(Some(&main_overlay));
+    main_toolbar.add_bottom_bar(&spin_bar);
     let root_stack = gtk4::Stack::builder()
         .transition_type(gtk4::StackTransitionType::Crossfade)
         .build();
@@ -508,6 +526,7 @@ pub fn build_ui(app: &adw::Application) {
         });
     }
     wire_jam_commands(Rc::clone(&state), jam_cmd_rx);
+    wire_remote_sync(Rc::clone(&state), remote_rx);
     {
         let ex = Rc::clone(&exit_party);
         party.exit_btn.connect_clicked(move |_| {
@@ -675,37 +694,48 @@ fn wire_sidebar_actions(
     {
         let state = Rc::clone(state);
         sb.queue_clear_btn.connect_clicked(move |_| {
-            let decks = {
+            let cleared_all = {
                 let mut s = state.borrow_mut();
-                s.queue.clear();
-                s.current_index = None;
+                s.unshuffled_queue.clear();
                 s.crossfade_active = false;
                 s.crossfade_generation = s.crossfade_generation.wrapping_add(1);
                 s.crossfade_triggered_for = None;
-                s.play_pause_btn.set_sensitive(false);
-                s.seek_scale.set_sensitive(false);
-                s.player_fav_btn.set_sensitive(false);
-                s.player_radio_btn.set_sensitive(false);
-                s.player_title.set_label("Nada reproduciéndose");
-                s.player_artist.set_text("Selecciona una canción");
-                s.player_album_label.set_visible(false);
-                s.player_source_label.set_text("Sin reproducción");
-                s.decks.clone()
+                if let Some(current) = s.current_track().cloned() {
+                    s.queue = vec![current];
+                    s.current_index = Some(0);
+                    s.update_nav_buttons();
+                    s.save_session();
+                    false
+                } else {
+                    s.queue.clear();
+                    s.current_index = None;
+                    s.play_pause_btn.set_sensitive(false);
+                    s.seek_scale.set_sensitive(false);
+                    s.player_fav_btn.set_sensitive(false);
+                    s.player_radio_btn.set_sensitive(false);
+                    s.player_title
+                        .set_label(tr("Nada reproduciéndose", "Nothing playing"));
+                    s.player_artist
+                        .set_text(tr("Selecciona una canción", "Select a song"));
+                    s.player_album_label.set_visible(false);
+                    s.player_source_label
+                        .set_text(tr("Sin reproducción", "Not playing"));
+                    s.decks[0].pause();
+                    s.decks[1].pause();
+                    s.player_cover.set_paintable(None::<&gdk::Paintable>);
+                    crate::ui::widgets::update_ambient_color(None);
+                    s.time_label.set_label("0:00");
+                    s.duration_label.set_label("0:00");
+                    s.quality_label.set_label("YTM");
+                    s.update_nav_buttons();
+                    s.save_session();
+                    true
+                }
             };
-            decks[0].pause();
-            decks[1].pause();
-            {
-                let s = state.borrow();
-                s.player_cover.set_paintable(None::<&gdk::Paintable>);
-                crate::ui::widgets::update_ambient_color(None);
-                s.time_label.set_label("0:00");
-                s.duration_label.set_label("0:00");
-                s.quality_label.set_label("YTM");
-                s.update_nav_buttons();
-                s.save_session();
-            }
             refresh_queue_ui(Rc::clone(&state));
-            crate::ui::widgets::notify_track_changed(Rc::clone(&state));
+            if cleared_all {
+                crate::ui::widgets::notify_track_changed(Rc::clone(&state));
+            }
         });
     }
     {
