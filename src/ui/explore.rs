@@ -282,7 +282,7 @@ pub fn build_explore_page(
     artist_desc_card.append(&artist_desc_label);
 
     let artist_tracks_heading = Label::builder()
-        .label("Canciones populares")
+        .label(tr("Canciones populares", "Popular songs"))
         .xalign(0.0)
         .css_classes(["title-3"])
         .visible(false)
@@ -318,10 +318,11 @@ pub fn build_explore_page(
         });
     }
 
-    let (artist_albums_section, artist_albums_cards, _) = build_carousel_section("Álbumes");
+    let (artist_albums_section, artist_albums_cards, _) =
+        build_carousel_section(tr("Álbumes", "Albums"));
     let (artist_playlists_section, artist_playlists_cards, _) = build_carousel_section("Playlists");
     let (artist_similar_section, artist_similar_cards, _) =
-        build_carousel_section("Artistas similares");
+        build_carousel_section(tr("Artistas similares", "Similar artists"));
 
     let artist_section = GtkBox::new(Orientation::Vertical, 18);
     artist_section.set_visible(false);
@@ -960,10 +961,11 @@ fn open_artist_page(
 }
 
 fn populate_artist_page(
-    details: ArtistDetails,
+    mut details: ArtistDetails,
     ui: ArtistPageWidgets,
     state: Rc<RefCell<AppState>>,
 ) {
+    details.tracks.truncate(25);
     ui.name_label.set_label(&details.name);
     if let Some(subs) = details.subscriber_count {
         ui.subs_label.set_label(&format_subscribers(subs));
@@ -1054,12 +1056,14 @@ fn apply_artist_tracks_collapse(list: &ListBox, toggle: &Button, expanded: bool)
         let content = GtkBox::new(Orientation::Horizontal, 6);
         if expanded {
             content.append(&gtk4::Image::from_icon_name("pan-up-symbolic"));
-            content.append(&Label::new(Some("Mostrar menos")));
+            content.append(&Label::new(Some(tr("Mostrar menos", "Show less"))));
         } else {
             content.append(&gtk4::Image::from_icon_name("pan-down-symbolic"));
             content.append(&Label::new(Some(&format!(
-                "Ver {} más",
-                total - INITIAL_TRACKS
+                "{} {} {}",
+                tr("Ver", "Show"),
+                total - INITIAL_TRACKS,
+                tr("más", "more")
             ))));
         }
         toggle.set_child(Some(&content));
