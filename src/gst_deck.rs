@@ -1,7 +1,6 @@
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use gstreamer as gst;
@@ -18,15 +17,11 @@ fn ensure_gst_init() -> Result<(), String> {
         .clone()
 }
 
-type PendingLiveRx = Arc<Mutex<Option<(async_channel::Receiver<Vec<u8>>, Arc<AtomicBool>)>>>;
-
 struct DeckInner {
     playbin: gst::Element,
     _bus_watch: RefCell<Option<gst::bus::BusWatchGuard>>,
     pending_user_agent: Arc<Mutex<Option<String>>>,
     pending_headers: Arc<Mutex<HashMap<String, String>>>,
-    pending_live_rx: PendingLiveRx,
-    live_cancel: RefCell<Option<Arc<AtomicBool>>>,
     is_playing: Cell<bool>,
     is_prepared: Cell<bool>,
     is_ended: Cell<bool>,
@@ -57,47 +52,21 @@ impl GStreamerDeck {
         let pending_user_agent: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
         let pending_headers: Arc<Mutex<HashMap<String, String>>> =
             Arc::new(Mutex::new(HashMap::new()));
-        let pending_live_rx: PendingLiveRx = Arc::new(Mutex::new(None));
         let ua_for_signal = Arc::clone(&pending_user_agent);
         let headers_for_signal = Arc::clone(&pending_headers);
-        let live_for_signal = Arc::clone(&pending_live_rx);
         playbin.connect("source-setup", false, move |values| {
             let Some(source) = values.get(1).and_then(|v| v.get::<gst::Element>().ok()) else {
                 return None;
             };
 
-            if let Ok(mut live_guard) = live_for_signal.lock()
-                && let Some((rx, cancel)) = live_guard.take()
-            {
-                if source.has_property("format") {
-                    source.set_property("format", gst::Format::Bytes);
-                }
-                if source.has_property("block") {
-                    source.set_property("block", true);
-                }
-                if source.has_property("max-bytes") {
-                    source.set_property("max-bytes", 2u64 * 1024 * 1024);
-                }
-                std::thread::spawn(move || {
-                    while !cancel.load(Ordering::Relaxed) {
-                        let Ok(chunk) = rx.recv_blocking() else {
-                            break;
-                        };
-                        if chunk.is_empty() || cancel.load(Ordering::Relaxed) {
-                            continue;
-                        }
-                        let buffer = gst::Buffer::from_mut_slice(chunk);
-                        let flow =
-                            source.emit_by_name::<gst::FlowReturn>("push-buffer", &[&buffer]);
-                        if flow != gst::FlowReturn::Ok {
-                            break;
-                        }
-                    }
-                    if !cancel.load(Ordering::Relaxed) {
-                        let _ = source.emit_by_name::<gst::FlowReturn>("end-of-stream", &[]);
-                    }
-                });
-                return None;
+            if source.has_property("iradio-mode") {
+                source.set_property("iradio-mode", false);
+            }
+            if source.has_property("timeout") {
+                source.set_property("timeout", 8u32);
+            }
+            if source.has_property("retries") {
+                source.set_property("retries", 1i32);
             }
 
             if let Ok(guard) = ua_for_signal.lock()
@@ -134,8 +103,6 @@ impl GStreamerDeck {
             _bus_watch: RefCell::new(None),
             pending_user_agent,
             pending_headers,
-            pending_live_rx,
-            live_cancel: RefCell::new(None),
             is_playing: Cell::new(false),
             is_prepared: Cell::new(false),
             is_ended: Cell::new(false),
@@ -249,37 +216,12 @@ impl GStreamerDeck {
     }
 
     fn reset_for_new_source(&self) {
-        if let Some(prev_cancel) = self.inner.live_cancel.borrow_mut().take() {
-            prev_cancel.store(true, Ordering::Relaxed);
-        }
-        if let Ok(mut live) = self.inner.pending_live_rx.lock() {
-            *live = None;
-        }
         let _ = self.inner.playbin.set_state(gst::State::Null);
         self.inner.is_playing.set(false);
         self.inner.is_prepared.set(false);
         self.inner.is_ended.set(false);
         self.inner.rate.set(1.0);
         *self.inner.last_error.borrow_mut() = None;
-    }
-
-    pub fn set_live_stream(&self, rx: async_channel::Receiver<Vec<u8>>) {
-        self.reset_for_new_source();
-        let cancel = Arc::new(AtomicBool::new(false));
-        *self.inner.live_cancel.borrow_mut() = Some(Arc::clone(&cancel));
-        if let Ok(mut live) = self.inner.pending_live_rx.lock() {
-            *live = Some((rx, cancel));
-        }
-        if let Ok(mut ua) = self.inner.pending_user_agent.lock() {
-            *ua = None;
-        }
-        if let Ok(mut h) = self.inner.pending_headers.lock() {
-            h.clear();
-        }
-        self.inner.playbin.set_property("uri", "appsrc://");
-        self.inner.has_stream.set(true);
-        self.inner.is_remote.set(true);
-        let _ = self.inner.playbin.set_state(gst::State::Paused);
     }
 
     pub fn set_stream(
@@ -297,8 +239,7 @@ impl GStreamerDeck {
             *h = headers.clone();
         }
 
-        let is_remote =
-            url_or_path.starts_with("http://") || url_or_path.starts_with("https://");
+        let is_remote = url_or_path.starts_with("http://") || url_or_path.starts_with("https://");
         let uri = if is_remote {
             url_or_path.to_string()
         } else {

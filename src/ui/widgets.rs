@@ -549,14 +549,16 @@ fn play_fetched_queue(
         Ok(_) => {
             let s = state.borrow();
             s.play_spinner.set_spinning(false);
-            s.play_pause_btn.set_icon_name("media-playback-start-symbolic");
+            s.play_pause_btn
+                .set_icon_name("media-playback-start-symbolic");
             s.play_pause_btn.set_sensitive(true);
             s.show_toast(empty_msg);
         }
         Err(err) => {
             let s = state.borrow();
             s.play_spinner.set_spinning(false);
-            s.play_pause_btn.set_icon_name("media-playback-start-symbolic");
+            s.play_pause_btn
+                .set_icon_name("media-playback-start-symbolic");
             s.play_pause_btn.set_sensitive(true);
             s.show_toast(&err);
         }
@@ -752,10 +754,7 @@ pub fn build_track_row(
     text_box.append(&title_label);
     text_box.append(&subtitle_label);
 
-    let duration_str = track
-        .duration_secs
-        .map(format_duration)
-        .unwrap_or_default();
+    let duration_str = track.duration_secs.map(format_duration).unwrap_or_default();
     let duration_label = Label::builder()
         .label(&duration_str)
         .valign(Align::Center)
@@ -997,7 +996,9 @@ pub fn start_track_radio(state: Rc<RefCell<AppState>>, track: &Track) {
                     }
                     play_queue_index(Rc::clone(&state), 0);
                 }
-                Ok(_) => state.borrow().show_toast("No se encontraron canciones para la radio."),
+                Ok(_) => state
+                    .borrow()
+                    .show_toast("No se encontraron canciones para la radio."),
                 Err(err) => state.borrow().show_toast(&err),
             }
         }
@@ -1051,7 +1052,10 @@ pub fn load_cover_into_picture(picture: &Picture, url: &str, state: Rc<RefCell<A
         if let Ok(Ok(bytes)) = rx.recv().await {
             let glib_bytes = glib::Bytes::from_owned(bytes);
             if let Ok(texture) = gdk::Texture::from_bytes(&glib_bytes) {
-                state.borrow_mut().cover_cache.insert(url_key, texture.clone());
+                state
+                    .borrow_mut()
+                    .cover_cache
+                    .insert(url_key, texture.clone());
                 picture.set_paintable(Some(&texture));
             }
         }
@@ -1146,13 +1150,53 @@ pub fn update_album_ambient_color(texture: Option<&gdk::Texture>) {
     }
 }
 
-pub fn load_player_cover(
+pub fn load_track_player_cover(
     picture: &Picture,
-    url: &str,
+    track: &Track,
     expected_gen: u64,
     state: Rc<RefCell<AppState>>,
 ) {
-    load_player_cover_with_fallback(picture, url, None, expected_gen, state);
+    picture.set_paintable(None::<&gdk::Paintable>);
+    update_ambient_color(None);
+    {
+        let s = state.borrow();
+        s.player_cover_spinner.set_visible(true);
+        s.player_cover_spinner.set_spinning(true);
+    }
+    if let Some(url) = track
+        .cover_large_url
+        .as_deref()
+        .or(track.cover_url.as_deref())
+    {
+        load_player_cover_with_fallback(
+            picture,
+            url,
+            track.cover_url.as_deref(),
+            expected_gen,
+            state,
+        );
+        return;
+    }
+
+    let backend = state.borrow().backend.clone();
+    let track = track.clone();
+    let picture = picture.clone();
+    spawn_bg(
+        move || async move { backend.resolve_ytm_cover(&track).await },
+        move |url| {
+            if state.borrow().loading_generation != expected_gen {
+                return;
+            }
+            if let Some(url) = url {
+                load_player_cover_with_fallback(&picture, &url, None, expected_gen, state);
+            } else {
+                let s = state.borrow();
+                s.player_cover_spinner.set_spinning(false);
+                s.player_cover_spinner.set_visible(false);
+                eprintln!("Sin carátula para la pista actual");
+            }
+        },
+    );
 }
 
 pub fn load_player_cover_with_fallback(
@@ -1173,61 +1217,49 @@ pub fn load_player_cover_with_fallback(
         }
         return;
     }
-
-    if let Some(fb) = fallback_url
-        && let Some(fb_tex) = state.borrow().cover_cache.get(fb).cloned()
-    {
-        let s = state.borrow();
-        if s.loading_generation == expected_gen {
-            picture.set_paintable(Some(&fb_tex));
-            update_ambient_color(Some(&fb_tex));
-        }
+    if let Some(texture) = fallback_url.and_then(|fb| state.borrow().cover_cache.get(fb).cloned()) {
+        picture.set_paintable(Some(&texture));
+        update_ambient_color(Some(&texture));
     }
 
+    let mut urls = vec![url.to_string()];
+    if let Some(fb) = fallback_url.filter(|fb| *fb != url) {
+        urls.push(fb.to_string());
+    }
     let backend = state.borrow().backend.clone();
-    let url_owned = url.to_string();
-    let fallback_owned = fallback_url.filter(|fb| *fb != url).map(str::to_string);
-    let (tx, rx) = async_channel::bounded(1);
-
-    runtime().spawn(async move {
-        let mut res = backend.fetch_image_bytes(&url_owned).await;
-        if res.is_err()
-            && let Some(ref fb) = fallback_owned
-        {
-            res = backend.fetch_image_bytes(fb).await;
-        }
-        let _ = tx.send(res).await;
-    });
-
     let picture = picture.clone();
-    let url_key = url.to_string();
-    let fb_key = fallback_url.filter(|fb| *fb != url).map(str::to_string);
     glib::spawn_future_local(async move {
-        let maybe_tex = match rx.recv().await {
-            Ok(Ok(bytes)) => gdk::Texture::from_bytes(&glib::Bytes::from_owned(bytes)).ok(),
-            _ => None,
-        };
-        if let Some(texture) = &maybe_tex {
-            state
-                .borrow_mut()
-                .cover_cache
-                .insert(url_key, texture.clone());
+        for url in urls {
+            if state.borrow().loading_generation != expected_gen {
+                return;
+            }
+            let backend = backend.clone();
+            let request_url = url.clone();
+            let (tx, rx) = async_channel::bounded(1);
+            runtime().spawn(async move {
+                let _ = tx.send(backend.fetch_image_bytes(&request_url).await).await;
+            });
+            let texture = match rx.recv().await {
+                Ok(Ok(bytes)) => gdk::Texture::from_bytes(&glib::Bytes::from_owned(bytes))
+                    .map_err(|e| e.to_string()),
+                Ok(Err(err)) => Err(err),
+                Err(err) => Err(err.to_string()),
+            };
+            if state.borrow().loading_generation != expected_gen {
+                return;
+            }
+            match texture {
+                Ok(texture) => {
+                    state.borrow_mut().cover_cache.insert(url, texture.clone());
+                    picture.set_paintable(Some(&texture));
+                    update_ambient_color(Some(&texture));
+                    break;
+                }
+                Err(err) => eprintln!("Error de carátula ({url}): {err}"),
+            }
         }
         let s = state.borrow();
-        if s.loading_generation == expected_gen {
-            if let Some(texture) = maybe_tex {
-                picture.set_paintable(Some(&texture));
-                update_ambient_color(Some(&texture));
-            } else if let Some(ref fb) = fb_key
-                && let Some(fb_tex) = s.cover_cache.get(fb).cloned()
-            {
-                picture.set_paintable(Some(&fb_tex));
-                update_ambient_color(Some(&fb_tex));
-            } else {
-                update_ambient_color(None);
-            }
-            s.player_cover_spinner.set_spinning(false);
-            s.player_cover_spinner.set_visible(false);
-        }
+        s.player_cover_spinner.set_spinning(false);
+        s.player_cover_spinner.set_visible(false);
     });
 }

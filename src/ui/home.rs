@@ -6,8 +6,8 @@ use gtk4::glib;
 use gtk4::prelude::*;
 use gtk4::{
     Align, Box as GtkBox, Button, ContentFit, CssProvider, FlowBox, Image, Label, ListBox,
-    ListBoxRow, Orientation, Overflow, Picture, PolicyType, ScrolledWindow, SelectionMode,
-    Spinner, ToggleButton,
+    ListBoxRow, Orientation, Overflow, Picture, PolicyType, ScrolledWindow, SelectionMode, Spinner,
+    ToggleButton,
 };
 use libadwaita as adw;
 
@@ -379,10 +379,7 @@ fn quick_play_genre(genre_id: String, genre_name: String, state: Rc<RefCell<AppS
                         .fetch_playlist_tracks(&first.id)
                         .await
                         .map(|(pl_name, tracks)| {
-                            (
-                                if pl_name.is_empty() { name } else { pl_name },
-                                tracks,
-                            )
+                            (if pl_name.is_empty() { name } else { pl_name }, tracks)
                         })
                 } else {
                     Err("No hay playlists en esta estación.".to_string())
@@ -800,12 +797,17 @@ pub fn build_home_page(
             let backend = state.borrow().backend.clone();
             let (tx, rx) = async_channel::bounded(1);
 
+            let (genres_tx, genres_rx) = async_channel::bounded(1);
+            let genres_backend = backend.clone();
             runtime().spawn(async move {
-                let (feed_res, genres_res) = tokio::join!(
-                    backend.fetch_home_feed_cached(force_refresh),
-                    backend.fetch_genres_cached(force_refresh)
-                );
-                let _ = tx.send((feed_res, genres_res)).await;
+                let _ = genres_tx
+                    .send(genres_backend.fetch_genres_cached(force_refresh).await)
+                    .await;
+            });
+            runtime().spawn(async move {
+                let _ = tx
+                    .send(backend.fetch_home_feed_cached(force_refresh).await)
+                    .await;
             });
 
             let state = Rc::clone(&state);
@@ -820,24 +822,24 @@ pub fn build_home_page(
             let render_chart = Rc::clone(&render_chart);
             let top_pill = top_pill.clone();
 
+            let feed_state = Rc::clone(&state);
             glib::spawn_future_local(async move {
-                if let Ok((feed_res, genres_res)) = rx.recv().await {
+                let state = feed_state;
+                if let Ok(feed_res) = rx.recv().await {
                     skeleton.set_visible(false);
                     match feed_res {
                         Ok(feed) => {
                             *cached_trending.borrow_mut() = feed.trending.clone();
                             *cached_top.borrow_mut() = feed.top.clone();
                             render_chart(top_pill.is_active());
-                            chart_section.set_visible(
-                                !feed.trending.is_empty() || !feed.top.is_empty(),
-                            );
+                            chart_section
+                                .set_visible(!feed.trending.is_empty() || !feed.top.is_empty());
 
                             while albums_carousel.n_pages() > 0 {
                                 let page = albums_carousel.nth_page(0);
                                 albums_carousel.remove(&page);
                             }
-                            let limited_albums: Vec<_> =
-                                feed.new_albums.iter().take(16).collect();
+                            let limited_albums: Vec<_> = feed.new_albums.iter().take(16).collect();
                             for chunk in limited_albums.chunks(4) {
                                 let page_flow = FlowBox::builder()
                                     .valign(Align::Start)
@@ -861,173 +863,175 @@ pub fn build_home_page(
                             state.borrow().show_toast(&err);
                         }
                     }
+                }
+            });
+            let state = Rc::clone(&state);
+            glib::spawn_future_local(async move {
+                if let Ok(Ok(genres)) = genres_rx.recv().await {
+                    while let Some(child) = stations_grid.first_child() {
+                        stations_grid.remove(&child);
+                    }
+                    let icons = [
+                        "weather-clear-night-symbolic",
+                        "audio-headphones-symbolic",
+                        "media-optical-symbolic",
+                        "starred-symbolic",
+                        "emblem-music-symbolic",
+                        "radio-symbolic",
+                    ];
+                    let mut count = 0usize;
+                    for (idx, genre) in genres.into_iter().take(6).enumerate() {
+                        let color = &genre.color_hex;
 
-                    if let Ok(genres) = genres_res {
-                        while let Some(child) = stations_grid.first_child() {
-                            stations_grid.remove(&child);
-                        }
-                        let icons = [
-                            "weather-clear-night-symbolic",
-                            "audio-headphones-symbolic",
-                            "media-optical-symbolic",
-                            "starred-symbolic",
-                            "emblem-music-symbolic",
-                            "radio-symbolic",
-                        ];
-                        let mut count = 0usize;
-                        for (idx, genre) in genres.into_iter().take(6).enumerate() {
-                            let color = &genre.color_hex;
+                        let bg_picture = Picture::builder()
+                            .content_fit(ContentFit::Cover)
+                            .can_shrink(true)
+                            .hexpand(true)
+                            .vexpand(true)
+                            .css_classes(["bento-card-bg"])
+                            .build();
 
-                            let bg_picture = Picture::builder()
-                                .content_fit(ContentFit::Cover)
-                                .can_shrink(true)
-                                .hexpand(true)
-                                .vexpand(true)
-                                .css_classes(["bento-card-bg"])
-                                .build();
+                        let pill = Label::builder()
+                            .label("Estación")
+                            .halign(Align::Start)
+                            .valign(Align::Center)
+                            .css_classes(["bento-pill"])
+                            .build();
+                        apply_genre_color_css(&pill, &format!("label {{ color: {color}; }}"));
 
-                            let pill = Label::builder()
-                                .label("Estación")
-                                .halign(Align::Start)
-                                .valign(Align::Center)
-                                .css_classes(["bento-pill"])
-                                .build();
-                            apply_genre_color_css(&pill, &format!("label {{ color: {color}; }}"));
+                        let icon = Image::builder()
+                            .icon_name(icons[idx % icons.len()])
+                            .pixel_size(18)
+                            .halign(Align::End)
+                            .valign(Align::Center)
+                            .hexpand(true)
+                            .build();
+                        apply_genre_color_css(&icon, &format!("image {{ color: {color}; }}"));
 
-                            let icon = Image::builder()
-                                .icon_name(icons[idx % icons.len()])
-                                .pixel_size(18)
-                                .halign(Align::End)
-                                .valign(Align::Center)
-                                .hexpand(true)
-                                .build();
-                            apply_genre_color_css(&icon, &format!("image {{ color: {color}; }}"));
+                        let top_row = GtkBox::new(Orientation::Horizontal, 8);
+                        top_row.append(&pill);
+                        top_row.append(&icon);
 
-                            let top_row = GtkBox::new(Orientation::Horizontal, 8);
-                            top_row.append(&pill);
-                            top_row.append(&icon);
+                        let title = Label::builder()
+                            .label(&genre.name)
+                            .xalign(0.0)
+                            .max_width_chars(18)
+                            .ellipsize(gtk4::pango::EllipsizeMode::End)
+                            .css_classes(["title-3"])
+                            .build();
 
-                            let title = Label::builder()
-                                .label(&genre.name)
-                                .xalign(0.0)
-                                .max_width_chars(18)
-                                .ellipsize(gtk4::pango::EllipsizeMode::End)
-                                .css_classes(["title-3"])
-                                .build();
+                        let desc = Label::builder()
+                            .label("Playlists y mezclas seleccionadas para este estilo.")
+                            .xalign(0.0)
+                            .wrap(true)
+                            .lines(2)
+                            .max_width_chars(24)
+                            .ellipsize(gtk4::pango::EllipsizeMode::End)
+                            .css_classes(["dim-label", "caption"])
+                            .build();
 
-                            let desc = Label::builder()
-                                .label("Playlists y mezclas seleccionadas para este estilo.")
-                                .xalign(0.0)
-                                .wrap(true)
-                                .lines(2)
-                                .max_width_chars(24)
-                                .ellipsize(gtk4::pango::EllipsizeMode::End)
-                                .css_classes(["dim-label", "caption"])
-                                .build();
+                        let mid_box = GtkBox::new(Orientation::Vertical, 4);
+                        mid_box.set_vexpand(true);
+                        mid_box.set_valign(Align::End);
+                        mid_box.append(&title);
+                        mid_box.append(&desc);
 
-                            let mid_box = GtkBox::new(Orientation::Vertical, 4);
-                            mid_box.set_vexpand(true);
-                            mid_box.set_valign(Align::End);
-                            mid_box.append(&title);
-                            mid_box.append(&desc);
+                        let cta = Label::builder()
+                            .label("Explorar estación →")
+                            .xalign(0.0)
+                            .hexpand(true)
+                            .css_classes(["bento-cta"])
+                            .build();
+                        apply_genre_color_css(&cta, &format!("label {{ color: {color}; }}"));
 
-                            let cta = Label::builder()
-                                .label("Explorar estación →")
-                                .xalign(0.0)
-                                .hexpand(true)
-                                .css_classes(["bento-cta"])
-                                .build();
-                            apply_genre_color_css(&cta, &format!("label {{ color: {color}; }}"));
-
-                            let quick_play_btn = Button::builder()
-                                .icon_name("media-playback-start-symbolic")
-                                .tooltip_text("Reproducir estación")
-                                .valign(Align::Center)
-                                .css_classes(["flat", "station-play-btn"])
-                                .build();
-                            {
-                                let state_play = Rc::clone(&state);
-                                let gid = genre.id.clone();
-                                let gname = genre.name.clone();
-                                quick_play_btn.connect_clicked(move |_| {
-                                    quick_play_genre(
-                                        gid.clone(),
-                                        gname.clone(),
-                                        Rc::clone(&state_play),
-                                    );
-                                });
-                            }
-
-                            let bottom_row = GtkBox::new(Orientation::Horizontal, 8);
-                            bottom_row.append(&cta);
-                            bottom_row.append(&quick_play_btn);
-
-                            let content_box = GtkBox::new(Orientation::Vertical, 12);
-                            content_box.add_css_class("bento-card-scrim");
-                            apply_genre_color_css(
-                                &content_box,
-                                &format!(
-                                    "box {{ background-image: linear-gradient(180deg, alpha({color}, 0.20) 0%, alpha(@window_bg_color, 0.88) 78%); }}"
-                                ),
-                            );
-                            content_box.append(&top_row);
-                            content_box.append(&mid_box);
-                            content_box.append(&bottom_row);
-
-                            let bg_spacer = GtkBox::new(Orientation::Vertical, 0);
-                            let overlay = gtk4::Overlay::new();
-                            overlay.add_css_class("bento-overlay");
-                            overlay.set_overflow(Overflow::Hidden);
-                            overlay.set_child(Some(&bg_spacer));
-                            overlay.add_overlay(&bg_picture);
-                            overlay.add_overlay(&content_box);
-                            overlay.set_measure_overlay(&content_box, true);
-
-                            let btn = Button::builder()
-                                .child(&overlay)
-                                .width_request(200)
-                                .hexpand(true)
-                                .css_classes(["flat", "bento-card"])
-                                .build();
-                            btn.set_overflow(Overflow::Hidden);
-                            btn.set_cursor_from_name(Some("pointer"));
-
-                            {
-                                let backend = state.borrow().backend.clone();
-                                let gid_bg = genre.id.clone();
-                                let (tx_bg, rx_bg) = async_channel::bounded(1);
-                                runtime().spawn(async move {
-                                    let res = backend.fetch_genre_playlists(&gid_bg).await;
-                                    let _ = tx_bg.send(res).await;
-                                });
-                                let state_bg = Rc::clone(&state);
-                                let bg_picture = bg_picture.clone();
-                                glib::spawn_future_local(async move {
-                                    if let Ok(Ok((_, playlists))) = rx_bg.recv().await
-                                        && let Some(url) =
-                                            playlists.into_iter().find_map(|p| p.cover_url)
-                                    {
-                                        load_cover_into_picture(&bg_picture, &url, state_bg);
-                                    }
-                                });
-                            }
-
-                            let state_click = Rc::clone(&state);
+                        let quick_play_btn = Button::builder()
+                            .icon_name("media-playback-start-symbolic")
+                            .tooltip_text("Reproducir estación")
+                            .valign(Align::Center)
+                            .css_classes(["flat", "station-play-btn"])
+                            .build();
+                        {
+                            let state_play = Rc::clone(&state);
                             let gid = genre.id.clone();
                             let gname = genre.name.clone();
-                            btn.connect_clicked(move |b| {
-                                open_genre_page(
+                            quick_play_btn.connect_clicked(move |_| {
+                                quick_play_genre(
                                     gid.clone(),
                                     gname.clone(),
-                                    b.clone().upcast(),
-                                    Rc::clone(&state_click),
+                                    Rc::clone(&state_play),
                                 );
                             });
-                            stations_grid.insert(&btn, -1);
-                            count += 1;
                         }
-                        stations_section.set_visible(count > 0);
+
+                        let bottom_row = GtkBox::new(Orientation::Horizontal, 8);
+                        bottom_row.append(&cta);
+                        bottom_row.append(&quick_play_btn);
+
+                        let content_box = GtkBox::new(Orientation::Vertical, 12);
+                        content_box.add_css_class("bento-card-scrim");
+                        apply_genre_color_css(
+                            &content_box,
+                            &format!(
+                                "box {{ background-image: linear-gradient(180deg, alpha({color}, 0.20) 0%, alpha(@window_bg_color, 0.88) 78%); }}"
+                            ),
+                        );
+                        content_box.append(&top_row);
+                        content_box.append(&mid_box);
+                        content_box.append(&bottom_row);
+
+                        let bg_spacer = GtkBox::new(Orientation::Vertical, 0);
+                        let overlay = gtk4::Overlay::new();
+                        overlay.add_css_class("bento-overlay");
+                        overlay.set_overflow(Overflow::Hidden);
+                        overlay.set_child(Some(&bg_spacer));
+                        overlay.add_overlay(&bg_picture);
+                        overlay.add_overlay(&content_box);
+                        overlay.set_measure_overlay(&content_box, true);
+
+                        let btn = Button::builder()
+                            .child(&overlay)
+                            .width_request(200)
+                            .hexpand(true)
+                            .css_classes(["flat", "bento-card"])
+                            .build();
+                        btn.set_overflow(Overflow::Hidden);
+                        btn.set_cursor_from_name(Some("pointer"));
+
+                        {
+                            let backend = state.borrow().backend.clone();
+                            let gid_bg = genre.id.clone();
+                            let (tx_bg, rx_bg) = async_channel::bounded(1);
+                            runtime().spawn(async move {
+                                let res = backend.fetch_genre_playlists(&gid_bg).await;
+                                let _ = tx_bg.send(res).await;
+                            });
+                            let state_bg = Rc::clone(&state);
+                            let bg_picture = bg_picture.clone();
+                            glib::spawn_future_local(async move {
+                                if let Ok(Ok((_, playlists))) = rx_bg.recv().await
+                                    && let Some(url) =
+                                        playlists.into_iter().find_map(|p| p.cover_url)
+                                {
+                                    load_cover_into_picture(&bg_picture, &url, state_bg);
+                                }
+                            });
+                        }
+
+                        let state_click = Rc::clone(&state);
+                        let gid = genre.id.clone();
+                        let gname = genre.name.clone();
+                        btn.connect_clicked(move |b| {
+                            open_genre_page(
+                                gid.clone(),
+                                gname.clone(),
+                                b.clone().upcast(),
+                                Rc::clone(&state_click),
+                            );
+                        });
+                        stations_grid.insert(&btn, -1);
+                        count += 1;
                     }
+                    stations_section.set_visible(count > 0);
                 }
             });
         }

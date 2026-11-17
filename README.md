@@ -10,7 +10,7 @@
 
 ## Características
 
-- **Streaming progresivo y caché local**: inicio de reproducción inmediato mediante rangos HTTP y guardado en caché para reproducción instantánea sin conexión.
+- **Streaming y precarga**: `yt-dlp` extrae la URL de audio para GStreamer sin descargar la pista completa. La siguiente canción precarga su URL y se descarga en segundo plano a la caché local; las descargas de respaldo también se conservan. Inicio reutiliza su caché local durante 15 minutos; el inicio en frío depende de YouTube y de la red.
 - **Navegación completa**: Inicio, Explorar (búsqueda, géneros, artistas, álbumes y playlists) y Colección (favoritos, historial y playlists locales).
 - **Reproductor avanzado**: cola de reproducción, modo aleatorio, repetición, *crossfade*, temporizador de apagado y barra lateral adaptable.
 - **Letras sincronizadas**: soporte de letras con desplazamiento automático.
@@ -21,7 +21,8 @@
 - Rust / Cargo (edición 2024)
 - Bibliotecas de desarrollo de `gtk4` (`>= 4.14`) y `libadwaita` (`>= 1.6`)
 - Plugins de GStreamer para reproducción de audio (`M4A` / `WebM` / `Opus`)
-- `yt-dlp` en `PATH` *(opcional, usado como respaldo)*
+- `yt-dlp` en `PATH` (necesario para extraer audio)
+- Node.js y componentes EJS de yt-dlp para resolver los desafíos de YouTube
 
 ## Compilación y ejecución
 
@@ -39,3 +40,11 @@ cargo build --release
 ```bash
 cargo test
 ```
+
+## Catálogo y carátulas
+
+`ytmapi-rs` es el cliente primario de búsqueda, álbumes y artistas. RustyPipe sirve Radio y Charts de Inicio y actúa como respaldo; solo se aceptan pistas `TrackType::Track` disponibles. Las playlists del cliente primario admiten únicamente `PlaylistItem::Song`. En los álbumes, las pistas se obtienen de su playlist de audio (`audio_playlist_id`), porque las filas de la página del álbum pueden apuntar a videoclips. Las consultas de playlists usan el prefijo de navegación `VL`. No se sustituyen IDs por el primer resultado de una búsqueda. Las colas antiguas se verifican antes de reproducirse.
+
+Este filtro identifica audio oficial de YouTube Music, no certifica que la grabación sea de estudio: un álbum en vivo también contiene canciones oficiales.
+
+Las pistas sin imagen individual heredan la carátula del álbum. El reproductor muestra la imagen disponible sin esperar una búsqueda y prueba la miniatura si falla la descarga o la decodificación de la imagen grande. Los errores se registran en stderr.

@@ -1,17 +1,18 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use gtk4::gdk;
 use gtk4::glib;
 use gtk4::prelude::*;
-use gtk4::{Align, Box as GtkBox, Button, Image, Label, ListBoxRow, MenuButton, Orientation, Scale};
+use gtk4::{
+    Align, Box as GtkBox, Button, Image, Label, ListBoxRow, MenuButton, Orientation, Scale,
+};
 
 use crate::backend::runtime;
-use crate::models::{LyricsData, format_duration, is_ytm_square_cover};
+use crate::models::{LyricsData, format_duration};
 use crate::ui::state::{AppState, next_queue_index};
 use crate::ui::widgets::{
-    clamped_cover, clear_box, clear_list_box, load_cover_into_picture, load_player_cover,
-    load_player_cover_with_fallback, notify_track_changed, record_recent_track,
+    clamped_cover, clear_box, clear_list_box, load_cover_into_picture, load_track_player_cover,
+    notify_track_changed, record_recent_track,
 };
 
 pub fn refresh_queue_ui(state: Rc<RefCell<AppState>>) {
@@ -286,11 +287,7 @@ fn update_synced_lyrics_position(s: &mut AppState, pos_secs_exact: f64) {
 }
 
 fn set_stream_on_media(media: &crate::gst_deck::GStreamerDeck, stream: crate::models::StreamInfo) {
-    if let Some(live_rx) = stream.live_rx.and_then(|l| l.take()) {
-        media.set_live_stream(live_rx);
-    } else {
-        media.set_stream(&stream.url, stream.user_agent.as_deref(), &stream.headers);
-    }
+    media.set_stream(&stream.url, stream.user_agent.as_deref(), &stream.headers);
 }
 
 pub fn show_player_loading(state: &Rc<RefCell<AppState>>, title: &str) {
@@ -329,9 +326,6 @@ pub fn play_queue_index(state: Rc<RefCell<AppState>>, index: usize) {
         s.play_pause_btn.set_sensitive(false);
         s.play_spinner.set_spinning(true);
         s.play_pause_btn.set_child(Some(&s.play_spinner));
-        s.player_cover.set_paintable(None::<&gdk::Paintable>);
-        s.player_cover_spinner.set_visible(true);
-        s.player_cover_spinner.set_spinning(true);
         s.seek_scale.set_sensitive(false);
         s.seek_scale.set_value(0.0);
         s.time_label.set_label("0:00");
@@ -375,40 +369,7 @@ pub fn play_queue_index(state: Rc<RefCell<AppState>>, index: usize) {
         player_fav_btn.set_active(is_fav);
     }
 
-    if let Some(url) = track.cover_large_url.as_deref().or(track.cover_url.as_deref()) {
-        if is_ytm_square_cover(url) {
-            load_player_cover_with_fallback(
-                &player_cover,
-                url,
-                track.cover_url.as_deref(),
-                current_gen,
-                Rc::clone(&state),
-            );
-        } else {
-            let (cov_tx, cov_rx) = async_channel::bounded(1);
-            let backend_cov = backend.clone();
-            let track_cov = track.clone();
-            runtime().spawn(async move {
-                let _ = cov_tx.send(backend_cov.resolve_ytm_cover(&track_cov).await).await;
-            });
-
-            let state_cov = Rc::clone(&state);
-            let player_cover_cov = player_cover.clone();
-            let fallback_url = url.to_string();
-            glib::spawn_future_local(async move {
-                if let Ok(resolved) = cov_rx.recv().await
-                    && state_cov.borrow().loading_generation == current_gen
-                {
-                    let final_url = resolved.as_deref().unwrap_or(&fallback_url);
-                    load_player_cover(&player_cover_cov, final_url, current_gen, state_cov);
-                }
-            });
-        }
-    } else {
-        let s = state.borrow();
-        s.player_cover_spinner.set_spinning(false);
-        s.player_cover_spinner.set_visible(false);
-    }
+    load_track_player_cover(&player_cover, &track, current_gen, Rc::clone(&state));
 
     refresh_queue_ui(Rc::clone(&state));
     record_recent_track(Rc::clone(&state), &track);
@@ -428,7 +389,8 @@ pub fn play_queue_index(state: Rc<RefCell<AppState>>, index: usize) {
             let Ok(result) = recv_res else {
                 if s.loading_generation == current_gen {
                     s.play_spinner.set_spinning(false);
-                    s.play_pause_btn.set_icon_name("media-playback-start-symbolic");
+                    s.play_pause_btn
+                        .set_icon_name("media-playback-start-symbolic");
                     crate::ui::widgets::set_artist_links(&s.player_artist, &track.artist);
                     s.quality_label.set_label("ERR");
                     s.show_toast("No se pudo resolver el flujo de audio.");
@@ -443,26 +405,23 @@ pub fn play_queue_index(state: Rc<RefCell<AppState>>, index: usize) {
                 Ok(stream) => {
                     crate::ui::widgets::set_artist_links(&s.player_artist, &track.artist);
                     s.quality_label.set_label(&stream.quality_label);
-                    s.play_pause_btn.set_icon_name("media-playback-start-symbolic");
+                    s.play_pause_btn
+                        .set_icon_name("media-playback-start-symbolic");
                     s.play_pause_btn.set_sensitive(true);
                     s.seek_scale.set_sensitive(true);
                     s.pending_autoplay = true;
                     let next_id = next_queue_index(&s)
                         .and_then(|ni| s.queue.get(ni))
-                        .map(|t| t.id.clone())
-                        .filter(|id| s.preloading_id.as_deref() != Some(id.as_str()));
+                        .cloned()
+                        .filter(|t| s.preloading_id.as_deref() != Some(t.id.as_str()));
                     if let Some(ref id) = next_id {
-                        s.preloading_id = Some(id.clone());
+                        s.preloading_id = Some(id.id.clone());
                     }
-                    Some((
-                        s.active_media().clone(),
-                        stream,
-                        s.backend.clone(),
-                        next_id,
-                    ))
+                    Some((s.active_media().clone(), stream, s.backend.clone(), next_id))
                 }
                 Err(err) => {
-                    s.play_pause_btn.set_icon_name("media-playback-start-symbolic");
+                    s.play_pause_btn
+                        .set_icon_name("media-playback-start-symbolic");
                     crate::ui::widgets::set_artist_links(&s.player_artist, &track.artist);
                     s.quality_label.set_label("ERR");
                     s.show_toast(&err);
@@ -478,9 +437,9 @@ pub fn play_queue_index(state: Rc<RefCell<AppState>>, index: usize) {
                 state.borrow_mut().pending_autoplay = false;
                 media_file.play();
             }
-            if let Some(next_video_id) = next_id {
+            if let Some(next_track) = next_id {
                 runtime().spawn(async move {
-                    backend.prefetch_audio(&next_video_id).await;
+                    backend.prefetch_audio(&next_track).await;
                 });
             }
         }
@@ -510,7 +469,10 @@ fn start_crossfade_to(state: Rc<RefCell<AppState>>, next_index: usize) {
 
         let setup = {
             let mut s = state.borrow_mut();
-            if s.crossfade_generation != cf_gen || !s.crossfade_enabled || !s.active_media().is_playing() {
+            if s.crossfade_generation != cf_gen
+                || !s.crossfade_enabled
+                || !s.active_media().is_playing()
+            {
                 return;
             }
             if s.queue.get(next_index).is_none_or(|t| t.id != track.id) {
@@ -558,10 +520,10 @@ fn start_crossfade_to(state: Rc<RefCell<AppState>>, next_index: usize) {
 
             let next_prefetch = next_queue_index(&s)
                 .and_then(|ni| s.queue.get(ni))
-                .map(|t| t.id.clone())
-                .filter(|id| s.preloading_id.as_deref() != Some(id.as_str()));
+                .cloned()
+                .filter(|t| s.preloading_id.as_deref() != Some(t.id.as_str()));
             if let Some(ref id) = next_prefetch {
-                s.preloading_id = Some(id.clone());
+                s.preloading_id = Some(id.id.clone());
             }
 
             (
@@ -593,29 +555,7 @@ fn start_crossfade_to(state: Rc<RefCell<AppState>>, next_index: usize) {
             player_fav_btn.set_active(is_fav);
         }
 
-        if let Some(url) = track.cover_large_url.as_deref().or(track.cover_url.as_deref()) {
-            if is_ytm_square_cover(url) {
-                load_player_cover(&player_cover, url, current_gen, Rc::clone(&state));
-            } else {
-                let (cov_tx, cov_rx) = async_channel::bounded(1);
-                let backend_cov = backend.clone();
-                let track_cov = track.clone();
-                runtime().spawn(async move {
-                    let _ = cov_tx.send(backend_cov.resolve_ytm_cover(&track_cov).await).await;
-                });
-                let state_cov = Rc::clone(&state);
-                let player_cover_cov = player_cover.clone();
-                let fallback_url = url.to_string();
-                glib::spawn_future_local(async move {
-                    if let Ok(resolved) = cov_rx.recv().await
-                        && state_cov.borrow().loading_generation == current_gen
-                    {
-                        let final_url = resolved.as_deref().unwrap_or(&fallback_url);
-                        load_player_cover(&player_cover_cov, final_url, current_gen, state_cov);
-                    }
-                });
-            }
-        }
+        load_track_player_cover(&player_cover, &track, current_gen, Rc::clone(&state));
 
         refresh_queue_ui(Rc::clone(&state));
         record_recent_track(Rc::clone(&state), &track);
@@ -631,20 +571,15 @@ fn start_crossfade_to(state: Rc<RefCell<AppState>>, next_index: usize) {
 
         run_crossfade_ramp(Rc::clone(&state), cf_gen, old_deck, new_deck);
 
-        if let Some(next_video_id) = next_prefetch {
+        if let Some(next_track) = next_prefetch {
             runtime().spawn(async move {
-                backend.prefetch_audio(&next_video_id).await;
+                backend.prefetch_audio(&next_track).await;
             });
         }
     });
 }
 
-fn run_crossfade_ramp(
-    state: Rc<RefCell<AppState>>,
-    cf_gen: u64,
-    old_deck: usize,
-    new_deck: usize,
-) {
+fn run_crossfade_ramp(state: Rc<RefCell<AppState>>, cf_gen: u64, old_deck: usize, new_deck: usize) {
     const TOTAL_STEPS: u32 = 80; // 80 * 50ms = 4.0 seconds
     let mut step: u32 = 0;
 
@@ -681,7 +616,6 @@ fn run_crossfade_ramp(
         }
     });
 }
-
 
 pub fn wire_media_signals(
     state: Rc<RefCell<AppState>>,
@@ -781,7 +715,11 @@ pub fn wire_media_signals(
                     let (should_play, target_vol) = {
                         let mut s = state.borrow_mut();
                         if s.active_deck == deck_idx {
-                            let vol = if s.crossfade_active { None } else { Some(s.user_volume) };
+                            let vol = if s.crossfade_active {
+                                None
+                            } else {
+                                Some(s.user_volume)
+                            };
                             let play = if s.pending_autoplay {
                                 s.pending_autoplay = false;
                                 true
@@ -834,7 +772,8 @@ pub fn wire_media_signals(
                 if dur_us > 0 {
                     let dur_secs = (dur_us / 1_000_000) as f64;
                     s.seek_scale.set_range(0.0, dur_secs);
-                    s.duration_label.set_label(&format_duration(dur_secs as u32));
+                    s.duration_label
+                        .set_label(&format_duration(dur_secs as u32));
                 }
             });
         }
@@ -884,7 +823,8 @@ pub fn wire_media_signals(
                         if s.active_deck != deck_idx {
                             None
                         } else if media.is_remote_stream()
-                            && let Some(track) = s.current_index.and_then(|i| s.queue.get(i)).cloned()
+                            && let Some(track) =
+                                s.current_index.and_then(|i| s.queue.get(i)).cloned()
                         {
                             s.play_spinner.set_visible(true);
                             s.play_spinner.set_spinning(true);
@@ -913,7 +853,8 @@ pub fn wire_media_signals(
                                     return;
                                 }
                                 s.play_spinner.set_spinning(false);
-                                s.play_pause_btn.set_icon_name("media-playback-start-symbolic");
+                                s.play_pause_btn
+                                    .set_icon_name("media-playback-start-symbolic");
                                 s.play_pause_btn.set_sensitive(true);
                                 match recv {
                                     Ok(Ok(stream)) => {
@@ -963,18 +904,19 @@ pub fn wire_media_signals(
             }
             let state_cb = Rc::clone(&state);
             let pending_ref = Rc::clone(&pending_seek_source);
-            let id = glib::timeout_add_local_once(std::time::Duration::from_millis(60), move || {
-                *pending_ref.borrow_mut() = None;
-                let (media, mpris) = {
-                    let s = state_cb.borrow();
-                    (s.active_media().clone(), s.mpris.clone())
-                };
-                media.seek(target_us);
-                if let Some(mpris) = mpris {
-                    mpris.set_position_us(target_us);
-                    mpris.emit_seeked(target_us);
-                }
-            });
+            let id =
+                glib::timeout_add_local_once(std::time::Duration::from_millis(60), move || {
+                    *pending_ref.borrow_mut() = None;
+                    let (media, mpris) = {
+                        let s = state_cb.borrow();
+                        (s.active_media().clone(), s.mpris.clone())
+                    };
+                    media.seek(target_us);
+                    if let Some(mpris) = mpris {
+                        mpris.set_position_us(target_us);
+                        mpris.emit_seeked(target_us);
+                    }
+                });
             *pending_seek_source.borrow_mut() = Some(id);
             glib::Propagation::Proceed
         });
@@ -992,7 +934,8 @@ pub fn wire_media_signals(
                     if dur_us > 0 {
                         let dur_secs = (dur_us / 1_000_000) as f64;
                         s.seek_scale.set_range(0.0, dur_secs);
-                        s.duration_label.set_label(&format_duration(dur_secs as u32));
+                        s.duration_label
+                            .set_label(&format_duration(dur_secs as u32));
                     }
                     let pos_us = media.timestamp();
                     if pos_us >= 0 {
@@ -1045,7 +988,11 @@ pub fn restore_last_track(state: Rc<RefCell<AppState>>, position_secs: f64) {
             return;
         };
         let is_fav = s.favorites.iter().any(|t| t.id == track.id);
-        let cached = s.backend.cached_stream(&track.id);
+        let cached = if track.is_music {
+            s.backend.cached_stream(&track.id)
+        } else {
+            None
+        };
         crate::ui::widgets::set_source_link(
             &s.player_source_label,
             track.album.as_deref(),
@@ -1080,9 +1027,7 @@ pub fn restore_last_track(state: Rc<RefCell<AppState>>, position_secs: f64) {
         (track, s.player_cover.clone(), cached, s.loading_generation)
     };
 
-    if let Some(cover_url) = track.cover_url.as_deref() {
-        load_player_cover(&player_cover, cover_url, current_gen, Rc::clone(&state));
-    }
+    load_track_player_cover(&player_cover, &track, current_gen, Rc::clone(&state));
     if let Some(stream) = cached_stream {
         let s = state.borrow();
         s.quality_label.set_label(&stream.quality_label);

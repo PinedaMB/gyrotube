@@ -5,6 +5,9 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Track {
+    // shortcut: catalog audio includes live albums; require recording metadata to certify studio versions.
+    #[serde(default, rename = "verified_music_audio")]
+    pub is_music: bool,
     pub id: String,
     pub title: String,
     pub artist: String,
@@ -14,7 +17,7 @@ pub struct Track {
     pub cover_large_url: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Album {
     pub id: String,
     pub title: String,
@@ -66,32 +69,12 @@ pub struct SearchResults {
     pub tracks: Vec<Track>,
 }
 
-#[derive(Clone)]
-pub struct LiveStreamRx(pub std::sync::Arc<std::sync::Mutex<Option<async_channel::Receiver<Vec<u8>>>>>);
-
-impl std::fmt::Debug for LiveStreamRx {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("LiveStreamRx").finish()
-    }
-}
-
-impl LiveStreamRx {
-    pub fn new(rx: async_channel::Receiver<Vec<u8>>) -> Self {
-        Self(std::sync::Arc::new(std::sync::Mutex::new(Some(rx))))
-    }
-
-    pub fn take(&self) -> Option<async_channel::Receiver<Vec<u8>>> {
-        self.0.lock().ok().and_then(|mut g| g.take())
-    }
-}
-
 #[derive(Debug, Clone)]
 pub struct StreamInfo {
     pub url: String,
     pub quality_label: String,
     pub user_agent: Option<String>,
     pub headers: std::collections::HashMap<String, String>,
-    pub live_rx: Option<LiveStreamRx>,
 }
 
 pub fn upgrade_cover_url(url: &str, target_size: i32) -> String {
@@ -179,13 +162,14 @@ impl From<&TrackItem> for Track {
         };
 
         Self {
+            is_music: item.track_type == rustypipe::model::TrackType::Track,
             id: item.id.clone(),
             title: clean_track_title(&item.name),
             artist,
             album: item.album.as_ref().map(|a| a.name.clone()),
             duration_secs: item.duration,
             cover_url: pick_cover(&item.cover, 240),
-            cover_large_url: pick_cover(&item.cover, 800),
+            cover_large_url: pick_cover(&item.cover, 544),
         }
     }
 }
@@ -260,10 +244,6 @@ pub fn format_duration(secs: u32) -> String {
     let mins = secs / 60;
     let rem = secs % 60;
     format!("{mins}:{rem:02}")
-}
-
-pub fn is_ytm_square_cover(url: &str) -> bool {
-    url.contains("googleusercontent.com/") || url.contains("ggpht.com/")
 }
 
 pub fn clean_track_title(title: &str) -> String {
@@ -452,7 +432,8 @@ pub fn parse_lrc(lrc: &str) -> Vec<SyncedLyricLine> {
             };
             let tag = &stripped[..end];
             if let Some((min_s, sec_s)) = tag.split_once(':')
-                && let (Ok(mins), Ok(secs)) = (min_s.trim().parse::<f64>(), sec_s.trim().parse::<f64>())
+                && let (Ok(mins), Ok(secs)) =
+                    (min_s.trim().parse::<f64>(), sec_s.trim().parse::<f64>())
             {
                 timestamps.push(mins * 60.0 + secs);
             }
@@ -477,6 +458,38 @@ mod tests {
     use super::*;
 
     #[test]
+    fn music_provenance_comes_from_catalog_type() {
+        for (kind, expected) in [("track", true), ("video", false), ("episode", false)] {
+            let item: TrackItem = serde_json::from_value(serde_json::json!({
+                "id":"Abc_123-xyz", "name":"Song", "cover":[], "artists":[],
+                "track_type":kind, "by_va":false, "unavailable":false
+            }))
+            .unwrap();
+            assert_eq!(Track::from(&item).is_music, expected);
+        }
+    }
+
+    #[test]
+    fn old_saved_tracks_require_music_verification() {
+        let track: Track = serde_json::from_value(serde_json::json!({
+            "id":"Abc_123-xyz", "title":"Song", "artist":"Artist", "album":"Album",
+            "is_music":true,
+            "duration_secs":180,"cover_url":"https://lh3.googleusercontent.com/cover",
+            "cover_large_url":null
+        }))
+        .unwrap();
+        assert!(
+            !track.is_music,
+            "Album and image host do not prove audio identity"
+        );
+        let mut verified = track;
+        verified.is_music = true;
+        let roundtrip: Track =
+            serde_json::from_slice(&serde_json::to_vec(&verified).unwrap()).unwrap();
+        assert_eq!(verified, roundtrip);
+    }
+
+    #[test]
     fn formats_duration_mm_ss() {
         assert_eq!(format_duration(0), "0:00");
         assert_eq!(format_duration(5), "0:05");
@@ -499,10 +512,7 @@ mod tests {
             "https://lh3.googleusercontent.com/abc123=w800-h800-l90-rj"
         );
         assert_eq!(
-            upgrade_cover_url(
-                "https://yt3.ggpht.com/xyz=s120-c-k-c0x00ffffff-no-rj",
-                544
-            ),
+            upgrade_cover_url("https://yt3.ggpht.com/xyz=s120-c-k-c0x00ffffff-no-rj", 544),
             "https://yt3.ggpht.com/xyz=s544-c-k-c0x00ffffff-no-rj"
         );
         assert_eq!(

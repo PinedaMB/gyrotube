@@ -8,9 +8,8 @@ anyhow = "1.0.104"
 gstreamer = "0.25.4"
 gtk4 = { version = "0.11.5", features = ["v4_14"] }
 libadwaita = { version = "0.9.2", features = ["v1_6"] }
-rs-ytmusic-api = "0.1.1"
 rustypipe = { git = "https://codeberg.org/ThetaDev/rustypipe.git" }
-ytmapi-rs = "0.3.4"
+ytmapi-rs = { version = "0.3.4", features = ["reqwest"] }
 tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros", "process", "sync", "net", "io-util"] }
 tempfile = "3.27.0"
 async-channel = "2.5.0"
