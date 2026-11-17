@@ -137,21 +137,21 @@ pub fn build_sidebar_player() -> SidebarPlayerWidgets {
 
     let volume_popover = Popover::builder().child(&volume_scale).build();
     let volume_btn = MenuButton::builder()
-        .icon_name("audio-volume-high-symbolic")
+        .icon_name("speaker-2-regular")
         .tooltip_text("Volumen")
         .popover(&volume_popover)
         .css_classes(["flat", "circular"])
         .build();
 
     let player_fav_btn = ToggleButton::builder()
-        .icon_name("non-starred-symbolic")
+        .icon_name("heart-regular")
         .tooltip_text("Agregar a favoritos")
         .sensitive(false)
         .css_classes(["flat", "circular"])
         .build();
 
     let player_radio_btn = Button::builder()
-        .icon_name("media-playlist-consecutive-symbolic")
+        .icon_name("sound-wave-circle-regular")
         .tooltip_text("Iniciar radio desde esta canción")
         .sensitive(false)
         .css_classes(["flat", "circular"])
@@ -165,7 +165,7 @@ pub fn build_sidebar_player() -> SidebarPlayerWidgets {
         .build();
 
     let sleep_timer_btn = MenuButton::builder()
-        .icon_name("alarm-symbolic")
+        .icon_name("timer-regular")
         .tooltip_text("Temporizador de apagado")
         .css_classes(["flat", "circular"])
         .build();
@@ -206,13 +206,13 @@ pub fn build_sidebar_player() -> SidebarPlayerWidgets {
     time_row.append(&duration_label);
 
     let shuffle_btn = ToggleButton::builder()
-        .icon_name("media-playlist-shuffle-symbolic")
+        .icon_name("arrow-shuffle-regular")
         .tooltip_text("Aleatorio")
         .css_classes(["flat", "circular"])
         .build();
 
     let prev_btn = Button::builder()
-        .icon_name("media-skip-backward-symbolic")
+        .icon_name("previous-filled")
         .sensitive(false)
         .css_classes(["flat", "circular"])
         .build();
@@ -223,19 +223,19 @@ pub fn build_sidebar_player() -> SidebarPlayerWidgets {
         .build();
 
     let play_pause_btn = Button::builder()
-        .icon_name("media-playback-start-symbolic")
+        .icon_name("play-filled")
         .sensitive(false)
         .css_classes(["suggested-action", "play-pill"])
         .build();
 
     let next_btn = Button::builder()
-        .icon_name("media-skip-forward-symbolic")
+        .icon_name("next-filled")
         .sensitive(false)
         .css_classes(["flat", "circular"])
         .build();
 
     let repeat_btn = ToggleButton::builder()
-        .icon_name("media-playlist-repeat-symbolic")
+        .icon_name("arrow-repeat-all-regular")
         .tooltip_text("Repetir")
         .css_classes(["flat", "circular"])
         .build();
@@ -327,7 +327,7 @@ pub fn build_sidebar_player() -> SidebarPlayerWidgets {
         .css_classes(["suggested-action", "pill", "lyrics-resync-btn"])
         .build();
     let resync_content = GtkBox::new(Orientation::Horizontal, 6);
-    resync_content.append(&Image::from_icon_name("go-down-symbolic"));
+    resync_content.append(&Image::from_icon_name("arrow-sync-regular"));
     resync_content.append(&Label::new(Some("Volver a la letra")));
     lyrics_resync_btn.set_child(Some(&resync_content));
 
@@ -336,6 +336,123 @@ pub fn build_sidebar_player() -> SidebarPlayerWidgets {
         .child(&lyrics_scroll)
         .build();
     lyrics_overlay.add_overlay(&lyrics_resync_btn);
+
+    // Compact now-playing + controls bar for the Lyrics tab
+    let (lyrics_np_cover_frame, lyrics_np_cover) = clamped_cover(40, 40, "cover-art");
+    let lyrics_np_title = Label::builder()
+        .xalign(0.0)
+        .ellipsize(gtk4::pango::EllipsizeMode::End)
+        .css_classes(["heading"])
+        .build();
+    let lyrics_np_artist = Label::builder()
+        .xalign(0.0)
+        .ellipsize(gtk4::pango::EllipsizeMode::End)
+        .css_classes(["caption", "dim-label"])
+        .build();
+
+    player_cover
+        .bind_property("paintable", &lyrics_np_cover, "paintable")
+        .sync_create()
+        .build();
+    player_title
+        .bind_property("label", &lyrics_np_title, "label")
+        .sync_create()
+        .build();
+    player_artist
+        .bind_property("label", &lyrics_np_artist, "label")
+        .transform_to(|_, val: String| {
+            Some(crate::ui::widgets::strip_link_markup(&val).to_value())
+        })
+        .sync_create()
+        .build();
+
+    let lyrics_np_text = GtkBox::new(Orientation::Vertical, 1);
+    lyrics_np_text.set_hexpand(true);
+    lyrics_np_text.set_valign(Align::Center);
+    lyrics_np_text.append(&lyrics_np_title);
+    lyrics_np_text.append(&lyrics_np_artist);
+
+    let lyrics_np_info_box = GtkBox::new(Orientation::Horizontal, 10);
+    lyrics_np_info_box.append(&lyrics_np_cover_frame);
+    lyrics_np_info_box.append(&lyrics_np_text);
+    let lyrics_np_open_btn = Button::builder()
+        .child(&lyrics_np_info_box)
+        .hexpand(true)
+        .tooltip_text("Ir al reproductor")
+        .css_classes(["flat"])
+        .build();
+
+    let lyrics_prev_btn = Button::builder()
+        .icon_name("previous-filled")
+        .tooltip_text("Anterior")
+        .css_classes(["flat", "circular"])
+        .build();
+    prev_btn
+        .bind_property("sensitive", &lyrics_prev_btn, "sensitive")
+        .sync_create()
+        .build();
+    {
+        let p = prev_btn.clone();
+        lyrics_prev_btn.connect_clicked(move |_| p.emit_clicked());
+    }
+
+    let lyrics_play_btn = Button::builder()
+        .icon_name("play-filled")
+        .tooltip_text("Reproducir / Pausar")
+        .css_classes(["suggested-action", "circular"])
+        .build();
+    play_pause_btn
+        .bind_property("icon-name", &lyrics_play_btn, "icon-name")
+        .sync_create()
+        .build();
+    play_pause_btn
+        .bind_property("sensitive", &lyrics_play_btn, "sensitive")
+        .sync_create()
+        .build();
+    {
+        let pp = play_pause_btn.clone();
+        lyrics_play_btn.connect_clicked(move |_| pp.emit_clicked());
+    }
+
+    let lyrics_next_btn = Button::builder()
+        .icon_name("next-filled")
+        .tooltip_text("Siguiente")
+        .css_classes(["flat", "circular"])
+        .build();
+    next_btn
+        .bind_property("sensitive", &lyrics_next_btn, "sensitive")
+        .sync_create()
+        .build();
+    {
+        let n = next_btn.clone();
+        lyrics_next_btn.connect_clicked(move |_| n.emit_clicked());
+    }
+
+    let lyrics_controls_box = GtkBox::new(Orientation::Horizontal, 4);
+    lyrics_controls_box.set_valign(Align::Center);
+    lyrics_controls_box.append(&lyrics_prev_btn);
+    lyrics_controls_box.append(&lyrics_play_btn);
+    lyrics_controls_box.append(&lyrics_next_btn);
+
+    let lyrics_np_row = GtkBox::new(Orientation::Horizontal, 6);
+    lyrics_np_row.append(&lyrics_np_open_btn);
+    lyrics_np_row.append(&lyrics_controls_box);
+
+    let lyrics_np_progress = build_bound_progress_bar(&seek_scale.adjustment());
+
+    let lyrics_np_bar = GtkBox::new(Orientation::Vertical, 6);
+    lyrics_np_bar.set_margin_top(6);
+    lyrics_np_bar.set_margin_bottom(8);
+    lyrics_np_bar.set_margin_start(10);
+    lyrics_np_bar.set_margin_end(10);
+    lyrics_np_bar.append(&lyrics_np_progress);
+    lyrics_np_bar.append(&lyrics_np_row);
+
+    let lyrics_page = GtkBox::new(Orientation::Vertical, 0);
+    lyrics_page.set_vexpand(true);
+    lyrics_page.append(&lyrics_overlay);
+    lyrics_page.append(&gtk4::Separator::new(Orientation::Horizontal));
+    lyrics_page.append(&lyrics_np_bar);
 
     // Queue View
     let queue_list = ListBox::builder()
@@ -357,7 +474,7 @@ pub fn build_sidebar_player() -> SidebarPlayerWidgets {
         .css_classes(["title-4"])
         .build();
     let queue_save_btn = Button::builder()
-        .icon_name("folder-music-symbolic")
+        .icon_name("music-note-2-regular")
         .tooltip_text("Guardar cola como playlist")
         .css_classes(["flat", "circular"])
         .build();
@@ -390,12 +507,16 @@ pub fn build_sidebar_player() -> SidebarPlayerWidgets {
         .vexpand(true)
         .build();
     sidebar_stack.add_named(&player_view, Some("player"));
-    sidebar_stack.add_named(&lyrics_overlay, Some("lyrics"));
+    sidebar_stack.add_named(&lyrics_page, Some("lyrics"));
     sidebar_stack.add_named(&queue_scroll, Some("queue"));
 
-    let tab_player = make_sidebar_tab("audio-x-generic-symbolic", "Reproductor", true);
-    let tab_lyrics = make_sidebar_tab("chat-message-new-symbolic", "Letras", false);
-    let tab_queue = make_sidebar_tab("view-list-symbolic", "Cola", false);
+    let tab_player = make_sidebar_tab("music-note-2-regular", "Reproductor", true);
+    {
+        let tp = tab_player.clone();
+        lyrics_np_open_btn.connect_clicked(move |_| tp.set_active(true));
+    }
+    let tab_lyrics = make_sidebar_tab("comment-quote-regular", "Letras", false);
+    let tab_queue = make_sidebar_tab("document-bullet-list-regular", "Cola", false);
     tab_lyrics.set_group(Some(&tab_player));
     tab_queue.set_group(Some(&tab_player));
 
@@ -498,11 +619,22 @@ pub fn build_mini_bar(
         artist_builder.build()
     };
 
-    let mini_play_btn = Button::builder()
-        .icon_name("media-playback-start-symbolic")
+    let mini_prev_btn = Button::builder()
+        .icon_name("previous-filled")
+        .tooltip_text("Anterior")
         .css_classes(["circular", "flat"])
         .build();
-    {
+    let mini_play_btn = Button::builder()
+        .icon_name("play-filled")
+        .tooltip_text("Reproducir / Pausar")
+        .css_classes(["circular", "suggested-action"])
+        .build();
+    let mini_next_btn = Button::builder()
+        .icon_name("next-filled")
+        .tooltip_text("Siguiente")
+        .css_classes(["circular", "flat"])
+        .build();
+    let prev_btn_ref = {
         let s = state.borrow();
         s.player_cover
             .bind_property("paintable", &cover, "paintable")
@@ -519,11 +651,24 @@ pub fn build_mini_bar(
             })
             .sync_create()
             .build();
+        s.prev_btn
+            .bind_property("sensitive", &mini_prev_btn, "sensitive")
+            .sync_create()
+            .build();
         s.play_pause_btn
             .bind_property("icon-name", &mini_play_btn, "icon-name")
             .sync_create()
             .build();
-    }
+        s.play_pause_btn
+            .bind_property("sensitive", &mini_play_btn, "sensitive")
+            .sync_create()
+            .build();
+        s.next_btn
+            .bind_property("sensitive", &mini_next_btn, "sensitive")
+            .sync_create()
+            .build();
+        s.prev_btn.clone()
+    };
 
     let text_col = GtkBox::new(Orientation::Vertical, 1);
     text_col.set_hexpand(true);
@@ -537,13 +682,11 @@ pub fn build_mini_bar(
     let open_btn = Button::builder()
         .child(&open_box)
         .hexpand(true)
+        .tooltip_text("Abrir reproductor")
         .css_classes(["flat"])
         .build();
 
-    let mini_next_btn = Button::builder()
-        .icon_name("media-skip-forward-symbolic")
-        .css_classes(["circular", "flat"])
-        .build();
+    mini_prev_btn.connect_clicked(move |_| prev_btn_ref.emit_clicked());
     {
         let play_btn = play_pause_btn.clone();
         mini_play_btn.connect_clicked(move |_| play_btn.emit_clicked());
@@ -553,38 +696,20 @@ pub fn build_mini_bar(
         mini_next_btn.connect_clicked(move |_| nxt_btn.emit_clicked());
     }
 
-    let mini_progress = gtk4::ProgressBar::builder()
-        .fraction(0.0)
-        .css_classes(["mini-progress"])
-        .build();
-    {
-        let adj = state.borrow().seek_scale.adjustment();
-        let update_prog = {
-            let pb = mini_progress.clone();
-            let adj_ref = adj.clone();
-            move || {
-                let upper = adj_ref.upper();
-                let frac = if upper > 0.0 {
-                    (adj_ref.value() / upper).clamp(0.0, 1.0)
-                } else {
-                    0.0
-                };
-                pb.set_fraction(frac);
-            }
-        };
-        update_prog();
-        let u1 = update_prog.clone();
-        adj.connect_value_changed(move |_| u1());
-        adj.connect_upper_notify(move |_| update_prog());
-    }
+    let mini_progress = build_bound_progress_bar(&state.borrow().seek_scale.adjustment());
+
+    let controls_box = GtkBox::new(Orientation::Horizontal, 4);
+    controls_box.set_valign(Align::Center);
+    controls_box.append(&mini_prev_btn);
+    controls_box.append(&mini_play_btn);
+    controls_box.append(&mini_next_btn);
 
     let row = GtkBox::builder()
         .orientation(Orientation::Horizontal)
         .spacing(6)
         .build();
     row.append(&open_btn);
-    row.append(&mini_play_btn);
-    row.append(&mini_next_btn);
+    row.append(&controls_box);
 
     let bar = GtkBox::builder()
         .orientation(Orientation::Vertical)
@@ -594,6 +719,31 @@ pub fn build_mini_bar(
     bar.append(&row);
     bar.append(&mini_progress);
     (bar, open_btn)
+}
+
+fn build_bound_progress_bar(adj: &gtk4::Adjustment) -> gtk4::ProgressBar {
+    let pb = gtk4::ProgressBar::builder()
+        .fraction(0.0)
+        .css_classes(["mini-progress"])
+        .build();
+    let update_prog = {
+        let pb = pb.clone();
+        let adj_ref = adj.clone();
+        move || {
+            let upper = adj_ref.upper();
+            let frac = if upper > 0.0 {
+                (adj_ref.value() / upper).clamp(0.0, 1.0)
+            } else {
+                0.0
+            };
+            pb.set_fraction(frac);
+        }
+    };
+    update_prog();
+    let u1 = update_prog.clone();
+    adj.connect_value_changed(move |_| u1());
+    adj.connect_upper_notify(move |_| update_prog());
+    pb
 }
 
 fn make_sidebar_tab(icon_name: &str, label_text: &str, active: bool) -> ToggleButton {

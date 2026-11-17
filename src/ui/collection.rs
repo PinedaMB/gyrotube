@@ -54,7 +54,7 @@ pub fn build_collection_page(state: Rc<RefCell<AppState>>) -> ScrolledWindow {
         .max_width_chars(18)
         .build();
     let new_pl_btn = Button::builder()
-        .icon_name("list-add-symbolic")
+        .icon_name("add-regular")
         .label("Crear")
         .css_classes(["suggested-action"])
         .build();
@@ -113,7 +113,7 @@ pub fn build_collection_page(state: Rc<RefCell<AppState>>) -> ScrolledWindow {
             .build(),
     );
     let play_recent_btn = Button::builder()
-        .icon_name("media-playback-start-symbolic")
+        .icon_name("play-filled")
         .label("Reproducir todo")
         .css_classes(["flat", "pill-switch"])
         .build();
@@ -137,7 +137,7 @@ pub fn build_collection_page(state: Rc<RefCell<AppState>>) -> ScrolledWindow {
         });
     }
     let clear_recent_btn = Button::builder()
-        .icon_name("user-trash-symbolic")
+        .icon_name("delete-regular")
         .tooltip_text("Limpiar historial")
         .css_classes(["flat", "circular"])
         .build();
@@ -182,7 +182,7 @@ pub fn build_collection_page(state: Rc<RefCell<AppState>>) -> ScrolledWindow {
             .build(),
     );
     let play_fav_btn = Button::builder()
-        .icon_name("media-playback-start-symbolic")
+        .icon_name("play-filled")
         .label("Reproducir todo")
         .css_classes(["flat", "pill-switch"])
         .build();
@@ -288,7 +288,7 @@ pub fn refresh_playlists_ui(state: Rc<RefCell<AppState>>) {
         let badge_class = format!("quick-badge-{variant}");
 
         let icon = Image::builder()
-            .icon_name("folder-music-symbolic")
+            .icon_name("music-note-2-regular")
             .pixel_size(18)
             .halign(Align::Center)
             .valign(Align::Center)
@@ -320,7 +320,7 @@ pub fn refresh_playlists_ui(state: Rc<RefCell<AppState>>) {
         text_box.append(&count_label);
 
         let play_btn = Button::builder()
-            .icon_name("media-playback-start-symbolic")
+            .icon_name("play-filled")
             .tooltip_text("Reproducir playlist")
             .valign(Align::Center)
             .sensitive(!pl.tracks.is_empty())
@@ -344,7 +344,7 @@ pub fn refresh_playlists_ui(state: Rc<RefCell<AppState>>) {
         }
 
         let del_btn = Button::builder()
-            .icon_name("user-trash-symbolic")
+            .icon_name("delete-regular")
             .tooltip_text("Eliminar playlist")
             .valign(Align::Center)
             .css_classes(["flat", "circular"])

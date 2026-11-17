@@ -102,7 +102,7 @@ pub fn build_album_page(
         .build();
 
     let shuffle_btn = Button::builder()
-        .icon_name("media-playlist-shuffle-symbolic")
+        .icon_name("arrow-shuffle-regular")
         .tooltip_text("Reproducción aleatoria")
         .valign(Align::Center)
         .css_classes(["circular", "album-action-btn"])
@@ -110,7 +110,7 @@ pub fn build_album_page(
     shuffle_btn.set_cursor_from_name(Some("pointer"));
 
     let play_all_btn = Button::builder()
-        .icon_name("media-playback-start-symbolic")
+        .icon_name("play-filled")
         .tooltip_text("Reproducir todo")
         .valign(Align::Center)
         .css_classes(["circular", "suggested-action", "album-play-fab"])
@@ -118,7 +118,7 @@ pub fn build_album_page(
     play_all_btn.set_cursor_from_name(Some("pointer"));
 
     let add_queue_btn = Button::builder()
-        .icon_name("list-add-symbolic")
+        .icon_name("add-regular")
         .tooltip_text("Añadir a la cola")
         .valign(Align::Center)
         .css_classes(["circular", "album-action-btn"])
@@ -126,7 +126,7 @@ pub fn build_album_page(
     add_queue_btn.set_cursor_from_name(Some("pointer"));
 
     let save_fav_btn = Button::builder()
-        .icon_name("non-starred-symbolic")
+        .icon_name("heart-regular")
         .tooltip_text("Guardar canciones en favoritos")
         .valign(Align::Center)
         .css_classes(["circular", "album-action-btn"])
@@ -134,7 +134,7 @@ pub fn build_album_page(
     save_fav_btn.set_cursor_from_name(Some("pointer"));
 
     let radio_btn = Button::builder()
-        .icon_name("media-playlist-consecutive-symbolic")
+        .icon_name("sound-wave-circle-regular")
         .tooltip_text("Iniciar radio")
         .valign(Align::Center)
         .css_classes(["circular", "album-action-btn"])
@@ -347,6 +347,7 @@ pub fn build_album_page(
             {
                 let mut s = state.borrow_mut();
                 s.shuffle = false;
+                s.unshuffled_queue.clear();
                 s.queue = tracks;
                 s.source_name = title_ref.borrow().clone();
             }
@@ -362,17 +363,11 @@ pub fn build_album_page(
             if tracks.is_empty() {
                 return;
             }
-            let start_idx = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| (d.subsec_nanos() as usize) % tracks.len())
-                .unwrap_or(0);
             {
                 let mut s = state.borrow_mut();
-                s.shuffle = true;
-                s.queue = tracks;
-                s.source_name = title_ref.borrow().clone();
+                s.set_shuffled_queue(tracks, title_ref.borrow().clone());
             }
-            play_queue_index(Rc::clone(&state), start_idx);
+            play_queue_index(Rc::clone(&state), 0);
         });
     }
     {
@@ -411,9 +406,9 @@ pub fn build_album_page(
                 set_track_favorite(Rc::clone(&state), track, target);
             }
             btn.set_icon_name(if target {
-                "starred-symbolic"
+                "heart-filled"
             } else {
-                "non-starred-symbolic"
+                "heart-regular"
             });
             let msg = if target {
                 "Guardado en favoritos"
@@ -542,9 +537,9 @@ pub fn build_album_page(
                     !tracks.is_empty() && tracks.iter().all(|t| s.is_favorite(&t.id))
                 };
                 save_fav_btn.set_icon_name(if all_saved {
-                    "starred-symbolic"
+                    "heart-filled"
                 } else {
-                    "non-starred-symbolic"
+                    "heart-regular"
                 });
 
                 populate_album_track_list(&track_list, &tracks, &title, Rc::clone(&state));

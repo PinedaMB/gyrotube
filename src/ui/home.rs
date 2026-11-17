@@ -102,7 +102,7 @@ fn build_chart_track_row(
 
     let rank_widget: gtk4::Widget = if is_playing_now {
         Image::builder()
-            .icon_name("audio-volume-high-symbolic")
+            .icon_name("speaker-2-regular")
             .pixel_size(16)
             .halign(Align::Center)
             .valign(Align::Center)
@@ -179,9 +179,9 @@ fn build_chart_track_row(
     let is_fav = state.borrow().is_favorite(&track.id);
     let fav_btn = ToggleButton::builder()
         .icon_name(if is_fav {
-            "starred-symbolic"
+            "heart-filled"
         } else {
-            "non-starred-symbolic"
+            "heart-regular"
         })
         .active(is_fav)
         .tooltip_text("Favorito")
@@ -193,16 +193,16 @@ fn build_chart_track_row(
         let track = track.clone();
         fav_btn.connect_toggled(move |btn| {
             btn.set_icon_name(if btn.is_active() {
-                "starred-symbolic"
+                "heart-filled"
             } else {
-                "non-starred-symbolic"
+                "heart-regular"
             });
             set_track_favorite(Rc::clone(&state), &track, btn.is_active());
         });
     }
 
     let queue_btn = Button::builder()
-        .icon_name("list-add-symbolic")
+        .icon_name("add-regular")
         .tooltip_text("Agregar a la cola")
         .valign(Align::Center)
         .css_classes(["flat", "circular"])
@@ -226,7 +226,7 @@ fn build_chart_track_row(
     }
 
     let play_btn = Button::builder()
-        .icon_name("media-playback-start-symbolic")
+        .icon_name("play-filled")
         .tooltip_text("Reproducir ahora")
         .valign(Align::Center)
         .css_classes(["flat", "circular"])
@@ -469,14 +469,14 @@ pub fn build_home_page(
         "03",
         "Estados de ánimo",
         "Explorar géneros y ritmos",
-        "system-search-symbolic",
+        "search-regular",
         3,
     );
     let card_collection = build_quick_card(
         "04",
         "Colección",
         "Tus canciones favoritas",
-        "starred-symbolic",
+        "heart-filled",
         4,
     );
     quick_grid.insert(&card_new, -1);
@@ -875,7 +875,7 @@ pub fn build_home_page(
                         "weather-clear-night-symbolic",
                         "audio-headphones-symbolic",
                         "media-optical-symbolic",
-                        "starred-symbolic",
+                        "heart-filled",
                         "emblem-music-symbolic",
                         "radio-symbolic",
                     ];
@@ -945,7 +945,7 @@ pub fn build_home_page(
                         apply_genre_color_css(&cta, &format!("label {{ color: {color}; }}"));
 
                         let quick_play_btn = Button::builder()
-                            .icon_name("media-playback-start-symbolic")
+                            .icon_name("play-filled")
                             .tooltip_text("Reproducir estación")
                             .valign(Align::Center)
                             .css_classes(["flat", "station-play-btn"])

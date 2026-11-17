@@ -20,10 +20,12 @@ pub struct AppState {
     pub active_deck: usize,
     pub user_volume: f64,
     pub crossfade_enabled: bool,
+    pub crossfade_secs: u32,
     pub crossfade_active: bool,
     pub crossfade_generation: u64,
     pub crossfade_triggered_for: Option<u64>,
     pub queue: Vec<Track>,
+    pub unshuffled_queue: Vec<Track>,
     pub favorites: Vec<Track>,
     pub recent_tracks: Vec<Track>,
     pub user_playlists: Vec<UserPlaylist>,
@@ -96,6 +98,7 @@ impl AppState {
             shuffle: self.shuffle,
             repeat: self.repeat,
             position_secs: pos_secs,
+            crossfade_secs: self.crossfade_secs,
         });
     }
     pub fn active_media(&self) -> &GStreamerDeck {
@@ -128,6 +131,89 @@ impl AppState {
         self.prev_btn.set_sensitive(has_prev);
         self.next_btn.set_sensitive(has_next);
     }
+
+    pub fn set_shuffled_queue(&mut self, tracks: Vec<Track>, source_name: String) {
+        self.unshuffled_queue = tracks.clone();
+        let mut shuffled = tracks;
+        shuffle_slice(&mut shuffled);
+        self.queue = shuffled;
+        self.source_name = source_name;
+        self.shuffle = true;
+        self.update_nav_buttons();
+    }
+
+    pub fn set_shuffle_mode(&mut self, enabled: bool) {
+        self.shuffle = enabled;
+        if enabled {
+            if self.unshuffled_queue.is_empty() && !self.queue.is_empty() {
+                self.unshuffled_queue = self.queue.clone();
+            }
+            if self.queue.len() > 1 {
+                if let Some(cur) = self.current_index.filter(|&i| i < self.queue.len()) {
+                    let current = self.queue.remove(cur);
+                    shuffle_slice(&mut self.queue);
+                    self.queue.insert(0, current);
+                    self.current_index = Some(0);
+                } else {
+                    shuffle_slice(&mut self.queue);
+                }
+            }
+        } else if !self.unshuffled_queue.is_empty() {
+            let current_id = self.current_track().map(|t| t.id.clone());
+            self.queue = std::mem::take(&mut self.unshuffled_queue);
+            if let Some(id) = current_id {
+                self.current_index = self
+                    .queue
+                    .iter()
+                    .position(|t| t.id == id)
+                    .or_else(|| self.current_index.map(|i| i.min(self.queue.len().saturating_sub(1))));
+            }
+        }
+        self.update_nav_buttons();
+        self.save_session();
+    }
+
+    pub fn move_queue_item(&mut self, from: usize, to: usize) {
+        if from >= self.queue.len() || to >= self.queue.len() || from == to {
+            return;
+        }
+        let item = self.queue.remove(from);
+        self.queue.insert(to, item);
+        if let Some(cur) = self.current_index {
+            self.current_index = Some(if cur == from {
+                to
+            } else if from < cur && cur <= to {
+                cur - 1
+            } else if to <= cur && cur < from {
+                cur + 1
+            } else {
+                cur
+            });
+        }
+        self.update_nav_buttons();
+        self.save_session();
+    }
+}
+
+pub fn shuffle_slice(tracks: &mut [Track]) {
+    let len = tracks.len();
+    if len <= 1 {
+        return;
+    }
+    let mut seed = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or(0x9e37_79b9_7f4a_7c15);
+    if seed == 0 {
+        seed = 0x9e37_79b9_7f4a_7c15;
+    }
+    for i in (1..len).rev() {
+        seed ^= seed << 13;
+        seed ^= seed >> 7;
+        seed ^= seed << 17;
+        let j = (seed as usize) % (i + 1);
+        tracks.swap(i, j);
+    }
 }
 
 pub fn next_queue_index(s: &AppState) -> Option<usize> {
@@ -136,14 +222,6 @@ pub fn next_queue_index(s: &AppState) -> Option<usize> {
         return None;
     }
     let current = s.current_index?;
-    if s.shuffle && len > 1 {
-        let pseudo = (s.loading_generation as usize + current + 1) % len;
-        return Some(if pseudo == current {
-            (current + 1) % len
-        } else {
-            pseudo
-        });
-    }
     if current + 1 < len {
         Some(current + 1)
     } else if s.repeat {

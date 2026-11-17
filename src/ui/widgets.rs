@@ -351,7 +351,7 @@ fn build_media_card(
     }
 
     let play_icon = Image::builder()
-        .icon_name("media-playback-start-symbolic")
+        .icon_name("play-filled")
         .pixel_size(18)
         .halign(Align::Center)
         .valign(Align::Center)
@@ -541,6 +541,7 @@ fn play_fetched_queue(
             {
                 let mut s = state.borrow_mut();
                 s.shuffle = false;
+                s.unshuffled_queue.clear();
                 s.queue = tracks;
                 s.source_name = source;
             }
@@ -550,7 +551,7 @@ fn play_fetched_queue(
             let s = state.borrow();
             s.play_spinner.set_spinning(false);
             s.play_pause_btn
-                .set_icon_name("media-playback-start-symbolic");
+                .set_icon_name("play-filled");
             s.play_pause_btn.set_sensitive(true);
             s.show_toast(empty_msg);
         }
@@ -558,7 +559,7 @@ fn play_fetched_queue(
             let s = state.borrow();
             s.play_spinner.set_spinning(false);
             s.play_pause_btn
-                .set_icon_name("media-playback-start-symbolic");
+                .set_icon_name("play-filled");
             s.play_pause_btn.set_sensitive(true);
             s.show_toast(&err);
         }
@@ -765,9 +766,9 @@ pub fn build_track_row(
     let is_fav = state.borrow().is_favorite(&track.id);
     let fav_btn = ToggleButton::builder()
         .icon_name(if is_fav {
-            "starred-symbolic"
+            "heart-filled"
         } else {
-            "non-starred-symbolic"
+            "heart-regular"
         })
         .active(is_fav)
         .tooltip_text("Favorito")
@@ -779,16 +780,16 @@ pub fn build_track_row(
         let track = track.clone();
         fav_btn.connect_toggled(move |btn| {
             btn.set_icon_name(if btn.is_active() {
-                "starred-symbolic"
+                "heart-filled"
             } else {
-                "non-starred-symbolic"
+                "heart-regular"
             });
             set_track_favorite(Rc::clone(&state), &track, btn.is_active());
         });
     }
 
     let queue_btn = Button::builder()
-        .icon_name("list-add-symbolic")
+        .icon_name("add-regular")
         .tooltip_text("Agregar a la cola")
         .valign(Align::Center)
         .css_classes(["flat", "circular"])
@@ -813,7 +814,7 @@ pub fn build_track_row(
 
     let add_pl_popover = Popover::new();
     let add_pl_btn = MenuButton::builder()
-        .icon_name("folder-music-symbolic")
+        .icon_name("music-note-2-regular")
         .tooltip_text("Agregar a playlist")
         .valign(Align::Center)
         .popover(&add_pl_popover)
@@ -879,7 +880,7 @@ pub fn build_track_row(
     }
 
     let radio_btn = Button::builder()
-        .icon_name("media-playlist-consecutive-symbolic")
+        .icon_name("sound-wave-circle-regular")
         .tooltip_text("Iniciar radio")
         .valign(Align::Center)
         .css_classes(["flat", "circular"])
@@ -893,7 +894,7 @@ pub fn build_track_row(
     }
 
     let play_btn = Button::builder()
-        .icon_name("media-playback-start-symbolic")
+        .icon_name("play-filled")
         .tooltip_text("Reproducir ahora")
         .valign(Align::Center)
         .css_classes(["flat", "circular"])
@@ -961,9 +962,9 @@ pub fn set_track_favorite(state: Rc<RefCell<AppState>>, track: &Track, fav: bool
 
         if s.current_track().is_some_and(|cur| cur.id == track.id) {
             s.player_fav_btn.set_icon_name(if fav {
-                "starred-symbolic"
+                "heart-filled"
             } else {
-                "non-starred-symbolic"
+                "heart-regular"
             });
         }
         save_favorites(&s.favorites);

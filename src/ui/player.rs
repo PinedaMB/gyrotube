@@ -81,6 +81,41 @@ pub fn refresh_queue_ui(state: Rc<RefCell<AppState>>) {
             .css_classes(["dim-label", "caption", "numeric"])
             .build();
 
+        let move_up_btn = Button::builder()
+            .icon_name("go-up-symbolic")
+            .tooltip_text("Subir en la cola")
+            .valign(Align::Center)
+            .sensitive(idx > 0)
+            .css_classes(["flat", "circular"])
+            .build();
+        {
+            let state = Rc::clone(&state);
+            move_up_btn.connect_clicked(move |_| {
+                if idx > 0 {
+                    state.borrow_mut().move_queue_item(idx, idx - 1);
+                    refresh_queue_ui(Rc::clone(&state));
+                }
+            });
+        }
+
+        let move_down_btn = Button::builder()
+            .icon_name("go-down-symbolic")
+            .tooltip_text("Bajar en la cola")
+            .valign(Align::Center)
+            .sensitive(idx + 1 < queue.len())
+            .css_classes(["flat", "circular"])
+            .build();
+        {
+            let state = Rc::clone(&state);
+            let queue_len = queue.len();
+            move_down_btn.connect_clicked(move |_| {
+                if idx + 1 < queue_len {
+                    state.borrow_mut().move_queue_item(idx, idx + 1);
+                    refresh_queue_ui(Rc::clone(&state));
+                }
+            });
+        }
+
         let remove_btn = Button::builder()
             .icon_name("list-remove-symbolic")
             .tooltip_text("Quitar de la cola")
@@ -114,7 +149,7 @@ pub fn refresh_queue_ui(state: Rc<RefCell<AppState>>) {
 
         if is_current {
             let playing_icon = Image::builder()
-                .icon_name("audio-volume-high-symbolic")
+                .icon_name("speaker-2-regular")
                 .pixel_size(14)
                 .valign(Align::Center)
                 .css_classes(["playing-title"])
@@ -124,6 +159,8 @@ pub fn refresh_queue_ui(state: Rc<RefCell<AppState>>) {
         row_box.append(&cover_frame);
         row_box.append(&text_box);
         row_box.append(&duration_label);
+        row_box.append(&move_up_btn);
+        row_box.append(&move_down_btn);
         row_box.append(&remove_btn);
 
         let row = ListBoxRow::builder()
@@ -140,6 +177,36 @@ pub fn refresh_queue_ui(state: Rc<RefCell<AppState>>) {
                 play_queue_index(Rc::clone(&state), idx);
             });
         }
+
+        let drag_source = gtk4::DragSource::builder()
+            .actions(gtk4::gdk::DragAction::MOVE)
+            .build();
+        drag_source.connect_prepare(move |_, _, _| {
+            Some(gtk4::gdk::ContentProvider::for_value(&idx.to_string().to_value()))
+        });
+        row.add_controller(drag_source);
+
+        let drop_target = gtk4::DropTarget::new(String::static_type(), gtk4::gdk::DragAction::MOVE);
+        {
+            let state = Rc::clone(&state);
+            drop_target.connect_drop(move |_, value, _, _| {
+                if let Ok(from_str) = value.get::<String>() {
+                    if let Ok(from) = from_str.parse::<usize>() {
+                        if from != idx {
+                            state.borrow_mut().move_queue_item(from, idx);
+                            let state_for_refresh = Rc::clone(&state);
+                            glib::idle_add_local_once(move || {
+                                refresh_queue_ui(state_for_refresh);
+                            });
+                            return true;
+                        }
+                    }
+                }
+                false
+            });
+        }
+        row.add_controller(drop_target);
+
         queue_list.append(&row);
     }
 }
@@ -341,9 +408,9 @@ pub fn play_queue_index(state: Rc<RefCell<AppState>>, index: usize) {
         s.player_fav_btn.set_sensitive(true);
         s.player_radio_btn.set_sensitive(true);
         s.player_fav_btn.set_icon_name(if is_fav {
-            "starred-symbolic"
+            "heart-filled"
         } else {
-            "non-starred-symbolic"
+            "heart-regular"
         });
         s.update_nav_buttons();
 
@@ -390,7 +457,7 @@ pub fn play_queue_index(state: Rc<RefCell<AppState>>, index: usize) {
                 if s.loading_generation == current_gen {
                     s.play_spinner.set_spinning(false);
                     s.play_pause_btn
-                        .set_icon_name("media-playback-start-symbolic");
+                        .set_icon_name("play-filled");
                     crate::ui::widgets::set_artist_links(&s.player_artist, &track.artist);
                     s.quality_label.set_label("ERR");
                     s.show_toast("No se pudo resolver el flujo de audio.");
@@ -406,7 +473,7 @@ pub fn play_queue_index(state: Rc<RefCell<AppState>>, index: usize) {
                     crate::ui::widgets::set_artist_links(&s.player_artist, &track.artist);
                     s.quality_label.set_label(&stream.quality_label);
                     s.play_pause_btn
-                        .set_icon_name("media-playback-start-symbolic");
+                        .set_icon_name("play-filled");
                     s.play_pause_btn.set_sensitive(true);
                     s.seek_scale.set_sensitive(true);
                     s.pending_autoplay = true;
@@ -421,7 +488,7 @@ pub fn play_queue_index(state: Rc<RefCell<AppState>>, index: usize) {
                 }
                 Err(err) => {
                     s.play_pause_btn
-                        .set_icon_name("media-playback-start-symbolic");
+                        .set_icon_name("play-filled");
                     crate::ui::widgets::set_artist_links(&s.player_artist, &track.artist);
                     s.quality_label.set_label("ERR");
                     s.show_toast(&err);
@@ -509,9 +576,9 @@ fn start_crossfade_to(state: Rc<RefCell<AppState>>, next_index: usize) {
             );
             let is_fav = s.is_favorite(&track.id);
             s.player_fav_btn.set_icon_name(if is_fav {
-                "starred-symbolic"
+                "heart-filled"
             } else {
-                "non-starred-symbolic"
+                "heart-regular"
             });
             s.update_nav_buttons();
             if let Some(mpris) = &s.mpris {
@@ -526,6 +593,7 @@ fn start_crossfade_to(state: Rc<RefCell<AppState>>, next_index: usize) {
                 s.preloading_id = Some(id.id.clone());
             }
 
+            let cf_secs = s.crossfade_secs.clamp(1, 10);
             (
                 old_deck,
                 new_deck,
@@ -536,6 +604,7 @@ fn start_crossfade_to(state: Rc<RefCell<AppState>>, next_index: usize) {
                 current_gen,
                 s.backend.clone(),
                 next_prefetch,
+                cf_secs,
             )
         };
 
@@ -549,6 +618,7 @@ fn start_crossfade_to(state: Rc<RefCell<AppState>>, next_index: usize) {
             current_gen,
             backend,
             next_prefetch,
+            cf_secs,
         ) = setup;
 
         if player_fav_btn.is_active() != is_fav {
@@ -569,7 +639,7 @@ fn start_crossfade_to(state: Rc<RefCell<AppState>>, next_index: usize) {
             new_media.play();
         }
 
-        run_crossfade_ramp(Rc::clone(&state), cf_gen, old_deck, new_deck);
+        run_crossfade_ramp(Rc::clone(&state), cf_gen, old_deck, new_deck, cf_secs);
 
         if let Some(next_track) = next_prefetch {
             runtime().spawn(async move {
@@ -579,20 +649,26 @@ fn start_crossfade_to(state: Rc<RefCell<AppState>>, next_index: usize) {
     });
 }
 
-fn run_crossfade_ramp(state: Rc<RefCell<AppState>>, cf_gen: u64, old_deck: usize, new_deck: usize) {
-    const TOTAL_STEPS: u32 = 80; // 80 * 50ms = 4.0 seconds
+fn run_crossfade_ramp(
+    state: Rc<RefCell<AppState>>,
+    cf_gen: u64,
+    old_deck: usize,
+    new_deck: usize,
+    cf_secs: u32,
+) {
+    let total_steps: u32 = cf_secs.clamp(1, 10) * 20;
     let mut step: u32 = 0;
 
     glib::timeout_add_local(std::time::Duration::from_millis(50), move || {
         step += 1;
-        let t = (step as f64 / TOTAL_STEPS as f64).min(1.0);
+        let t = (step as f64 / total_steps as f64).min(1.0);
 
         let (active, user_vol, old_media, new_media) = {
             let mut s = state.borrow_mut();
             if s.crossfade_generation != cf_gen || !s.crossfade_active {
                 return glib::ControlFlow::Break;
             }
-            let done = step >= TOTAL_STEPS;
+            let done = step >= total_steps;
             if done {
                 s.crossfade_active = false;
             }
@@ -645,13 +721,13 @@ pub fn wire_media_signals(
                 media.set_volume(val);
             }
             let icon = if val <= 0.01 {
-                "audio-volume-muted-symbolic"
+                "speaker-0-regular"
             } else if val < 0.35 {
                 "audio-volume-low-symbolic"
             } else if val < 0.7 {
-                "audio-volume-medium-symbolic"
+                "speaker-1-regular"
             } else {
-                "audio-volume-high-symbolic"
+                "speaker-2-regular"
             };
             volume_btn.set_icon_name(icon);
         });
@@ -750,9 +826,9 @@ pub fn wire_media_signals(
                 }
                 let playing = media.is_playing();
                 let icon = if playing {
-                    "media-playback-pause-symbolic"
+                    "pause-filled"
                 } else {
-                    "media-playback-start-symbolic"
+                    "play-filled"
                 };
                 s.play_pause_btn.set_icon_name(icon);
                 if let Some(mpris) = &s.mpris {
@@ -854,7 +930,7 @@ pub fn wire_media_signals(
                                 }
                                 s.play_spinner.set_spinning(false);
                                 s.play_pause_btn
-                                    .set_icon_name("media-playback-start-symbolic");
+                                    .set_icon_name("play-filled");
                                 s.play_pause_btn.set_sensitive(true);
                                 match recv {
                                     Ok(Ok(stream)) => {
@@ -948,14 +1024,16 @@ pub fn wire_media_signals(
                         }
                     }
 
+                    let cf_us = (s.crossfade_secs.min(10) as i64) * 1_000_000;
                     if s.crossfade_enabled
+                        && cf_us > 0
                         && !s.crossfade_active
-                        && dur_us > 12_000_000
+                        && dur_us > cf_us + 4_000_000
                         && pos_us > 0
                         && s.crossfade_triggered_for != Some(s.loading_generation)
                     {
                         let remaining_us = dur_us - pos_us;
-                        if (500_000..=5_000_000).contains(&remaining_us) {
+                        if (500_000..=cf_us + 1_000_000).contains(&remaining_us) {
                             s.crossfade_triggered_for = Some(s.loading_generation);
                             next_queue_index(&s)
                         } else {
@@ -978,7 +1056,7 @@ pub fn wire_media_signals(
 }
 
 pub fn restore_last_track(state: Rc<RefCell<AppState>>, position_secs: f64) {
-    let (track, player_cover, cached_stream, current_gen) = {
+    let (track, player_cover, player_fav_btn, is_fav, cached_stream, current_gen) = {
         let mut s = state.borrow_mut();
         let Some(idx) = s.current_index else {
             return;
@@ -1002,11 +1080,10 @@ pub fn restore_last_track(state: Rc<RefCell<AppState>>, position_secs: f64) {
         crate::ui::widgets::set_artist_links(&s.player_artist, &track.artist);
         crate::ui::widgets::set_album_link(&s.player_album_label, track.album.as_deref());
         s.player_fav_btn.set_sensitive(true);
-        s.player_fav_btn.set_active(is_fav);
         s.player_fav_btn.set_icon_name(if is_fav {
-            "starred-symbolic"
+            "heart-filled"
         } else {
-            "non-starred-symbolic"
+            "heart-regular"
         });
         s.player_radio_btn.set_sensitive(true);
         s.play_pause_btn.set_sensitive(true);
@@ -1024,8 +1101,19 @@ pub fn restore_last_track(state: Rc<RefCell<AppState>>, position_secs: f64) {
                 .set_label(&format_duration(position_secs as u32));
         }
         s.pending_autoplay = false;
-        (track, s.player_cover.clone(), cached, s.loading_generation)
+        (
+            track,
+            s.player_cover.clone(),
+            s.player_fav_btn.clone(),
+            is_fav,
+            cached,
+            s.loading_generation,
+        )
     };
+
+    if player_fav_btn.is_active() != is_fav {
+        player_fav_btn.set_active(is_fav);
+    }
 
     load_track_player_cover(&player_cover, &track, current_gen, Rc::clone(&state));
     if let Some(stream) = cached_stream {

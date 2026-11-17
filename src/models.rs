@@ -383,6 +383,10 @@ fn default_volume() -> f64 {
     1.0
 }
 
+fn default_crossfade_secs() -> u32 {
+    4
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct SessionState {
     pub sidebar_collapsed: bool,
@@ -397,6 +401,8 @@ pub struct SessionState {
     pub repeat: bool,
     #[serde(default)]
     pub position_secs: f64,
+    #[serde(default = "default_crossfade_secs")]
+    pub crossfade_secs: u32,
 }
 
 pub fn load_session_state() -> SessionState {

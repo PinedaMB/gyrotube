@@ -34,7 +34,9 @@ use crate::ui::collection::{
     build_collection_page, refresh_favorites_ui, refresh_playlists_ui, refresh_recent_ui,
 };
 use crate::ui::explore::build_explore_page;
-use crate::ui::header_search::{build_header_bar, install_unfocus_on_click, wire_search_popover};
+use crate::ui::header_search::{
+    build_header_bar, install_unfocus_on_click, wire_search_popover, wire_settings_dialog,
+};
 use crate::ui::home::build_home_page;
 use crate::ui::player::{
     load_current_lyrics, play_queue_index, refresh_queue_ui, restore_last_track,
@@ -77,6 +79,10 @@ pub fn run() -> glib::ExitCode {
 
 pub fn build_ui(app: &adw::Application) {
     load_css();
+    relm4_icons::initialize_icons(
+        crate::icon_names::GRESOURCE_BYTES,
+        crate::icon_names::RESOURCE_PREFIX,
+    );
     register_app_icon();
 
     let backend = Backend::new();
@@ -106,9 +112,9 @@ pub fn build_ui(app: &adw::Application) {
         btn.set_cursor_from_name(Some("pointer"));
         btn
     };
-    let nav_tab_home = make_nav_tab("go-home-symbolic", "Inicio", true);
-    let nav_tab_explore = make_nav_tab("system-search-symbolic", "Explorar", false);
-    let nav_tab_collection = make_nav_tab("library-music-symbolic", "Colección", false);
+    let nav_tab_home = make_nav_tab("home-regular", "Inicio", true);
+    let nav_tab_explore = make_nav_tab("search-regular", "Explorar", false);
+    let nav_tab_collection = make_nav_tab("library-regular", "Colección", false);
     nav_tab_explore.set_group(Some(&nav_tab_home));
     nav_tab_collection.set_group(Some(&nav_tab_home));
 
@@ -159,7 +165,7 @@ pub fn build_ui(app: &adw::Application) {
         .visible(false)
         .build();
     let favorites_empty_label = empty_state_card(
-        "starred-symbolic",
+        "heart-filled",
         "Aún no tienes canciones favoritas",
         "Pulsa el ícono de estrella en cualquier canción para guardarla.",
     );
@@ -174,21 +180,24 @@ pub fn build_ui(app: &adw::Application) {
     );
     let playlists_box = GtkBox::new(Orientation::Vertical, 8);
     let playlists_empty_label = empty_state_card(
-        "folder-music-symbolic",
+        "music-note-2-regular",
         "No tienes playlists locales",
         "Escribe un nombre arriba y pulsa Crear para organizar tus canciones.",
     );
 
+    let initial_cf_secs = saved_session.crossfade_secs.min(10);
     let state = Rc::new(RefCell::new(AppState {
         backend: backend.clone(),
         decks: decks.clone(),
         active_deck: 0,
         user_volume: saved_session.user_volume.clamp(0.0, 1.0),
-        crossfade_enabled: true,
+        crossfade_enabled: initial_cf_secs > 0,
+        crossfade_secs: initial_cf_secs,
         crossfade_active: false,
         crossfade_generation: 0,
         crossfade_triggered_for: None,
         queue: saved_session.queue,
+        unshuffled_queue: Vec::new(),
         favorites: load_favorites(),
         recent_tracks: load_recent_tracks(),
         user_playlists: load_user_playlists(),
@@ -288,18 +297,18 @@ pub fn build_ui(app: &adw::Application) {
     refresh_playlists_ui(Rc::clone(&state));
 
     content_view_stack
-        .add_titled_with_icon(&home_page, Some("home"), "Inicio", "go-home-symbolic");
+        .add_titled_with_icon(&home_page, Some("home"), "Inicio", "home-regular");
     content_view_stack.add_titled_with_icon(
         &explore_page,
         Some("explore"),
         "Explorar",
-        "system-search-symbolic",
+        "search-regular",
     );
     content_view_stack.add_titled_with_icon(
         &collection_page,
         Some("collection"),
         "Colección",
-        "library-music-symbolic",
+        "library-regular",
     );
 
     let (album_page, open_album_page, cancel_album_loading) = album_page::build_album_page(
@@ -346,9 +355,9 @@ pub fn build_ui(app: &adw::Application) {
     let split_view = adw::OverlaySplitView::builder()
         .sidebar(&sb.sidebar_toolbar)
         .content(&content_toolbar)
-        .min_sidebar_width(280.0)
-        .max_sidebar_width(360.0)
-        .sidebar_width_fraction(0.32)
+        .min_sidebar_width(320.0)
+        .max_sidebar_width(430.0)
+        .sidebar_width_fraction(0.35)
         .show_sidebar(!initial_sidebar_collapsed)
         .build();
 
@@ -397,6 +406,12 @@ pub fn build_ui(app: &adw::Application) {
 
     let main_toolbar = adw::ToolbarView::new();
     main_toolbar.add_top_bar(&hdr.header_bar);
+    wire_settings_dialog(
+        &hdr.settings_btn,
+        &hdr.menu_popover,
+        Rc::clone(&state),
+        &sb.crossfade_btn,
+    );
     main_toolbar.set_content(Some(&main_overlay));
     toast_overlay.set_child(Some(&main_toolbar));
 
@@ -536,10 +551,17 @@ fn wire_sidebar_actions(
                 }
             }));
     }
+    sb.crossfade_btn.set_active(state.borrow().crossfade_secs > 0);
     {
-        let state = Rc::clone(state);
+        let state = Rc::clone(&state);
         sb.crossfade_btn.connect_toggled(move |btn| {
-            state.borrow_mut().crossfade_enabled = btn.is_active();
+            let mut s = state.borrow_mut();
+            let active = btn.is_active();
+            s.crossfade_enabled = active;
+            if active && s.crossfade_secs == 0 {
+                s.crossfade_secs = 4;
+            }
+            s.save_session();
         });
     }
     {
@@ -581,9 +603,15 @@ fn wire_sidebar_actions(
     {
         let state = Rc::clone(state);
         sb.shuffle_btn.connect_toggled(move |btn| {
-            let mut s = state.borrow_mut();
-            s.shuffle = btn.is_active();
-            s.save_session();
+            let active = btn.is_active();
+            {
+                let mut s = state.borrow_mut();
+                if s.shuffle == active {
+                    return;
+                }
+                s.set_shuffle_mode(active);
+            }
+            refresh_queue_ui(Rc::clone(&state));
         });
     }
     {
@@ -598,7 +626,8 @@ fn wire_sidebar_actions(
     {
         let state = Rc::clone(state);
         sb.player_fav_btn.connect_toggled(move |btn| {
-            if let Some(track) = state.borrow().current_track().cloned() {
+            let track = state.borrow().current_track().cloned();
+            if let Some(track) = track {
                 set_track_favorite(Rc::clone(&state), &track, btn.is_active());
             }
         });

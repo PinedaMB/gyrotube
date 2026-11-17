@@ -19,9 +19,11 @@ pub struct HeaderWidgets {
     pub brand_title: Label,
     pub brand_badge: Label,
     pub search_entry: SearchEntry,
+    pub settings_btn: Button,
+    pub menu_popover: Popover,
 }
 
-pub fn build_header_bar(content_view_stack: &adw::ViewStack) -> HeaderWidgets {
+pub fn build_header_bar(_content_view_stack: &adw::ViewStack) -> HeaderWidgets {
     let brand_icon = match gdk::Texture::from_bytes(&glib::Bytes::from_static(include_bytes!(
         "../../gyrotube.svg"
     ))) {
@@ -68,45 +70,40 @@ pub fn build_header_bar(content_view_stack: &adw::ViewStack) -> HeaderWidgets {
         .child(&search_entry)
         .build();
 
-    let nav_home_btn = Button::builder()
-        .label("Inicio")
-        .css_classes(["flat"])
-        .build();
-    let nav_explore_btn = Button::builder()
-        .label("Explorar")
-        .css_classes(["flat"])
-        .build();
-    let nav_collection_btn = Button::builder()
-        .label("Colección")
-        .css_classes(["flat"])
-        .build();
-
     let menu_box = GtkBox::new(Orientation::Vertical, 4);
     menu_box.set_margin_top(6);
     menu_box.set_margin_bottom(6);
     menu_box.set_margin_start(6);
     menu_box.set_margin_end(6);
+
+    let settings_btn = Button::builder()
+        .label("Configuración")
+        .css_classes(["flat"])
+        .halign(Align::Fill)
+        .build();
+    settings_btn.set_cursor_from_name(Some("pointer"));
+
     let about_btn = Button::builder()
         .label("Acerca de GyroTube")
         .css_classes(["flat"])
         .halign(Align::Fill)
         .build();
-    menu_box.append(&nav_home_btn);
-    menu_box.append(&nav_explore_btn);
-    menu_box.append(&nav_collection_btn);
-    menu_box.append(&gtk4::Separator::new(Orientation::Horizontal));
+    about_btn.set_cursor_from_name(Some("pointer"));
+
+    menu_box.append(&settings_btn);
     menu_box.append(&about_btn);
 
-    let profile_popover = Popover::builder().child(&menu_box).build();
-    let profile_btn = MenuButton::builder()
-        .icon_name("avatar-default-symbolic")
-        .tooltip_text("Menú de GyroTube")
-        .popover(&profile_popover)
-        .css_classes(["profile-pill"])
+    let menu_popover = Popover::builder().child(&menu_box).build();
+    let menu_btn = MenuButton::builder()
+        .icon_name("open-menu-symbolic")
+        .tooltip_text("Opciones")
+        .popover(&menu_popover)
+        .css_classes(["flat", "circular"])
         .build();
+    menu_btn.set_cursor_from_name(Some("pointer"));
 
     {
-        let pop = profile_popover.clone();
+        let pop = menu_popover.clone();
         about_btn.connect_clicked(move |btn| {
             pop.popdown();
             let dialog = adw::AboutDialog::builder()
@@ -120,32 +117,141 @@ pub fn build_header_bar(content_view_stack: &adw::ViewStack) -> HeaderWidgets {
         });
     }
 
-    for (btn, page) in [
-        (&nav_home_btn, "home"),
-        (&nav_explore_btn, "explore"),
-        (&nav_collection_btn, "collection"),
-    ] {
-        let stack = content_view_stack.clone();
-        let pop = profile_popover.clone();
-        btn.connect_clicked(move |_| {
-            stack.set_visible_child_name(page);
-            pop.popdown();
-        });
-    }
-
     let header_bar = adw::HeaderBar::builder()
         .centering_policy(adw::CenteringPolicy::Loose)
         .title_widget(&top_search_clamp)
         .build();
     header_bar.pack_start(&brand_box);
-    header_bar.pack_end(&profile_btn);
+    header_bar.pack_end(&menu_btn);
 
     HeaderWidgets {
         header_bar,
         brand_title,
         brand_badge,
         search_entry,
+        settings_btn,
+        menu_popover,
     }
+}
+
+pub fn wire_settings_dialog(
+    settings_btn: &Button,
+    menu_popover: &Popover,
+    state: Rc<RefCell<AppState>>,
+    crossfade_btn: &gtk4::ToggleButton,
+) {
+    let pop = menu_popover.clone();
+    let crossfade_btn = crossfade_btn.clone();
+    settings_btn.connect_clicked(move |btn| {
+        pop.popdown();
+        let dialog = adw::PreferencesDialog::builder()
+            .title("Configuración")
+            .build();
+        let page = adw::PreferencesPage::new();
+
+        let playback_group = adw::PreferencesGroup::builder()
+            .title("Reproducción")
+            .description("Transición suave entre pistas")
+            .build();
+
+        let current_cf = state.borrow().crossfade_secs.min(10);
+        let format_cf = |secs: u32| -> String {
+            if secs == 0 {
+                String::from("Desactivado (0 s)")
+            } else {
+                format!("{secs} s")
+            }
+        };
+        let cf_row = adw::ActionRow::builder()
+            .title("Crossfade")
+            .subtitle(&format_cf(current_cf))
+            .build();
+        let cf_scale = gtk4::Scale::with_range(Orientation::Horizontal, 0.0, 10.0, 1.0);
+        cf_scale.set_round_digits(0);
+        cf_scale.set_draw_value(false);
+        cf_scale.set_width_request(160);
+        cf_scale.set_valign(Align::Center);
+        cf_scale.set_value(current_cf as f64);
+        {
+            let state_cf = Rc::clone(&state);
+            let cf_row_ref = cf_row.clone();
+            let cf_btn_ref = crossfade_btn.clone();
+            cf_scale.connect_value_changed(move |scale| {
+                let secs = (scale.value().round() as u32).min(10);
+                cf_row_ref.set_subtitle(&format_cf(secs));
+                {
+                    let mut s = state_cf.borrow_mut();
+                    s.crossfade_secs = secs;
+                    s.crossfade_enabled = secs > 0;
+                    if secs == 0 {
+                        s.crossfade_active = false;
+                        s.crossfade_generation = s.crossfade_generation.wrapping_add(1);
+                        s.crossfade_triggered_for = None;
+                    }
+                    s.save_session();
+                }
+                if cf_btn_ref.is_active() != (secs > 0) {
+                    cf_btn_ref.set_active(secs > 0);
+                }
+            });
+        }
+        cf_row.add_suffix(&cf_scale);
+        playback_group.add(&cf_row);
+        page.add(&playback_group);
+
+        let storage_group = adw::PreferencesGroup::builder()
+            .title("Almacenamiento")
+            .description("Audios descargados para reproducción instantánea")
+            .build();
+
+        let streams_dir = crate::models::cache_dir().map(|d| d.join("streams"));
+        let calc_size_text = |dir: Option<&std::path::PathBuf>| -> String {
+            let bytes: u64 = dir
+                .and_then(|d| std::fs::read_dir(d).ok())
+                .into_iter()
+                .flatten()
+                .filter_map(|e| e.ok())
+                .filter_map(|e| e.metadata().ok())
+                .map(|m| m.len())
+                .sum();
+            let mb = bytes as f64 / (1024.0 * 1024.0);
+            format!("{mb:.1} MB en caché")
+        };
+
+        let cache_row = adw::ActionRow::builder()
+            .title("Caché de audio")
+            .subtitle(&calc_size_text(streams_dir.as_ref()))
+            .build();
+        let clear_btn = Button::builder()
+            .label("Limpiar")
+            .valign(Align::Center)
+            .css_classes(["destructive-action"])
+            .build();
+        clear_btn.set_cursor_from_name(Some("pointer"));
+        {
+            let cache_row_ref = cache_row.clone();
+            let dir_ref = streams_dir.clone();
+            clear_btn.connect_clicked(move |b| {
+                if let Some(ref d) = dir_ref
+                    && let Ok(entries) = std::fs::read_dir(d)
+                {
+                    for entry in entries.flatten() {
+                        let _ = std::fs::remove_file(entry.path());
+                    }
+                }
+                cache_row_ref.set_subtitle("0.0 MB en caché");
+                b.set_sensitive(false);
+            });
+        }
+        cache_row.add_suffix(&clear_btn);
+        storage_group.add(&cache_row);
+        page.add(&storage_group);
+
+        dialog.add(&page);
+
+        let root = btn.root().and_then(|r| r.downcast::<gtk4::Window>().ok());
+        dialog.present(root.as_ref());
+    });
 }
 
 pub fn wire_search_popover(
@@ -341,7 +447,7 @@ pub fn wire_search_popover(
                             {
                                 show_search_popover(
                                     "Sugerencias",
-                                    "system-search-symbolic",
+                                    "search-regular",
                                     terms,
                                 );
                             }

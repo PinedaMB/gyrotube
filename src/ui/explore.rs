@@ -150,28 +150,25 @@ pub fn build_explore_page(
         .css_classes(["suggested-action", "pill"])
         .build();
     let play_btn_content = GtkBox::new(Orientation::Horizontal, 6);
-    play_btn_content.append(&gtk4::Image::from_icon_name("media-playback-start-symbolic"));
+    play_btn_content.append(&gtk4::Image::from_icon_name("play-filled"));
     play_btn_content.append(&Label::new(Some("Reproducir")));
     artist_play_btn.set_child(Some(&play_btn_content));
     artist_play_btn.set_cursor_from_name(Some("pointer"));
 
     let artist_shuffle_btn = Button::builder()
-        .css_classes(["pill", "artist-secondary-btn"])
+        .icon_name("arrow-shuffle-regular")
+        .tooltip_text("Reproducción aleatoria")
+        .valign(Align::Center)
+        .css_classes(["circular", "artist-secondary-btn"])
         .build();
-    let shuffle_btn_content = GtkBox::new(Orientation::Horizontal, 6);
-    shuffle_btn_content.append(&gtk4::Image::from_icon_name("media-playlist-shuffle-symbolic"));
-    shuffle_btn_content.append(&Label::new(Some("Aleatorio")));
-    artist_shuffle_btn.set_child(Some(&shuffle_btn_content));
     artist_shuffle_btn.set_cursor_from_name(Some("pointer"));
 
     let artist_radio_btn = Button::builder()
+        .icon_name("sound-wave-circle-regular")
         .tooltip_text("Iniciar radio del artista")
-        .css_classes(["pill", "artist-secondary-btn"])
+        .valign(Align::Center)
+        .css_classes(["circular", "artist-secondary-btn"])
         .build();
-    let radio_btn_content = GtkBox::new(Orientation::Horizontal, 6);
-    radio_btn_content.append(&gtk4::Image::from_icon_name("media-playlist-consecutive-symbolic"));
-    radio_btn_content.append(&Label::new(Some("Radio")));
-    artist_radio_btn.set_child(Some(&radio_btn_content));
     artist_radio_btn.set_cursor_from_name(Some("pointer"));
 
     let artist_actions_row = GtkBox::new(Orientation::Horizontal, 10);
@@ -218,6 +215,7 @@ pub fn build_explore_page(
             {
                 let mut s = state.borrow_mut();
                 s.shuffle = false;
+                s.unshuffled_queue.clear();
                 s.queue = tracks;
                 s.source_name = name;
             }
@@ -234,18 +232,11 @@ pub fn build_explore_page(
             if tracks.is_empty() {
                 return;
             }
-            let len = tracks.len();
-            let start_idx = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| (d.subsec_nanos() as usize) % len)
-                .unwrap_or(0);
             {
                 let mut s = state.borrow_mut();
-                s.shuffle = true;
-                s.queue = tracks;
-                s.source_name = name;
+                s.set_shuffled_queue(tracks, name);
             }
-            play_queue_index(Rc::clone(&state), start_idx);
+            play_queue_index(Rc::clone(&state), 0);
         });
     }
     {
@@ -265,12 +256,26 @@ pub fn build_explore_page(
     let artist_desc_label = Label::builder()
         .xalign(0.0)
         .wrap(true)
-        .lines(3)
-        .max_width_chars(32)
-        .ellipsize(gtk4::pango::EllipsizeMode::End)
-        .css_classes(["body", "dim-label"])
+        .selectable(true)
+        .css_classes(["body", "artist-bio-text"])
+        .build();
+    let artist_desc_header = GtkBox::new(Orientation::Horizontal, 8);
+    artist_desc_header.append(&gtk4::Image::from_icon_name("person-account-regular"));
+    artist_desc_header.append(
+        &Label::builder()
+            .label("Sobre el artista")
+            .xalign(0.0)
+            .css_classes(["title-4"])
+            .build(),
+    );
+    let artist_desc_card = GtkBox::builder()
+        .orientation(Orientation::Vertical)
+        .spacing(10)
+        .css_classes(["artist-bio-card"])
         .visible(false)
         .build();
+    artist_desc_card.append(&artist_desc_header);
+    artist_desc_card.append(&artist_desc_label);
 
     let artist_tracks_heading = Label::builder()
         .label("Canciones populares")
@@ -317,23 +322,19 @@ pub fn build_explore_page(
     let artist_section = GtkBox::new(Orientation::Vertical, 18);
     artist_section.set_visible(false);
     artist_section.append(&artist_hero);
-    artist_section.append(&artist_desc_label);
     artist_section.append(&artist_tracks_heading);
     artist_section.append(&artist_tracks_list);
     artist_section.append(&artist_tracks_toggle_btn);
     artist_section.append(&artist_albums_section);
     artist_section.append(&artist_playlists_section);
     artist_section.append(&artist_similar_section);
+    artist_section.append(&artist_desc_card);
 
     let artist_skeleton = GtkBox::new(Orientation::Vertical, 16);
     artist_skeleton.set_visible(false);
     let hero_skel = build_skeleton_box(0, 250);
     hero_skel.add_css_class("artist-hero");
     artist_skeleton.append(&hero_skel);
-    let desc_skel = GtkBox::new(Orientation::Vertical, 6);
-    desc_skel.append(&build_skeleton_box(0, 14));
-    desc_skel.append(&build_skeleton_box(220, 14));
-    artist_skeleton.append(&desc_skel);
     artist_skeleton.append(&build_skeleton_box(190, 20));
     let artist_tracks_skel = GtkBox::new(Orientation::Vertical, 8);
     for _ in 0..6 {
@@ -546,6 +547,7 @@ pub fn build_explore_page(
         play_btn: artist_play_btn,
         shuffle_btn: artist_shuffle_btn,
         current_tracks: current_artist_tracks,
+        desc_card: artist_desc_card,
         desc_label: artist_desc_label,
         tracks_heading: artist_tracks_heading,
         tracks_list: artist_tracks_list,
@@ -857,6 +859,7 @@ struct ArtistPageWidgets {
     play_btn: Button,
     shuffle_btn: Button,
     current_tracks: Rc<RefCell<Option<(String, Vec<Track>)>>>,
+    desc_card: GtkBox,
     desc_label: Label,
     tracks_heading: Label,
     tracks_list: ListBox,
@@ -943,9 +946,9 @@ fn populate_artist_page(
 
     if let Some(desc) = details.description.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
         ui.desc_label.set_label(desc);
-        ui.desc_label.set_visible(true);
+        ui.desc_card.set_visible(true);
     } else {
-        ui.desc_label.set_visible(false);
+        ui.desc_card.set_visible(false);
     }
 
     let has_tracks = !details.tracks.is_empty();

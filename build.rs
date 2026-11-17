@@ -1,0 +1,33 @@
+fn main() {
+    relm4_icons_build::bundle_icons(
+        "icon_names.rs",
+        Some("com.github.gyrotube.GyroTube"),
+        None,
+        None::<&str>,
+        [
+            "add-regular",
+            "arrow-repeat-all-regular",
+            "arrow-shuffle-regular",
+            "arrow-sync-regular",
+            "comment-quote-regular",
+            "delete-regular",
+            "document-bullet-list-regular",
+            "heart-filled",
+            "heart-regular",
+            "home-regular",
+            "library-regular",
+            "music-note-2-regular",
+            "next-filled",
+            "pause-filled",
+            "person-account-regular",
+            "play-filled",
+            "previous-filled",
+            "search-regular",
+            "sound-wave-circle-regular",
+            "speaker-0-regular",
+            "speaker-1-regular",
+            "speaker-2-regular",
+            "timer-regular",
+        ],
+    );
+}
