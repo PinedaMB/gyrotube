@@ -46,8 +46,29 @@ pub enum JamCommand {
     PrevTrack,
 }
 
+#[derive(Debug, Clone)]
+pub enum JamSource {
+    Lan(u64),
+    Remote(String),
+}
+
+impl JamSource {
+    pub fn is_current(&self, lan_session: Option<u64>, host_room: Option<&str>) -> bool {
+        match self {
+            Self::Lan(session) => lan_session == Some(*session),
+            Self::Remote(room) => host_room == Some(room.as_str()),
+        }
+    }
+}
+
+pub struct JamRequest {
+    pub source: JamSource,
+    pub command: JamCommand,
+}
+
 pub struct JamServerHandle {
     pub url: String,
+    pub session_id: u64,
     shutdown_tx: Option<oneshot::Sender<()>>,
 }
 
@@ -80,9 +101,12 @@ pub fn detect_lan_ipv4() -> String {
 pub fn start_jam_server(
     backend: Backend,
     snapshot: Arc<RwLock<JamSnapshot>>,
-    cmd_tx: async_channel::Sender<JamCommand>,
+    cmd_tx: async_channel::Sender<JamRequest>,
 ) -> Result<JamServerHandle, String> {
-    let (ready_tx, ready_rx) = std::sync::mpsc::sync_channel::<Result<(u16, oneshot::Sender<()>), String>>(1);
+    static NEXT_SESSION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    let session_id = NEXT_SESSION.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let (ready_tx, ready_rx) =
+        std::sync::mpsc::sync_channel::<Result<(u16, oneshot::Sender<()>), String>>(1);
 
     runtime().spawn(async move {
         let listener = match TcpListener::bind("0.0.0.0:8765").await {
@@ -115,7 +139,7 @@ pub fn start_jam_server(
                         let snapshot = Arc::clone(&snapshot);
                         let cmd_tx = cmd_tx.clone();
                         tokio::spawn(async move {
-                            handle_connection(stream, peer, backend, snapshot, cmd_tx).await;
+                            handle_connection(stream, peer, backend, snapshot, cmd_tx, session_id).await;
                         });
                     }
                 }
@@ -131,6 +155,7 @@ pub fn start_jam_server(
     let url = format!("http://{ip}:{port}");
     Ok(JamServerHandle {
         url,
+        session_id,
         shutdown_tx: Some(shutdown_tx),
     })
 }
@@ -140,7 +165,8 @@ async fn handle_connection(
     peer: SocketAddr,
     backend: Backend,
     snapshot: Arc<RwLock<JamSnapshot>>,
-    cmd_tx: async_channel::Sender<JamCommand>,
+    cmd_tx: async_channel::Sender<JamRequest>,
+    session_id: u64,
 ) {
     let mut buf = vec![0u8; 16384];
     let n = match tokio::time::timeout(std::time::Duration::from_secs(5), stream.read(&mut buf)).await {
@@ -276,7 +302,10 @@ async fn handle_connection(
             match serde_json::from_slice::<AddReq>(&body) {
                 Ok(request) if !request.id.is_empty() => {
                     let _ = cmd_tx
-                        .send(JamCommand::AddTrack(request.id, guest_ip))
+                        .send(JamRequest {
+                            source: JamSource::Lan(session_id),
+                            command: JamCommand::AddTrack(request.id, guest_ip),
+                        })
                         .await;
                     send_response(
                         &mut stream,
@@ -322,8 +351,14 @@ async fn handle_connection(
                     _ => None,
                 };
                 if let Some(c) = cmd {
-                    let _ = cmd_tx.send(c).await;
-                    send_response(&mut stream, "200 OK", "application/json", br#"{"ok":true}"#).await;
+                    let _ = cmd_tx
+                        .send(JamRequest {
+                            source: JamSource::Lan(session_id),
+                            command: c,
+                        })
+                        .await;
+                    send_response(&mut stream, "200 OK", "application/json", br#"{"ok":true}"#)
+                        .await;
                     return;
                 }
             }
@@ -565,17 +600,17 @@ pub fn generate_qr_svg(data: &str) -> Option<String> {
     for i in 0..15 {
         let bit = ((FORMAT_L_M0 >> i) & 1) == 1;
         let (r1, c1) = match i {
-            0..=5 => (8, i),
-            6 => (8, 7),
+            0..=5 => (i, 8),
+            6 => (7, 8),
             7 => (8, 8),
-            8 => (7, 8),
-            _ => (14 - i, 8),
+            8 => (8, 7),
+            _ => (8, 14 - i),
         };
         dark_grid[r1][c1] = bit;
         let (r2, c2) = if i < 8 {
-            (size - 1 - i, 8)
+            (8, size - 1 - i)
         } else {
-            (8, size - 15 + i)
+            (size - 15 + i, 8)
         };
         dark_grid[r2][c2] = bit;
     }
@@ -811,6 +846,71 @@ loadState();setInterval(loadState,2500);
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn commands_from_closed_or_replaced_sessions_are_rejected() {
+        assert!(JamSource::Lan(1).is_current(Some(1), None));
+        assert!(!JamSource::Lan(1).is_current(Some(2), None));
+        assert!(!JamSource::Lan(1).is_current(None, None));
+        assert!(JamSource::Remote("room-a".into()).is_current(None, Some("room-a")));
+        assert!(!JamSource::Remote("room-a".into()).is_current(None, Some("room-b")));
+        assert!(!JamSource::Remote("room-a".into()).is_current(None, None));
+    }
+
+    #[test]
+    fn generated_svg_decodes_to_original_bytes_for_all_supported_versions() {
+        let cases = [
+            String::from("HELLO"),
+            String::from("http://192.168.1.42:8765"),
+            "x".repeat(40),
+            "x".repeat(65),
+            "é".repeat(50),
+        ];
+        for expected in cases {
+            let svg = generate_qr_svg(&expected).unwrap();
+            let modules: usize = svg
+                .split("viewBox=\"0 0 ")
+                .nth(1)
+                .unwrap()
+                .split_whitespace()
+                .next()
+                .unwrap()
+                .parse()
+                .unwrap();
+            let scale = 8;
+            let width = modules * scale;
+            let mut image = vec![255u8; width * width];
+            let path = svg
+                .split("<path d=\"")
+                .nth(1)
+                .unwrap()
+                .split('"')
+                .next()
+                .unwrap();
+            for cell in path.split('M').skip(1) {
+                let (x, y) = cell.split('h').next().unwrap().split_once(' ').unwrap();
+                let x: usize = x.parse().unwrap();
+                let y: usize = y.parse().unwrap();
+                for row in y * scale..(y + 1) * scale {
+                    image[row * width + x * scale..row * width + (x + 1) * scale].fill(0);
+                }
+            }
+            let mut decoder = quircs::Quirc::default();
+            let decoded: Vec<_> = decoder
+                .identify(width, width, &image)
+                .filter_map(Result::ok)
+                .filter_map(|code| code.decode().ok())
+                .collect();
+            assert!(
+                decoded
+                    .iter()
+                    .any(|data| data.payload == expected.as_bytes()),
+                "QR failed to decode {} bytes",
+                expected.len()
+            );
+        }
+        assert!(generate_qr_svg(&"x".repeat(107)).is_none());
+    }
 
     #[test]
     fn generates_valid_qr_svg_for_lan_url() {

@@ -139,7 +139,7 @@ pub fn refresh_queue_ui(state: Rc<RefCell<AppState>>) {
                 if removed_current {
                     let next = state.borrow().current_index;
                     if let Some(next) = next {
-                        load_queue_index(Rc::clone(&state), next, autoplay);
+                        load_queue_index(Rc::clone(&state), next, autoplay, None);
                     } else {
                         clear_playback(Rc::clone(&state));
                     }
@@ -609,16 +609,22 @@ pub fn clear_playback(state: Rc<RefCell<AppState>>) {
 }
 
 pub fn play_queue_index(state: Rc<RefCell<AppState>>, index: usize) {
-    load_queue_index(state, index, true);
+    load_queue_index(state, index, true, None);
 }
 
-fn load_queue_index(state: Rc<RefCell<AppState>>, index: usize, autoplay: bool) {
+pub fn load_queue_index(
+    state: Rc<RefCell<AppState>>,
+    index: usize,
+    autoplay: bool,
+    position_secs: Option<f64>,
+) {
     let (track, backend, current_gen, decks, player_cover, player_fav_btn, is_fav, fast_stream) = {
         let mut s = state.borrow_mut();
         let Some(track) = s.queue.get(index).cloned() else {
             return;
         };
         s.current_index = Some(index);
+        s.pending_autoplay = autoplay;
         s.loading_generation = s.loading_generation.wrapping_add(1);
         let current_gen = s.loading_generation;
         s.crossfade_active = false;
@@ -641,7 +647,6 @@ fn load_queue_index(state: Rc<RefCell<AppState>>, index: usize, autoplay: bool) 
             s.play_pause_btn.set_sensitive(true);
             s.seek_scale.set_sensitive(true);
             s.quality_label.set_label(&stream.quality_label);
-            s.pending_autoplay = autoplay;
         } else {
             s.player_artist
                 .set_text(&format!("{} • {}", tr("Cargando", "Loading"), track.artist));
@@ -659,7 +664,7 @@ fn load_queue_index(state: Rc<RefCell<AppState>>, index: usize, autoplay: bool) 
                 .map(format_duration)
                 .unwrap_or_else(|| String::from("0:00")),
         );
-        s.pending_restore_seek = None;
+        s.pending_restore_seek = position_secs.filter(|pos| pos.is_finite() && *pos > 1.0);
 
         let is_fav = s.is_favorite(&track.id);
         s.player_fav_btn.set_sensitive(true);
@@ -713,7 +718,7 @@ fn load_queue_index(state: Rc<RefCell<AppState>>, index: usize, autoplay: bool) 
             (s.active_media().clone(), next_id)
         };
         set_stream_on_media(&media_file, stream);
-        if autoplay && media_file.is_prepared() {
+        if media_file.is_prepared() && state.borrow().pending_autoplay {
             state.borrow_mut().pending_autoplay = false;
             media_file.play();
         }
@@ -763,7 +768,7 @@ fn load_queue_index(state: Rc<RefCell<AppState>>, index: usize, autoplay: bool) 
                         .set_icon_name("play-filled");
                     s.play_pause_btn.set_sensitive(true);
                     s.seek_scale.set_sensitive(true);
-                    s.pending_autoplay = autoplay;
+
                     let next_id = next_queue_index(&s)
                         .and_then(|ni| s.queue.get(ni))
                         .cloned()
@@ -787,7 +792,7 @@ fn load_queue_index(state: Rc<RefCell<AppState>>, index: usize, autoplay: bool) 
         if let Some((media_file, stream, backend, next_id)) = stream_to_play {
             media_file.pause();
             set_stream_on_media(&media_file, stream);
-            if autoplay && media_file.is_prepared() {
+            if media_file.is_prepared() && state.borrow().pending_autoplay {
                 state.borrow_mut().pending_autoplay = false;
                 media_file.play();
             }
@@ -1033,6 +1038,7 @@ pub fn wire_media_signals(
                 crate::spin_remote::send_guest_event(
                     target,
                     crate::spin_remote::RemoteGuestEvent::Control(String::from("play_pause")),
+                    state.borrow().jam.remote_tx.clone(),
                 );
                 return;
             }
@@ -1050,8 +1056,7 @@ pub fn wire_media_signals(
             } else if !active.has_stream() {
                 if let Some(idx) = current_idx {
                     let saved_seek = state.borrow().pending_restore_seek;
-                    play_queue_index(Rc::clone(&state), idx);
-                    state.borrow_mut().pending_restore_seek = saved_seek;
+                    load_queue_index(Rc::clone(&state), idx, true, saved_seek);
                 }
             } else {
                 active.play();
@@ -1067,6 +1072,7 @@ pub fn wire_media_signals(
                 crate::spin_remote::send_guest_event(
                     target.clone(),
                     crate::spin_remote::RemoteGuestEvent::Control(String::from("prev")),
+                    state.borrow().jam.remote_tx.clone(),
                 );
                 return;
             }
@@ -1088,6 +1094,7 @@ pub fn wire_media_signals(
                 crate::spin_remote::send_guest_event(
                     target.clone(),
                     crate::spin_remote::RemoteGuestEvent::Control(String::from("next")),
+                    state.borrow().jam.remote_tx.clone(),
                 );
                 return;
             }
@@ -1117,7 +1124,33 @@ pub fn wire_media_signals(
                             } else {
                                 false
                             };
-                            let restore = s.pending_restore_seek.take();
+                            let local_restore = s.pending_restore_seek.take();
+                            let remote_restore = if matches!(
+                                s.jam.remote_role,
+                                crate::spin_remote::RemoteRole::Guest(_)
+                            ) {
+                                s.jam
+                                    .latest_state
+                                    .as_ref()
+                                    .filter(|payload| {
+                                        payload.track.as_ref().zip(s.current_track()).is_some_and(
+                                            |(remote, current)| remote.id == current.id,
+                                        )
+                                    })
+                                    .map(|payload| {
+                                        payload.position_at(crate::spin_remote::now_ms())
+                                    })
+                            } else {
+                                None
+                            };
+                            let restore = remote_restore.or(local_restore).map(|pos| {
+                                let duration = media.duration() as f64 / 1_000_000.0;
+                                if duration > 0.5 {
+                                    pos.clamp(0.0, duration - 0.5)
+                                } else {
+                                    pos.max(0.0)
+                                }
+                            });
                             if let Some(pos) = restore {
                                 s.seek_scale.set_value(pos);
                                 s.time_label.set_label(&format_duration(pos as u32));
@@ -1205,7 +1238,9 @@ pub fn wire_media_signals(
                 }
                 let target = {
                     let s = state.borrow();
-                    if s.active_deck != deck_idx {
+                    if s.active_deck != deck_idx
+                        || matches!(s.jam.remote_role, crate::spin_remote::RemoteRole::Guest(_))
+                    {
                         None
                     } else {
                         next_queue_index(&s)
@@ -1233,7 +1268,17 @@ pub fn wire_media_signals(
                             s.play_spinner.set_spinning(true);
                             s.play_pause_btn.set_child(Some(&s.play_spinner));
                             s.play_pause_btn.set_sensitive(false);
-                            s.pending_autoplay = true;
+                            s.pending_autoplay = if matches!(
+                                s.jam.remote_role,
+                                crate::spin_remote::RemoteRole::Guest(_)
+                            ) {
+                                s.jam
+                                    .latest_state
+                                    .as_ref()
+                                    .is_some_and(|payload| payload.is_playing)
+                            } else {
+                                true
+                            };
                             Some((track.id, s.backend.clone(), s.loading_generation))
                         } else {
                             s.show_toast(&format!("Error de reproducción: {err}"));
@@ -1251,7 +1296,7 @@ pub fn wire_media_signals(
                         glib::spawn_future_local(async move {
                             let recv = rx.recv().await;
                             let media_opt = {
-                                let mut s = state_cb.borrow_mut();
+                                let s = state_cb.borrow();
                                 if s.loading_generation != load_gen {
                                     return;
                                 }
@@ -1262,7 +1307,6 @@ pub fn wire_media_signals(
                                 match recv {
                                     Ok(Ok(stream)) => {
                                         s.quality_label.set_label(&stream.quality_label);
-                                        s.pending_autoplay = true;
                                         Some((s.active_media().clone(), stream))
                                     }
                                     Ok(Err(e)) => {

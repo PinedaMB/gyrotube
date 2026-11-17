@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+base64 = "0.23.1"
+ring = "0.17.14"
 anyhow = "1.0.104"
 gstreamer = "0.25.4"
 gtk4 = { version = "0.11.5", features = ["v4_14"] }
@@ -21,3 +23,6 @@ relm4-icons = "0.11.0"
 
 [build-dependencies]
 relm4-icons-build = "0.11.0"
+
+[dev-dependencies]
+quircs = "0.10.3"

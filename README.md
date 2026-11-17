@@ -54,3 +54,11 @@ Las pistas sin imagen individual heredan la carátula del álbum. El reproductor
 La caché solo se utiliza directamente cuando la pista tiene una verificación de audio del catálogo. Las marcas antiguas se vuelven a verificar con conexión antes de reproducirse. JAM y SPIN envían el ID de la canción; el receptor consulta su tipo, disponibilidad y metadatos antes de agregarla. La API LAN responde `202 Accepted` mientras se verifica la solicitud.
 
 Los favoritos, playlists y sesiones se guardan mediante escritura temporal y reemplazo atómico. Si un archivo no pudo cargarse, se conserva una copia con nombre `*.damaged-*` antes de reemplazarlo. Los errores de carga y guardado se muestran en la aplicación. La sesión también conserva el orden anterior al modo aleatorio; al restaurarlo no recupera pistas eliminadas ni descarta las añadidas.
+
+## Salas SPIN
+
+El anfitrión comparte una invitación `SPIN-…` nueva para cada sesión. Su estado se firma con Ed25519; la clave privada permanece en el anfitrión y los invitados comprueban la firma, la secuencia y la antigüedad de cada mensaje. Los códigos antiguos de seis caracteres ya no son válidos. Comparte la invitación solo con quienes deban poder enviar canciones o controles.
+
+SPIN publica cambios de pista, pausa, reproducción, permisos y saltos de posición, con un mínimo de cinco segundos entre estados y un latido cada diez minutos. Las actualizaciones pendientes se agrupan y los errores HTTP, incluidos los límites `429`, se muestran en la aplicación; el emisor espera antes de reintentar. La cuota diaria de ntfy.sh sigue aplicándose: esto reduce el consumo y comunica los bloqueos, pero no elimina los límites del servicio.
+
+Las firmas autentican el estado, pero no cifran los metadatos que pasan por ntfy.sh. El acceso JAM mediante una URL LAN sigue siendo una conexión local sin estas firmas. El QR de JAM se verifica con un lector independiente en las pruebas, para las cinco versiones que genera.

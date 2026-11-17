@@ -1,6 +1,5 @@
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 use std::rc::Rc;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
 
 use adw::prelude::*;
@@ -14,43 +13,61 @@ use libadwaita as adw;
 
 use crate::i18n::tr;
 use crate::jam::{
-    JamCommand, JamServerHandle, JamSnapshot, JamTrackInfo, generate_qr_svg, start_jam_server,
+    JamCommand, JamRequest, JamServerHandle, JamSnapshot, JamSource, JamTrackInfo, generate_qr_svg,
+    start_jam_server,
 };
 use crate::spin_remote::{
-    RemoteRole, RemoteSyncPayload, generate_room_code, local_display_name, normalize_room_code,
-    now_ms, publish_host_state, start_guest_sync, start_host_cmd_listener,
+    HostPublisher, RemoteRole, RemoteSyncPayload, RemoteUpdate, local_display_name,
+    normalize_room_code, now_ms, start_guest_sync, start_host_cmd_listener,
 };
-use crate::ui::player::{play_queue_index, refresh_queue_ui};
+use crate::ui::player::{clear_playback, load_queue_index, play_queue_index, refresh_queue_ui};
 use crate::ui::state::{AppState, next_queue_index};
 use crate::ui::widgets::clear_box;
 
 pub struct JamRuntime {
     pub snapshot: Arc<RwLock<JamSnapshot>>,
     pub server: Option<JamServerHandle>,
-    pub cmd_tx: async_channel::Sender<JamCommand>,
+    pub cmd_tx: async_channel::Sender<JamRequest>,
     pub remote_role: RemoteRole,
-    pub remote_stop: Option<Arc<AtomicBool>>,
-    pub remote_tx: async_channel::Sender<RemoteSyncPayload>,
-    pub last_pub_ms: Cell<u64>,
-    pub last_pub_track: RefCell<Option<String>>,
-    pub last_pub_playing: Cell<bool>,
+    pub remote_task: Option<tokio::task::JoinHandle<()>>,
+    pub host_publisher: Option<HostPublisher>,
+    pub remote_tx: async_channel::Sender<RemoteUpdate>,
+    pub latest_state: Option<RemoteSyncPayload>,
 }
 
 impl JamRuntime {
+    fn accepts_command(&self, source: &JamSource) -> bool {
+        let host_room = match &self.remote_role {
+            RemoteRole::Host(room) => Some(room.as_str()),
+            _ => None,
+        };
+        source.is_current(
+            self.server.as_ref().map(|server| server.session_id),
+            host_room,
+        )
+    }
+
     pub fn new(
-        cmd_tx: async_channel::Sender<JamCommand>,
-        remote_tx: async_channel::Sender<RemoteSyncPayload>,
+        cmd_tx: async_channel::Sender<JamRequest>,
+        remote_tx: async_channel::Sender<RemoteUpdate>,
     ) -> Self {
         Self {
             snapshot: Arc::new(RwLock::new(JamSnapshot::default())),
             server: None,
             cmd_tx,
             remote_role: RemoteRole::Idle,
-            remote_stop: None,
+            remote_task: None,
+            host_publisher: None,
             remote_tx,
-            last_pub_ms: Cell::new(0),
-            last_pub_track: RefCell::new(None),
-            last_pub_playing: Cell::new(false),
+            latest_state: None,
+        }
+    }
+}
+
+impl Drop for JamRuntime {
+    fn drop(&mut self) {
+        if let Some(task) = self.remote_task.take() {
+            task.abort();
         }
     }
 }
@@ -95,28 +112,16 @@ pub fn sync_jam_snapshot(s: &AppState) {
         false
     };
 
-    if let RemoteRole::Host(ref room) = s.jam.remote_role {
-        let now = now_ms();
-        let cur_id = cur_track.as_ref().map(|t| t.id.clone());
-        let changed = *s.jam.last_pub_track.borrow() != cur_id
-            || s.jam.last_pub_playing.get() != is_playing;
-        if changed || now.saturating_sub(s.jam.last_pub_ms.get()) >= 3000 {
-            s.jam.last_pub_ms.set(now);
-            *s.jam.last_pub_track.borrow_mut() = cur_id;
-            s.jam.last_pub_playing.set(is_playing);
-            publish_host_state(
-                room.clone(),
-                RemoteSyncPayload {
-                    track: cur_track,
-                    position_secs,
-                    is_playing,
-                    sent_at_ms: now,
-                    allow_controls,
-                    source_name: s.source_name.clone(),
-                    host_name: local_display_name(),
-                },
-            );
-        }
+    if let Some(publisher) = &s.jam.host_publisher {
+        publisher.publish(RemoteSyncPayload {
+            track: cur_track,
+            position_secs,
+            is_playing,
+            sent_at_ms: now_ms(),
+            allow_controls,
+            source_name: s.source_name.clone(),
+            host_name: local_display_name(),
+        });
     }
     refresh_spin_ui(s);
 }
@@ -187,12 +192,12 @@ pub fn refresh_spin_ui(s: &AppState) {
         String,
         Vec<String>,
     ) = match &s.jam.remote_role {
-        RemoteRole::Host(code) => {
+        RemoteRole::Host(_) => {
             let total = 1 + guest_list.len();
             let mode = if jukebox_active {
-                format!("Jukebox + SPIN-{code}")
+                String::from("Jukebox + SPIN")
             } else {
-                format!("SPIN-{code}")
+                String::from("SPIN")
             };
             (
                 true,
@@ -212,11 +217,11 @@ pub fn refresh_spin_ui(s: &AppState) {
                 guest_list,
             )
         }
-        RemoteRole::Guest(target) => {
+        RemoteRole::Guest(_) => {
             let remote_host = s
                 .remote_host_name
                 .clone()
-                .unwrap_or_else(|| target.clone());
+                .unwrap_or_else(|| tr("Conectando…", "Connecting…").to_string());
             (
                 true,
                 format!(
@@ -308,14 +313,26 @@ pub fn refresh_spin_ui(s: &AppState) {
 
 pub fn wire_remote_sync(
     state: Rc<RefCell<AppState>>,
-    remote_rx: async_channel::Receiver<RemoteSyncPayload>,
+    remote_rx: async_channel::Receiver<RemoteUpdate>,
 ) {
     glib::spawn_future_local(async move {
-        while let Ok(payload) = remote_rx.recv().await {
-            let is_guest = matches!(state.borrow().jam.remote_role, RemoteRole::Guest(_));
-            if !is_guest {
+        while let Ok(update) = remote_rx.recv().await {
+            let role = state.borrow().jam.remote_role.clone();
+            let target = match &role {
+                RemoteRole::Host(target) | RemoteRole::Guest(target) => target,
+                RemoteRole::Idle => continue,
+            };
+            if target != &update.target {
                 continue;
             }
+            let payload = match update.result {
+                Ok(payload) if matches!(role, RemoteRole::Guest(_)) => payload,
+                Err(err) => {
+                    state.borrow().show_toast(&err);
+                    continue;
+                }
+                _ => continue,
+            };
             {
                 let mut s = state.borrow_mut();
                 if !payload.host_name.is_empty()
@@ -325,26 +342,33 @@ pub fn wire_remote_sync(
                     refresh_spin_ui(&s);
                 }
             }
-            let latency_secs = (now_ms().saturating_sub(payload.sent_at_ms) as f64 / 1000.0)
-                .clamp(0.0, 4.0);
-            let target_pos = payload.position_secs
-                + if payload.is_playing {
-                    latency_secs
-                } else {
-                    0.0
-                };
-
-            let Some(track) = payload.track else {
-                continue;
-            };
-
+            let target_pos = payload.position_at(now_ms());
             let same_track = {
                 let s = state.borrow();
-                s.current_track().is_some_and(|t| t.id == track.id)
+                s.current_track()
+                    .zip(payload.track.as_ref())
+                    .is_some_and(|(current, track)| {
+                        current.id == track.id
+                            && (s.active_media().has_stream() || s.play_spinner.is_spinning())
+                            && s.jam
+                                .latest_state
+                                .as_ref()
+                                .and_then(|old| old.track.as_ref())
+                                .is_some_and(|old| old.id == track.id)
+                    })
+            };
+            state.borrow_mut().jam.latest_state = Some(payload.clone());
+            let Some(track) = payload.track else {
+                clear_playback(Rc::clone(&state));
+                continue;
             };
 
             if same_track {
                 let media = state.borrow().active_media().clone();
+                if !media.is_prepared() {
+                    state.borrow_mut().pending_autoplay = payload.is_playing;
+                    continue;
+                }
                 if payload.is_playing && !media.is_playing() {
                     media.play();
                 } else if !payload.is_playing && media.is_playing() {
@@ -374,13 +398,8 @@ pub fn wire_remote_sync(
                 {
                     let mut s = state.borrow_mut();
                     s.replace_queue(vec![track], format!("SPIN • {}", payload.source_name));
-                    s.pending_restore_seek = (target_pos > 1.0).then_some(target_pos);
                 }
-                play_queue_index(Rc::clone(&state), 0);
-                if !payload.is_playing {
-                    let media = state.borrow().active_media().clone();
-                    media.pause();
-                }
+                load_queue_index(Rc::clone(&state), 0, payload.is_playing, None);
             }
         }
     });
@@ -388,11 +407,14 @@ pub fn wire_remote_sync(
 
 pub fn wire_jam_commands(
     state: Rc<RefCell<AppState>>,
-    cmd_rx: async_channel::Receiver<JamCommand>,
+    cmd_rx: async_channel::Receiver<JamRequest>,
 ) {
     glib::spawn_future_local(async move {
-        while let Ok(cmd) = cmd_rx.recv().await {
-            match cmd {
+        while let Ok(request) = cmd_rx.recv().await {
+            if !state.borrow().jam.accepts_command(&request.source) {
+                continue;
+            }
+            match request.command {
                 JamCommand::AddTrack(video_id, _guest) => {
                     let backend = state.borrow().backend.clone();
                     let track = match backend.verify_music_track(&video_id).await {
@@ -402,6 +424,9 @@ pub fn wire_jam_commands(
                             continue;
                         }
                     };
+                    if !state.borrow().jam.accepts_command(&request.source) {
+                        continue;
+                    }
                     let should_start = {
                         let mut s = state.borrow_mut();
                         let was_empty = s.queue.is_empty() || s.current_index.is_none();
@@ -648,6 +673,9 @@ pub fn open_jam_dialog(parent: &Button, state: Rc<RefCell<AppState>>, jam_btn: B
 
     let room_code_label = Label::builder()
         .label(&host_code_init)
+        .wrap(true)
+        .wrap_mode(gtk4::pango::WrapMode::Char)
+        .max_width_chars(32)
         .selectable(true)
         .css_classes(["title-4"])
         .build();
@@ -676,8 +704,8 @@ pub fn open_jam_dialog(parent: &Button, state: Rc<RefCell<AppState>>, jam_btn: B
 
     let join_entry = Entry::builder()
         .placeholder_text(tr(
-            "Código (SPIN-XXXXXX) o URL...",
-            "Code (SPIN-XXXXXX) or URL...",
+            "Invitación SPIN o URL del anfitrión...",
+            "SPIN invitation or host URL...",
         ))
         .text(&guest_target_init)
         .valign(Align::Center)
@@ -797,9 +825,11 @@ pub fn open_jam_dialog(parent: &Button, state: Rc<RefCell<AppState>>, jam_btn: B
         let state_ctrl = Rc::clone(&state);
         controls_row.connect_active_notify(move |row| {
             let allow = row.is_active();
-            if let Ok(mut sn) = state_ctrl.borrow().jam.snapshot.write() {
+            let s = state_ctrl.borrow();
+            if let Ok(mut sn) = s.jam.snapshot.write() {
                 sn.allow_controls = allow;
             }
+            sync_jam_snapshot(&s);
         });
     }
 
@@ -814,18 +844,30 @@ pub fn open_jam_dialog(parent: &Button, state: Rc<RefCell<AppState>>, jam_btn: B
         host_row.connect_active_notify(move |row| {
             let want = row.is_active();
             if want {
-                let code = generate_room_code();
-                let stop = Arc::new(AtomicBool::new(false));
+                let updates = state_h.borrow().jam.remote_tx.clone();
+                let publisher = match HostPublisher::new(updates) {
+                    Ok(publisher) => publisher,
+                    Err(err) => {
+                        row.set_active(false);
+                        state_h.borrow().show_toast(&err);
+                        return;
+                    }
+                };
+                let code = publisher.invitation.clone();
                 {
                     let mut s = state_h.borrow_mut();
-                    if let Some(old) = s.jam.remote_stop.take() {
-                        old.store(true, Ordering::Relaxed);
+                    if let Some(old) = s.jam.remote_task.take() {
+                        old.abort();
                     }
-                    s.jam.remote_stop = Some(Arc::clone(&stop));
+                    s.jam.host_publisher = Some(publisher);
                     s.jam.remote_role = RemoteRole::Host(code.clone());
-                    s.jam.last_pub_ms.set(0);
+                    s.jam.latest_state = None;
                     let cmd_tx = s.jam.cmd_tx.clone();
-                    start_host_cmd_listener(code.clone(), stop, cmd_tx);
+                    s.jam.remote_task = Some(start_host_cmd_listener(
+                        code.clone(),
+                        cmd_tx,
+                        s.jam.remote_tx.clone(),
+                    ));
                     sync_jam_snapshot(&s);
                     update_jam_btn_highlight(&s, &jam_btn);
                 }
@@ -840,11 +882,13 @@ pub fn open_jam_dialog(parent: &Button, state: Rc<RefCell<AppState>>, jam_btn: B
                 ));
             } else {
                 let mut s = state_h.borrow_mut();
-                if let Some(old) = s.jam.remote_stop.take() {
-                    old.store(true, Ordering::Relaxed);
-                }
                 if matches!(s.jam.remote_role, RemoteRole::Host(_)) {
+                    if let Some(old) = s.jam.remote_task.take() {
+                        old.abort();
+                    }
+                    s.jam.host_publisher = None;
                     s.jam.remote_role = RemoteRole::Idle;
+                    s.jam.latest_state = None;
                 }
                 refresh_spin_ui(&s);
                 update_jam_btn_highlight(&s, &jam_btn);
@@ -865,10 +909,11 @@ pub fn open_jam_dialog(parent: &Button, state: Rc<RefCell<AppState>>, jam_btn: B
             let is_currently_guest = matches!(state_g.borrow().jam.remote_role, RemoteRole::Guest(_));
             if is_currently_guest {
                 let mut s = state_g.borrow_mut();
-                if let Some(old) = s.jam.remote_stop.take() {
-                    old.store(true, Ordering::Relaxed);
+                if let Some(old) = s.jam.remote_task.take() {
+                    old.abort();
                 }
                 s.jam.remote_role = RemoteRole::Idle;
+                s.jam.latest_state = None;
                 s.remote_host_name = None;
                 refresh_spin_ui(&s);
                 update_jam_btn_highlight(&s, &jam_btn);
@@ -882,35 +927,31 @@ pub fn open_jam_dialog(parent: &Button, state: Rc<RefCell<AppState>>, jam_btn: B
                 return;
             }
             let raw = join_entry.text().to_string();
-            let target = normalize_room_code(&raw);
-            if target.is_empty() {
-                state_g.borrow().show_toast(tr(
-                    "Ingresa un código de sala o URL",
-                    "Enter a room code or URL",
-                ));
-                return;
-            }
+            let target = match normalize_room_code(&raw) {
+                Ok(target) => target,
+                Err(err) => {
+                    state_g.borrow().show_toast(&err);
+                    return;
+                }
+            };
             if host_row.is_active() {
                 host_row.set_active(false);
             }
             room_code_row.set_visible(false);
-            let stop = Arc::new(AtomicBool::new(false));
             {
                 let mut s = state_g.borrow_mut();
-                if let Some(old) = s.jam.remote_stop.take() {
-                    old.store(true, Ordering::Relaxed);
+                if let Some(old) = s.jam.remote_task.take() {
+                    old.abort();
                 }
-                s.jam.remote_stop = Some(Arc::clone(&stop));
+                s.jam.host_publisher = None;
                 s.jam.remote_role = RemoteRole::Guest(target.clone());
+                s.jam.latest_state = None;
                 s.remote_host_name = None;
                 let tx = s.jam.remote_tx.clone();
-                start_guest_sync(target.clone(), stop, tx);
+                s.jam.remote_task = Some(start_guest_sync(target.clone(), tx));
                 refresh_spin_ui(&s);
                 update_jam_btn_highlight(&s, &jam_btn);
-                s.show_toast(&format!(
-                    "{}: {target}",
-                    tr("Conectado a sala SPIN", "Connected to SPIN room")
-                ));
+                s.show_toast(tr("Conectando a sala SPIN…", "Connecting to SPIN room…"));
             }
             btn.set_label(tr("Desconectar", "Disconnect"));
             btn.remove_css_class("suggested-action");
