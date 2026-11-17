@@ -96,6 +96,7 @@ pub fn build_ui(app: &adw::Application) {
     register_app_icon();
 
     let backend = Backend::new();
+    Backend::trim_audio_cache_on_startup();
     let decks = [GStreamerDeck::new(), GStreamerDeck::new()];
     let toast_overlay = adw::ToastOverlay::new();
     let saved_session = load_session_state();
@@ -205,11 +206,12 @@ pub fn build_ui(app: &adw::Application) {
         ),
     );
 
-    let (jam_cmd_tx, jam_cmd_rx) = async_channel::unbounded();
+    let (jam_cmd_tx, jam_cmd_rx) = async_channel::bounded(64);
     let (remote_tx, remote_rx) = async_channel::unbounded();
     let initial_cf_secs = saved_session.crossfade_secs.min(10);
     let state = Rc::new(RefCell::new(AppState {
         backend: backend.clone(),
+        view_requests: Default::default(),
         decks: decks.clone(),
         active_deck: 0,
         user_volume: saved_session.user_volume.clamp(0.0, 1.0),
@@ -326,10 +328,20 @@ pub fn build_ui(app: &adw::Application) {
         });
     }
 
+    {
+        let requests = state.borrow().view_requests.clone();
+        content_view_stack.connect_visible_child_name_notify(move |_| {
+            requests.begin();
+        });
+    }
+
     // Build right-pane pages
     let (home_page, quick_grid) = build_home_page(Rc::clone(&state), content_view_stack.clone());
-    let (explore_page, explore_actions) =
-        build_explore_page(Rc::clone(&state), hdr.search_entry.clone());
+    let (explore_page, explore_actions) = build_explore_page(
+        Rc::clone(&state),
+        hdr.search_entry.clone(),
+        &content_view_stack,
+    );
     let collection_page = build_collection_page(Rc::clone(&state));
     refresh_favorites_ui(Rc::clone(&state));
     refresh_recent_ui(Rc::clone(&state));

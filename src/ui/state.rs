@@ -14,8 +14,24 @@ use crate::gst_deck::GStreamerDeck;
 use crate::models::{SessionState, Track, UserPlaylist, save_session_state};
 use crate::mpris::MprisController;
 
+#[derive(Clone, Default)]
+pub struct ViewRequests(Rc<Cell<u64>>);
+
+impl ViewRequests {
+    pub fn begin(&self) -> u64 {
+        let next = self.0.get().wrapping_add(1);
+        self.0.set(next);
+        next
+    }
+
+    pub fn is_current(&self, request: u64) -> bool {
+        self.0.get() == request
+    }
+}
+
 pub struct AppState {
     pub backend: Backend,
+    pub view_requests: ViewRequests,
     pub decks: [GStreamerDeck; 2],
     pub active_deck: usize,
     pub user_volume: f64,
@@ -317,6 +333,19 @@ pub fn next_queue_index(s: &AppState) -> Option<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_the_latest_view_request_can_update_the_page() {
+        let requests = ViewRequests::default();
+        let first_album = requests.begin();
+        let second_album = requests.begin();
+        let first_album_again = requests.begin();
+        assert!(!requests.is_current(first_album));
+        assert!(!requests.is_current(second_album));
+        assert!(requests.is_current(first_album_again));
+        requests.begin(); // Navigation away invalidates a request even without a replacement.
+        assert!(!requests.is_current(first_album_again));
+    }
 
     fn track(id: &str) -> Track {
         serde_json::from_value(serde_json::json!({"id":id,"title":id,"artist":"Artist"})).unwrap()

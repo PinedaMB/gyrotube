@@ -49,6 +49,8 @@ Este filtro identifica audio oficial de YouTube Music, no certifica que la graba
 
 Las pistas sin imagen individual heredan la carátula del álbum. El reproductor muestra la imagen disponible sin esperar una búsqueda y prueba la miniatura si falla la descarga o la decodificación de la imagen grande. Los errores se registran en stderr.
 
+La caché de audio guardado tiene un límite de 1 GiB. GyroTube libera espacio al arrancar y al guardar una descarga, empezando por los archivos menos usados y conservando los que tiene abiertos el reproductor. Si no puede guardar una descarga de respaldo, la reproduce desde un archivo temporal.
+
 ## Integridad de datos y pistas compartidas
 
 La caché solo se utiliza directamente cuando la pista tiene una verificación de audio del catálogo. Las marcas antiguas se vuelven a verificar con conexión antes de reproducirse. JAM y SPIN envían el ID de la canción; el receptor consulta su tipo, disponibilidad y metadatos antes de agregarla. La API LAN responde `202 Accepted` mientras se verifica la solicitud.
@@ -57,8 +59,8 @@ Los favoritos, playlists y sesiones se guardan mediante escritura temporal y ree
 
 ## Salas SPIN
 
-El anfitrión comparte una invitación `SPIN-…` nueva para cada sesión. Su estado se firma con Ed25519; la clave privada permanece en el anfitrión y los invitados comprueban la firma, la secuencia y la antigüedad de cada mensaje. Los códigos antiguos de seis caracteres ya no son válidos. Comparte la invitación solo con quienes deban poder enviar canciones o controles.
+El anfitrión crea una sala y comparte el ticket `GYRO-…` con **Copiar** o mediante el QR. Los invitados pegan el ticket en GyroTube. Genera una invitación nueva al reiniciar la sala. Los códigos SPIN anteriores dejaron de funcionar.
 
-SPIN publica cambios de pista, pausa, reproducción, permisos y saltos de posición, con un mínimo de cinco segundos entre estados y un latido cada diez minutos. Las actualizaciones pendientes se agrupan y los errores HTTP, incluidos los límites `429`, se muestran en la aplicación; el emisor espera antes de reintentar. La cuota diaria de ntfy.sh sigue aplicándose: esto reduce el consumo y comunica los bloqueos, pero no elimina los límites del servicio.
+GyroTube usa iroh para conectar cada invitado con el anfitrión. Intenta establecer una conexión directa y recurre a los relays públicos de iroh cuando hace falta. Los datos de sincronización viajan cifrados entre equipos, y cada invitado obtiene su propio audio de YouTube Music. Los relays públicos tienen límites y su disponibilidad puede variar.
 
-Las firmas autentican el estado, pero no cifran los metadatos que pasan por ntfy.sh. El acceso JAM mediante una URL LAN sigue siendo una conexión local sin estas firmas. El QR de JAM se verifica con un lector independiente en las pruebas, para las cinco versiones que genera.
+Comparte el ticket solo con quienes quieras invitar. Los invitados pueden enviar solicitudes y usar los controles si el anfitrión los habilita. JAM sigue permitiendo unirse mediante la URL local.

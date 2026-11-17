@@ -14,6 +14,7 @@ use ytmapi_rs::parse::{
     SearchResultPlaylist, SearchResultSong,
 };
 
+use crate::audio_cache;
 use crate::models::{
     Album, Artist, ArtistDetails, Genre, LyricsData, Playlist, SearchResults, StreamInfo, Track,
     cache_dir, clean_track_title, color_to_hex, parse_lrc,
@@ -630,7 +631,7 @@ impl Backend {
     fn cached_stream(&self, video_id: &str) -> Option<StreamInfo> {
         validate_video_id(video_id).ok()?;
         let dir = Self::streams_dir().ok()?;
-        Self::find_cached_audio(video_id, &dir)
+        audio_cache::find(video_id, &dir)
     }
 
     pub fn cached_track_stream(&self, track: &Track) -> Option<StreamInfo> {
@@ -648,28 +649,12 @@ impl Backend {
         self.cached_stream(video_id)
     }
 
-    fn find_cached_audio(video_id: &str, streams_dir: &std::path::Path) -> Option<StreamInfo> {
-        for (ext, label) in [
-            ("m4a", "M4A"),
-            ("webm", "WEBM"),
-            ("ytdlp.m4a", "M4A"),
-            ("ytdlp.webm", "WEBM"),
-        ] {
-            let path = streams_dir.join(format!("{video_id}.{ext}"));
-            if path.is_file()
-                && std::fs::metadata(&path)
-                    .map(|m| m.len() > 0)
-                    .unwrap_or(false)
-            {
-                return Some(StreamInfo {
-                    url: path.to_string_lossy().into_owned(),
-                    quality_label: label.to_string(),
-                    user_agent: None,
-                    headers: HashMap::new(),
-                });
+    pub fn trim_audio_cache_on_startup() {
+        runtime().spawn_blocking(|| {
+            if let Ok(dir) = Self::streams_dir() {
+                audio_cache::trim_existing(&dir);
             }
-        }
-        None
+        });
     }
 
     pub async fn verify_music_track(&self, video_id: &str) -> Result<Track, String> {
@@ -748,7 +733,7 @@ impl Backend {
     pub async fn download_with_ytdlp_fallback(&self, video_id: &str) -> Result<StreamInfo, String> {
         validate_video_id(video_id)?;
         let streams_dir = Self::streams_dir()?;
-        if let Some(cached) = Self::find_cached_audio(video_id, &streams_dir) {
+        if let Some(cached) = audio_cache::find(video_id, &streams_dir) {
             return Ok(cached);
         }
 
@@ -772,7 +757,7 @@ impl Backend {
         video_id: &str,
         streams_dir: &std::path::Path,
     ) -> Result<StreamInfo, String> {
-        if let Some(cached) = Self::find_cached_audio(video_id, streams_dir) {
+        if let Some(cached) = audio_cache::find(video_id, streams_dir) {
             return Ok(cached);
         }
 
@@ -814,29 +799,23 @@ impl Backend {
             return Err(String::from("yt-dlp no pudo descargar el audio."));
         }
 
-        let downloaded = std::fs::read_dir(staging.path())
+        let (downloaded, extension) = std::fs::read_dir(staging.path())
             .ok()
-            .and_then(|mut it| it.find_map(|e| e.ok()))
-            .map(|e| e.path())
+            .and_then(|entries| {
+                entries.filter_map(Result::ok).find_map(|entry| {
+                    let name = entry.file_name();
+                    let extension = name.to_str()?.strip_prefix("audio.")?;
+                    (audio_cache::audio_extension(extension)
+                        && entry.metadata().is_ok_and(|m| m.is_file() && m.len() > 0))
+                        .then(|| (entry.path(), extension.to_owned()))
+                })
+            })
             .ok_or_else(|| String::from("yt-dlp no generó archivo de audio."))?;
-        let ext = downloaded
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("webm");
-        let path = streams_dir.join(format!("{video_id}.ytdlp.{ext}"));
-        std::fs::rename(&downloaded, &path)
-            .map_err(|e| format!("Error al guardar audio de yt-dlp: {e}"))?;
-
+        let stream = audio_cache::finish(streams_dir, video_id, downloaded, &extension, staging);
         if let Ok(mut guard) = self.stream_cache.write() {
             guard.remove(video_id);
         }
-
-        Ok(StreamInfo {
-            url: path.to_string_lossy().into_owned(),
-            quality_label: ext.to_uppercase(),
-            user_agent: None,
-            headers: HashMap::new(),
-        })
+        Ok(stream)
     }
 
     pub async fn prefetch_audio(&self, track: &Track) {
@@ -1010,7 +989,7 @@ fn verified_music_track(
     Ok(Track::from(item))
 }
 
-fn validate_video_id(video_id: &str) -> Result<(), String> {
+pub(crate) fn validate_video_id(video_id: &str) -> Result<(), String> {
     if video_id.len() == 11
         && video_id
             .bytes()
@@ -1054,6 +1033,7 @@ fn stream_from_ytdlp_json(raw: &[u8]) -> Result<StreamInfo, String> {
             .find(|(k, _)| k.eq_ignore_ascii_case("user-agent"))
             .map(|(_, v)| v.clone()),
         headers: audio.http_headers,
+        local_audio: None,
     })
 }
 
@@ -1292,6 +1272,7 @@ mod tests {
                     quality_label: "OPUS".into(),
                     user_agent: None,
                     headers: HashMap::new(),
+                    local_audio: None,
                 },
             ),
         );
@@ -1322,6 +1303,7 @@ mod tests {
                     quality_label: "OPUS".into(),
                     user_agent: None,
                     headers: HashMap::new(),
+                    local_audio: None,
                 },
             ),
         );
@@ -1469,6 +1451,7 @@ mod tests {
             quality_label: "OPUS".into(),
             user_agent: None,
             headers: HashMap::new(),
+            local_audio: None,
         };
         assert!(stream_url_is_fresh(
             Instant::now() - Duration::from_secs(240),
@@ -1594,7 +1577,7 @@ mod tests {
         let file = dir.path().join("dQw4w9WgXcQ.m4a");
         std::fs::write(&file, b"audio-bytes").expect("write cached audio");
 
-        let found = Backend::find_cached_audio("dQw4w9WgXcQ", dir.path()).expect("cached audio");
+        let found = audio_cache::find("dQw4w9WgXcQ", dir.path()).expect("cached audio");
         assert_eq!(found.url, file.to_string_lossy());
         assert_eq!(found.quality_label, "M4A");
     }

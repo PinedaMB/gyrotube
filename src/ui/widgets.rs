@@ -492,6 +492,16 @@ pub fn strip_link_markup(markup: &str) -> String {
         .replace("&amp;", "&")
 }
 
+pub fn begin_collection_loading(
+    title: String,
+    cover: Option<String>,
+    state: &Rc<RefCell<AppState>>,
+) -> u64 {
+    open_collection_page(title, cover, None, Rc::clone(state));
+    // Opening the loading page can switch the stack and invalidate the previous view.
+    state.borrow().view_requests.begin()
+}
+
 pub fn open_collection_page(
     title: String,
     cover_url: Option<String>,
@@ -587,10 +597,13 @@ pub fn open_album_by_id(
     state: Rc<RefCell<AppState>>,
 ) {
     let backend = state.borrow().backend.clone();
-    open_collection_page(album_title, album_cover.clone(), None, Rc::clone(&state));
+    let request = begin_collection_loading(album_title, album_cover.clone(), &state);
     spawn_bg(
         move || async move { backend.fetch_album_tracks(&album_id).await },
         move |result| {
+            if !state.borrow().view_requests.is_current(request) {
+                return;
+            }
             handle_fetched_queue(
                 result,
                 album_cover,
@@ -687,19 +700,17 @@ pub fn build_playlist_card(playlist: &Playlist, state: Rc<RefCell<AppState>>) ->
         let state = Rc::clone(&state);
         connect_card_open(&card, move || {
             let backend = state.borrow().backend.clone();
-            open_collection_page(
-                playlist_name.clone(),
-                playlist_cover.clone(),
-                None,
-                Rc::clone(&state),
-            );
+            let request =
+                begin_collection_loading(playlist_name.clone(), playlist_cover.clone(), &state);
             let id = playlist_id.clone();
             let cover = playlist_cover.clone();
             let state = Rc::clone(&state);
             spawn_bg(
                 move || async move { backend.fetch_playlist_tracks(&id).await },
                 move |result| {
-                    handle_fetched_queue(result, cover, "La playlist está vacía.", state);
+                    if state.borrow().view_requests.is_current(request) {
+                        handle_fetched_queue(result, cover, "La playlist está vacía.", state);
+                    }
                 },
             );
         });
@@ -1051,8 +1062,19 @@ pub fn clamped_cover(min_size: i32, max_size: i32, css_class: &str) -> (adw::Cla
 }
 
 pub fn load_cover_into_picture(picture: &Picture, url: &str, state: Rc<RefCell<AppState>>) {
+    load_cover_into_picture_if(picture, url, state, || true);
+}
+
+pub fn load_cover_into_picture_if(
+    picture: &Picture,
+    url: &str,
+    state: Rc<RefCell<AppState>>,
+    is_current: impl FnOnce() -> bool + 'static,
+) {
     if let Some(texture) = state.borrow().cover_cache.get(url).cloned() {
-        picture.set_paintable(Some(&texture));
+        if is_current() {
+            picture.set_paintable(Some(&texture));
+        }
         return;
     }
 
@@ -1075,7 +1097,9 @@ pub fn load_cover_into_picture(picture: &Picture, url: &str, state: Rc<RefCell<A
                     .borrow_mut()
                     .cover_cache
                     .insert(url_key, texture.clone());
-                picture.set_paintable(Some(&texture));
+                if is_current() {
+                    picture.set_paintable(Some(&texture));
+                }
             }
         }
     });

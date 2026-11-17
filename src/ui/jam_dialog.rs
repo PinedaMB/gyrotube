@@ -17,19 +17,20 @@ use crate::jam::{
     start_jam_server,
 };
 use crate::spin_remote::{
-    HostPublisher, RemoteRole, RemoteSyncPayload, RemoteUpdate, local_display_name,
-    normalize_room_code, now_ms, start_guest_sync, start_host_cmd_listener,
+    GuestSession, HostPublisher, RemoteRole, RemoteSyncPayload, RemoteUpdate,
+    local_display_name, normalize_room_code, now_ms, start_guest_sync, ticket_qr_svg,
 };
 use crate::ui::player::{clear_playback, load_queue_index, play_queue_index, refresh_queue_ui};
 use crate::ui::state::{AppState, next_queue_index};
-use crate::ui::widgets::clear_box;
+use crate::ui::widgets::{clear_box, spawn_bg};
 
 pub struct JamRuntime {
     pub snapshot: Arc<RwLock<JamSnapshot>>,
     pub server: Option<JamServerHandle>,
     pub cmd_tx: async_channel::Sender<JamRequest>,
     pub remote_role: RemoteRole,
-    pub remote_task: Option<tokio::task::JoinHandle<()>>,
+    pub guest_session: Option<GuestSession>,
+    host_starting: bool,
     pub host_publisher: Option<HostPublisher>,
     pub remote_tx: async_channel::Sender<RemoteUpdate>,
     pub latest_state: Option<RemoteSyncPayload>,
@@ -56,18 +57,11 @@ impl JamRuntime {
             server: None,
             cmd_tx,
             remote_role: RemoteRole::Idle,
-            remote_task: None,
+            guest_session: None,
+            host_starting: false,
             host_publisher: None,
             remote_tx,
             latest_state: None,
-        }
-    }
-}
-
-impl Drop for JamRuntime {
-    fn drop(&mut self) {
-        if let Some(task) = self.remote_task.take() {
-            task.abort();
         }
     }
 }
@@ -657,7 +651,7 @@ pub fn open_jam_dialog(parent: &Button, state: Rc<RefCell<AppState>>, jam_btn: B
 
     let is_host = matches!(remote_role, RemoteRole::Host(_));
     let host_code_init = match &remote_role {
-        RemoteRole::Host(c) => format!("SPIN-{c}"),
+        RemoteRole::Host(c) => format!("GYRO-{c}"),
         _ => String::new(),
     };
     let guest_target_init = match &remote_role {
@@ -667,17 +661,15 @@ pub fn open_jam_dialog(parent: &Button, state: Rc<RefCell<AppState>>, jam_btn: B
 
     let host_row = adw::SwitchRow::builder()
         .title(tr("Transmitir como anfitrión", "Broadcast as host"))
-        .subtitle(tr("Crea un código de sala", "Create a room code"))
+        .subtitle(tr("Crea una invitación", "Create an invitation"))
         .active(is_host)
         .build();
 
     let room_code_label = Label::builder()
         .label(&host_code_init)
-        .wrap(true)
-        .wrap_mode(gtk4::pango::WrapMode::Char)
-        .max_width_chars(32)
+        .ellipsize(gtk4::pango::EllipsizeMode::Middle)
+        .max_width_chars(24)
         .selectable(true)
-        .css_classes(["title-4"])
         .build();
     let copy_code_btn = Button::builder()
         .label(tr("Copiar", "Copy"))
@@ -691,12 +683,12 @@ pub fn open_jam_dialog(parent: &Button, state: Rc<RefCell<AppState>>, jam_btn: B
             if let Some(display) = gdk::Display::default() {
                 display.clipboard().set_text(&lbl.text());
                 st.borrow()
-                    .show_toast(tr("Código de sala copiado", "Room code copied"));
+                    .show_toast(tr("Invitación copiada", "Invitation copied"));
             }
         });
     }
     let room_code_row = adw::ActionRow::builder()
-        .title(tr("Código de sala", "Room code"))
+        .title(tr("Invitación", "Invitation"))
         .visible(is_host)
         .build();
     room_code_row.add_suffix(&room_code_label);
@@ -730,14 +722,32 @@ pub fn open_jam_dialog(parent: &Button, state: Rc<RefCell<AppState>>, jam_btn: B
         .subtitle(if is_guest {
             tr("Sincronizado con anfitrión", "Synced with host")
         } else {
-            tr("Ingresa el código de sala", "Enter room code")
+            tr("Pega una invitación", "Paste an invitation")
         })
         .build();
     join_row.add_suffix(&join_entry);
     join_row.add_suffix(&join_btn);
 
+    let ticket_qr = Picture::builder()
+        .width_request(220)
+        .height_request(220)
+        .halign(Align::Center)
+        .visible(false)
+        .build();
+    let show_ticket_qr = |picture: &Picture, ticket: &str| {
+        let texture = ticket_qr_svg(ticket).and_then(|svg| {
+            gdk::Texture::from_bytes(&glib::Bytes::from_owned(svg.into_bytes())).ok()
+        });
+        picture.set_paintable(texture.as_ref());
+        picture.set_visible(texture.is_some());
+    };
+    if is_host {
+        show_ticket_qr(&ticket_qr, &host_code_init);
+    }
+
     remote_group.add(&host_row);
     remote_group.add(&room_code_row);
+    remote_group.add(&ticket_qr);
     remote_group.add(&join_row);
     page.add(&remote_group);
 
@@ -841,51 +851,78 @@ pub fn open_jam_dialog(parent: &Button, state: Rc<RefCell<AppState>>, jam_btn: B
         let join_row = join_row.clone();
         let join_btn = join_btn.clone();
         let jam_btn = jam_btn.clone();
+        let ticket_qr = ticket_qr.clone();
         host_row.connect_active_notify(move |row| {
-            let want = row.is_active();
-            if want {
-                let updates = state_h.borrow().jam.remote_tx.clone();
-                let publisher = match HostPublisher::new(updates) {
-                    Ok(publisher) => publisher,
-                    Err(err) => {
-                        row.set_active(false);
-                        state_h.borrow().show_toast(&err);
+            if row.is_active() {
+                let commands = {
+                    let mut s = state_h.borrow_mut();
+                    if s.jam.host_starting || matches!(s.jam.remote_role, RemoteRole::Host(_)) {
                         return;
                     }
+                    s.jam.host_starting = true;
+                    s.jam.cmd_tx.clone()
                 };
-                let code = publisher.invitation.clone();
-                {
-                    let mut s = state_h.borrow_mut();
-                    if let Some(old) = s.jam.remote_task.take() {
-                        old.abort();
-                    }
-                    s.jam.host_publisher = Some(publisher);
-                    s.jam.remote_role = RemoteRole::Host(code.clone());
-                    s.jam.latest_state = None;
-                    let cmd_tx = s.jam.cmd_tx.clone();
-                    s.jam.remote_task = Some(start_host_cmd_listener(
-                        code.clone(),
-                        cmd_tx,
-                        s.jam.remote_tx.clone(),
-                    ));
-                    sync_jam_snapshot(&s);
-                    update_jam_btn_highlight(&s, &jam_btn);
-                }
-                room_code_label.set_label(&format!("SPIN-{code}"));
-                room_code_row.set_visible(true);
-                join_btn.set_label(tr("Unirse", "Join"));
-                join_btn.remove_css_class("destructive-action");
-                join_btn.add_css_class("suggested-action");
-                join_row.set_subtitle(tr(
-                    "Ingresa el código de tu amigo para escuchar igual",
-                    "Enter your friend's code to listen together",
-                ));
+                row.set_sensitive(false);
+                join_btn.set_sensitive(false);
+                row.set_subtitle(tr("Preparando la sala…", "Preparing room…"));
+                let (
+                    row,
+                    state_h,
+                    room_code_row,
+                    room_code_label,
+                    join_btn,
+                    join_row,
+                    jam_btn,
+                    ticket_qr,
+                ) = (
+                    row.clone(),
+                    state_h.clone(),
+                    room_code_row.clone(),
+                    room_code_label.clone(),
+                    join_btn.clone(),
+                    join_row.clone(),
+                    jam_btn.clone(),
+                    ticket_qr.clone(),
+                );
+                spawn_bg(
+                    move || HostPublisher::new(commands),
+                    move |result| {
+                        state_h.borrow_mut().jam.host_starting = false;
+                        row.set_sensitive(true);
+                        join_btn.set_sensitive(true);
+                        row.set_subtitle(tr("Crea una invitación", "Create an invitation"));
+                        let publisher = match result {
+                            Ok(publisher) => publisher,
+                            Err(err) => {
+                                row.set_active(false);
+                                state_h.borrow().show_toast(&format!("SPIN: {err}"));
+                                return;
+                            }
+                        };
+                        let code = publisher.invitation.clone();
+                        {
+                            let mut s = state_h.borrow_mut();
+                            s.jam.guest_session = None;
+                            s.jam.host_publisher = Some(publisher);
+                            s.jam.remote_role = RemoteRole::Host(code.clone());
+                            s.jam.latest_state = None;
+                            s.remote_host_name = None;
+                            sync_jam_snapshot(&s);
+                            update_jam_btn_highlight(&s, &jam_btn);
+                        }
+                        let ticket = format!("GYRO-{code}");
+                        room_code_label.set_label(&ticket);
+                        room_code_row.set_visible(true);
+                        show_ticket_qr(&ticket_qr, &ticket);
+                        join_btn.set_label(tr("Unirse", "Join"));
+                        join_btn.remove_css_class("destructive-action");
+                        join_btn.add_css_class("suggested-action");
+                        join_row.set_subtitle(tr("Pega una invitación", "Paste an invitation"));
+                    },
+                );
             } else {
                 let mut s = state_h.borrow_mut();
                 if matches!(s.jam.remote_role, RemoteRole::Host(_)) {
-                    if let Some(old) = s.jam.remote_task.take() {
-                        old.abort();
-                    }
                     s.jam.host_publisher = None;
                     s.jam.remote_role = RemoteRole::Idle;
                     s.jam.latest_state = None;
@@ -893,6 +930,7 @@ pub fn open_jam_dialog(parent: &Button, state: Rc<RefCell<AppState>>, jam_btn: B
                 refresh_spin_ui(&s);
                 update_jam_btn_highlight(&s, &jam_btn);
                 room_code_row.set_visible(false);
+                ticket_qr.set_visible(false);
             }
         });
     }
@@ -906,12 +944,14 @@ pub fn open_jam_dialog(parent: &Button, state: Rc<RefCell<AppState>>, jam_btn: B
         let room_code_row = room_code_row.clone();
         let jam_btn = jam_btn.clone();
         join_btn.connect_clicked(move |btn| {
-            let is_currently_guest = matches!(state_g.borrow().jam.remote_role, RemoteRole::Guest(_));
+            if state_g.borrow().jam.host_starting {
+                return;
+            }
+            let is_currently_guest =
+                matches!(state_g.borrow().jam.remote_role, RemoteRole::Guest(_));
             if is_currently_guest {
                 let mut s = state_g.borrow_mut();
-                if let Some(old) = s.jam.remote_task.take() {
-                    old.abort();
-                }
+                s.jam.guest_session = None;
                 s.jam.remote_role = RemoteRole::Idle;
                 s.jam.latest_state = None;
                 s.remote_host_name = None;
@@ -940,15 +980,12 @@ pub fn open_jam_dialog(parent: &Button, state: Rc<RefCell<AppState>>, jam_btn: B
             room_code_row.set_visible(false);
             {
                 let mut s = state_g.borrow_mut();
-                if let Some(old) = s.jam.remote_task.take() {
-                    old.abort();
-                }
                 s.jam.host_publisher = None;
                 s.jam.remote_role = RemoteRole::Guest(target.clone());
                 s.jam.latest_state = None;
                 s.remote_host_name = None;
                 let tx = s.jam.remote_tx.clone();
-                s.jam.remote_task = Some(start_guest_sync(target.clone(), tx));
+                s.jam.guest_session = Some(start_guest_sync(target, tx));
                 refresh_spin_ui(&s);
                 update_jam_btn_highlight(&s, &jam_btn);
                 s.show_toast(tr("Conectando a sala SPIN…", "Connecting to SPIN room…"));
@@ -956,10 +993,7 @@ pub fn open_jam_dialog(parent: &Button, state: Rc<RefCell<AppState>>, jam_btn: B
             btn.set_label(tr("Desconectar", "Disconnect"));
             btn.remove_css_class("suggested-action");
             btn.add_css_class("destructive-action");
-            join_row.set_subtitle(tr(
-                "Sincronizado con anfitrión remoto",
-                "Synced with remote host",
-            ));
+            join_row.set_subtitle(tr("Siguiendo al anfitrión", "Following the host"));
         });
     }
 

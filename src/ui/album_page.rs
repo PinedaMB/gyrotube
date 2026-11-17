@@ -13,10 +13,10 @@ use crate::i18n::tr;
 use crate::models::{Track, format_duration};
 use crate::ui::collection::refresh_playlists_ui;
 use crate::ui::player::{play_queue_index, refresh_queue_ui};
-use crate::ui::state::AppState;
+use crate::ui::state::{AppState, ViewRequests};
 use crate::ui::widgets::{
     build_skeleton_box, clamped_cover, clear_box, clear_list_box, highlight_active_track_in_list,
-    load_cover_into_picture, set_artist_links, set_track_favorite, start_track_radio,
+    load_cover_into_picture_if, set_artist_links, set_track_favorite, start_track_radio,
     update_album_ambient_color,
 };
 
@@ -438,8 +438,20 @@ pub fn build_album_page(
         let title_ref = Rc::clone(&current_title);
         let scrolled = scrolled.clone();
         let loading = Rc::clone(&loading_active);
+        let covers = ViewRequests::default();
         Rc::new(
             move |title: String, cover_url: Option<String>, maybe_tracks: Option<Vec<Track>>| {
+                let cover_request = covers.begin();
+                let load_cover = |url: &str| {
+                    let covers = covers.clone();
+                    let stack = stack.downgrade();
+                    load_cover_into_picture_if(&cover_pic, url, Rc::clone(&state), move || {
+                        covers.is_current(cover_request)
+                            && stack.upgrade().is_some_and(|stack| {
+                                stack.visible_child_name().as_deref() == Some("album")
+                            })
+                    });
+                };
                 let Some(tracks) = maybe_tracks else {
                     if let Some(name) = stack.visible_child_name()
                         && name != "album"
@@ -450,14 +462,8 @@ pub fn build_album_page(
                     tracks_ref.borrow_mut().clear();
                     *title_ref.borrow_mut() = title.clone();
                     cover_pic.set_paintable(None::<&gtk4::gdk::Paintable>);
-                    if let Some(url) = cover_url.as_deref() {
-                        load_cover_into_picture(&cover_pic, url, Rc::clone(&state));
-                        cover_frame.set_visible(true);
-                        cover_skeleton.set_visible(false);
-                    } else {
-                        cover_frame.set_visible(false);
-                        cover_skeleton.set_visible(true);
-                    }
+                    cover_frame.set_visible(cover_url.is_some());
+                    cover_skeleton.set_visible(cover_url.is_none());
                     badge_label.set_label("ÁLBUM");
                     title_label.set_label(&title);
                     artist_label.set_visible(false);
@@ -468,21 +474,13 @@ pub fn build_album_page(
                     skeleton_box.set_visible(true);
                     scrolled.vadjustment().set_value(0.0);
                     stack.set_visible_child_name("album");
+                    if let Some(url) = cover_url.as_deref() {
+                        load_cover(url);
+                    }
                     return;
                 };
 
-                if !loading.get() && stack.visible_child_name().as_deref() == Some("album") {
-                    // User navigated away while loading; ignore stale response if not already on album.
-                }
-                let was_loading = loading.replace(false);
-                if was_loading && stack.visible_child_name().as_deref() != Some("album") {
-                    return;
-                }
-                if let Some(name) = stack.visible_child_name()
-                    && name != "album"
-                {
-                    *prev_ref.borrow_mut() = name.to_string();
-                }
+                loading.set(false);
 
                 *tracks_ref.borrow_mut() = tracks.clone();
                 *title_ref.borrow_mut() = title.clone();
@@ -495,7 +493,7 @@ pub fn build_album_page(
                         .first()
                         .and_then(|t| t.cover_large_url.as_deref().or(t.cover_url.as_deref()))
                 }) {
-                    load_cover_into_picture(&cover_pic, url, Rc::clone(&state));
+                    load_cover(url);
                 }
 
                 let is_album = tracks.iter().any(|t| {

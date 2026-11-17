@@ -1,5 +1,6 @@
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::time::{Duration, Instant};
 
 use gtk4::glib;
 use gtk4::prelude::*;
@@ -551,10 +552,6 @@ fn update_synced_lyrics_position(s: &mut AppState, pos_secs_exact: f64) {
     }
 }
 
-fn set_stream_on_media(media: &crate::gst_deck::GStreamerDeck, stream: crate::models::StreamInfo) {
-    media.set_stream(&stream.url, stream.user_agent.as_deref(), &stream.headers);
-}
-
 pub fn show_player_loading(state: &Rc<RefCell<AppState>>, title: &str) {
     let s = state.borrow();
     s.player_title.set_label(title);
@@ -717,7 +714,7 @@ pub fn load_queue_index(
             }
             (s.active_media().clone(), next_id)
         };
-        set_stream_on_media(&media_file, stream);
+        media_file.set_stream(&stream);
         if media_file.is_prepared() && state.borrow().pending_autoplay {
             state.borrow_mut().pending_autoplay = false;
             media_file.play();
@@ -791,7 +788,7 @@ pub fn load_queue_index(
 
         if let Some((media_file, stream, backend, next_id)) = stream_to_play {
             media_file.pause();
-            set_stream_on_media(&media_file, stream);
+            media_file.set_stream(&stream);
             if media_file.is_prepared() && state.borrow().pending_autoplay {
                 state.borrow_mut().pending_autoplay = false;
                 media_file.play();
@@ -803,6 +800,14 @@ pub fn load_queue_index(
             }
         }
     });
+}
+
+const MIN_CROSSFADE_US: i64 = 500_000;
+const CROSSFADE_PREPARE_US: i64 = 3_000_000;
+
+fn crossfade_duration(remaining_us: i64, configured_us: i64) -> Option<Duration> {
+    (remaining_us >= MIN_CROSSFADE_US && remaining_us <= configured_us)
+        .then(|| Duration::from_micros(remaining_us as u64))
 }
 
 fn start_crossfade_to(state: Rc<RefCell<AppState>>, next_index: usize) {
@@ -826,18 +831,51 @@ fn start_crossfade_to(state: Rc<RefCell<AppState>>, next_index: usize) {
             return;
         };
 
+        let remaining = |s: &AppState| {
+            let media = s.active_media();
+            let configured_us = i64::from(s.crossfade_secs.min(10)) * 1_000_000;
+            let remaining_us = media.duration() - media.timestamp();
+            (s.crossfade_generation == cf_gen
+                && s.crossfade_enabled
+                && !s.crossfade_active
+                && !matches!(s.jam.remote_role, crate::spin_remote::RemoteRole::Guest(_))
+                && media.is_playing()
+                && !media.is_ended()
+                && next_queue_index(s) == Some(next_index)
+                && s.queue.get(next_index).is_some_and(|t| t.id == track.id)
+                && (MIN_CROSSFADE_US..=configured_us + CROSSFADE_PREPARE_US).contains(&remaining_us))
+                .then_some((remaining_us, configured_us))
+        };
+        let standby = {
+            let s = state.borrow();
+            if remaining(&s).is_none() {
+                return;
+            }
+            s.standby_media().clone()
+        };
+        standby.set_volume(0.0);
+        standby.set_stream(&stream);
+        let deadline = Instant::now() + Duration::from_secs(14);
+        let fade_duration = loop {
+            let window = remaining(&state.borrow());
+            if window.is_none() || standby.error().is_some() || Instant::now() >= deadline {
+                // A manual load or EOS may already be using this deck for another track.
+                if state.borrow().crossfade_generation == cf_gen {
+                    standby.clear();
+                }
+                return;
+            }
+            if let Some((remaining_us, configured_us)) = window
+                && standby.is_prerolled()
+                && let Some(duration) = crossfade_duration(remaining_us, configured_us)
+            {
+                break duration;
+            }
+            glib::timeout_future(Duration::from_millis(50)).await;
+        };
+
         let setup = {
             let mut s = state.borrow_mut();
-            if s.crossfade_generation != cf_gen
-                || !s.crossfade_enabled
-                || !s.active_media().is_playing()
-            {
-                return;
-            }
-            if s.queue.get(next_index).is_none_or(|t| t.id != track.id) {
-                return;
-            }
-
             let old_deck = s.active_deck;
             let new_deck = 1 - old_deck;
             s.active_deck = new_deck;
@@ -848,7 +886,8 @@ fn start_crossfade_to(state: Rc<RefCell<AppState>>, next_index: usize) {
             let current_gen = s.loading_generation;
             s.crossfade_triggered_for = None;
             s.lyrics_loaded_for = None;
-            s.pending_autoplay = true;
+            s.pending_autoplay = false;
+            s.pending_restore_seek = None;
 
             crate::ui::widgets::set_source_link(
                 &s.player_source_label,
@@ -886,32 +925,27 @@ fn start_crossfade_to(state: Rc<RefCell<AppState>>, next_index: usize) {
                 s.preloading_id = Some(id.id.clone());
             }
 
-            let cf_secs = s.crossfade_secs.clamp(1, 10);
             (
                 old_deck,
                 new_deck,
-                s.decks[new_deck].clone(),
                 s.player_cover.clone(),
                 s.player_fav_btn.clone(),
                 is_fav,
                 current_gen,
                 s.backend.clone(),
                 next_prefetch,
-                cf_secs,
             )
         };
 
         let (
             old_deck,
             new_deck,
-            new_media,
             player_cover,
             player_fav_btn,
             is_fav,
             current_gen,
             backend,
             next_prefetch,
-            cf_secs,
         ) = setup;
 
         if player_fav_btn.is_active() != is_fav {
@@ -924,15 +958,8 @@ fn start_crossfade_to(state: Rc<RefCell<AppState>>, next_index: usize) {
         record_recent_track(Rc::clone(&state), &track);
         notify_track_changed(Rc::clone(&state));
 
-        new_media.pause();
-        set_stream_on_media(&new_media, stream);
-        new_media.set_volume(0.0);
-        if new_media.is_prepared() {
-            state.borrow_mut().pending_autoplay = false;
-            new_media.play();
-        }
-
-        run_crossfade_ramp(Rc::clone(&state), cf_gen, old_deck, new_deck, cf_secs);
+        standby.play();
+        run_crossfade_ramp(Rc::clone(&state), cf_gen, old_deck, new_deck, fade_duration);
 
         if let Some(next_track) = next_prefetch {
             runtime().spawn(async move {
@@ -947,21 +974,18 @@ fn run_crossfade_ramp(
     cf_gen: u64,
     old_deck: usize,
     new_deck: usize,
-    cf_secs: u32,
+    duration: Duration,
 ) {
-    let total_steps: u32 = cf_secs.clamp(1, 10) * 20;
-    let mut step: u32 = 0;
-
-    glib::timeout_add_local(std::time::Duration::from_millis(50), move || {
-        step += 1;
-        let t = (step as f64 / total_steps as f64).min(1.0);
+    let started = Instant::now();
+    glib::timeout_add_local(Duration::from_millis(50), move || {
+        let t = (started.elapsed().as_secs_f64() / duration.as_secs_f64()).min(1.0);
 
         let (active, user_vol, old_media, new_media) = {
             let mut s = state.borrow_mut();
             if s.crossfade_generation != cf_gen || !s.crossfade_active {
                 return glib::ControlFlow::Break;
             }
-            let done = step >= total_steps;
+            let done = t >= 1.0;
             if done {
                 s.crossfade_active = false;
             }
@@ -977,13 +1001,31 @@ fn run_crossfade_ramp(
         new_media.set_volume(user_vol * t);
 
         if !active {
-            old_media.pause();
+            old_media.clear();
             new_media.set_volume(user_vol);
             glib::ControlFlow::Break
         } else {
             glib::ControlFlow::Continue
         }
     });
+}
+
+fn guest_control(state: &AppState, action: &str) -> bool {
+    let Some(session) = &state.jam.guest_session else {
+        return false;
+    };
+    if state.jam.latest_state.as_ref().is_some_and(|snapshot| !snapshot.allow_controls) {
+        state.show_toast(tr(
+            "El anfitrión desactivó los controles.",
+            "The host disabled guest controls.",
+        ));
+    } else if !session.send(crate::spin_remote::RemoteGuestEvent::Control(action.into())) {
+        state.show_toast(tr(
+            "SPIN: espera a que la sala esté conectada.",
+            "SPIN: wait for the room to connect.",
+        ));
+    }
+    true
 }
 
 pub fn wire_media_signals(
@@ -1030,16 +1072,7 @@ pub fn wire_media_signals(
         let state = Rc::clone(&state);
         let play_pause_btn = state.borrow().play_pause_btn.clone();
         play_pause_btn.connect_clicked(move |_| {
-            let guest_target = match &state.borrow().jam.remote_role {
-                crate::spin_remote::RemoteRole::Guest(t) => Some(t.clone()),
-                _ => None,
-            };
-            if let Some(target) = guest_target {
-                crate::spin_remote::send_guest_event(
-                    target,
-                    crate::spin_remote::RemoteGuestEvent::Control(String::from("play_pause")),
-                    state.borrow().jam.remote_tx.clone(),
-                );
+            if guest_control(&state.borrow(), "play_pause") {
                 return;
             }
             let (active, standby, current_idx) = {
@@ -1068,12 +1101,7 @@ pub fn wire_media_signals(
         let state = Rc::clone(&state);
         let prev_btn = state.borrow().prev_btn.clone();
         prev_btn.connect_clicked(move |_| {
-            if let crate::spin_remote::RemoteRole::Guest(target) = &state.borrow().jam.remote_role {
-                crate::spin_remote::send_guest_event(
-                    target.clone(),
-                    crate::spin_remote::RemoteGuestEvent::Control(String::from("prev")),
-                    state.borrow().jam.remote_tx.clone(),
-                );
+            if guest_control(&state.borrow(), "prev") {
                 return;
             }
             let target = state
@@ -1090,12 +1118,7 @@ pub fn wire_media_signals(
         let state = Rc::clone(&state);
         let next_btn = state.borrow().next_btn.clone();
         next_btn.connect_clicked(move |_| {
-            if let crate::spin_remote::RemoteRole::Guest(target) = &state.borrow().jam.remote_role {
-                crate::spin_remote::send_guest_event(
-                    target.clone(),
-                    crate::spin_remote::RemoteGuestEvent::Control(String::from("next")),
-                    state.borrow().jam.remote_tx.clone(),
-                );
+            if guest_control(&state.borrow(), "next") {
                 return;
             }
             let target = next_queue_index(&state.borrow());
@@ -1320,7 +1343,7 @@ pub fn wire_media_signals(
                                 }
                             };
                             if let Some((m, stream)) = media_opt {
-                                set_stream_on_media(&m, stream);
+                                m.set_stream(&stream);
                             }
                         });
                     }
@@ -1413,12 +1436,13 @@ pub fn wire_media_signals(
                     if s.crossfade_enabled
                         && cf_us > 0
                         && !s.crossfade_active
+                        && !matches!(s.jam.remote_role, crate::spin_remote::RemoteRole::Guest(_))
                         && dur_us > cf_us + 4_000_000
                         && pos_us > 0
                         && s.crossfade_triggered_for != Some(s.loading_generation)
                     {
                         let remaining_us = dur_us - pos_us;
-                        if (500_000..=cf_us + 1_000_000).contains(&remaining_us) {
+                        if (MIN_CROSSFADE_US..=cf_us + CROSSFADE_PREPARE_US).contains(&remaining_us) {
                             s.crossfade_triggered_for = Some(s.loading_generation);
                             next_queue_index(&s)
                         } else {
@@ -1506,7 +1530,7 @@ pub fn restore_last_track(state: Rc<RefCell<AppState>>, position_secs: f64) {
         let s = state.borrow();
         s.quality_label.set_label(&stream.quality_label);
         let media = s.active_media().clone();
-        set_stream_on_media(&media, stream);
+        media.set_stream(&stream);
     } else {
         let backend = state.borrow().backend.clone();
         let track_warm = track.clone();

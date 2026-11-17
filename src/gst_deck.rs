@@ -9,6 +9,8 @@ use gtk4::gio;
 use gtk4::gio::prelude::FileExt;
 use gtk4::glib;
 
+use crate::models::StreamInfo;
+
 static GST_INIT: OnceLock<Result<(), String>> = OnceLock::new();
 
 fn ensure_gst_init() -> Result<(), String> {
@@ -26,6 +28,7 @@ struct DeckInner {
     is_prepared: Cell<bool>,
     is_ended: Cell<bool>,
     has_stream: Cell<bool>,
+    local_audio: RefCell<Option<Arc<crate::audio_cache::LocalAudio>>>,
     is_remote: Cell<bool>,
     rate: Cell<f64>,
     last_error: RefCell<Option<String>>,
@@ -108,6 +111,7 @@ impl GStreamerDeck {
             is_prepared: Cell::new(false),
             is_ended: Cell::new(false),
             has_stream: Cell::new(false),
+            local_audio: RefCell::new(None),
             is_remote: Cell::new(false),
             rate: Cell::new(1.0),
             last_error: RefCell::new(None),
@@ -218,6 +222,7 @@ impl GStreamerDeck {
 
     fn reset_for_new_source(&self) {
         let _ = self.inner.playbin.set_state(gst::State::Null);
+        self.inner.local_audio.borrow_mut().take();
         self.inner.is_playing.set(false);
         self.inner.is_prepared.set(false);
         self.inner.is_ended.set(false);
@@ -233,21 +238,18 @@ impl GStreamerDeck {
         self.inner.is_remote.set(false);
     }
 
-    pub fn set_stream(
-        &self,
-        url_or_path: &str,
-        user_agent: Option<&str>,
-        headers: &HashMap<String, String>,
-    ) {
+    pub fn set_stream(&self, stream: &StreamInfo) {
         self.reset_for_new_source();
+        *self.inner.local_audio.borrow_mut() = stream.local_audio.clone();
 
         if let Ok(mut ua) = self.inner.pending_user_agent.lock() {
-            *ua = user_agent.map(str::to_string);
+            *ua = stream.user_agent.clone();
         }
         if let Ok(mut h) = self.inner.pending_headers.lock() {
-            *h = headers.clone();
+            *h = stream.headers.clone();
         }
 
+        let url_or_path = stream.url.as_str();
         let is_remote = url_or_path.starts_with("http://") || url_or_path.starts_with("https://");
         let uri = if is_remote {
             url_or_path.to_string()
@@ -296,6 +298,13 @@ impl GStreamerDeck {
 
     pub fn is_prepared(&self) -> bool {
         self.inner.is_prepared.get()
+    }
+
+    pub fn is_prerolled(&self) -> bool {
+        let (result, current, pending) = self.inner.playbin.state(gst::ClockTime::ZERO);
+        matches!(result, Ok(gst::StateChangeSuccess::Success))
+            && current == gst::State::Paused
+            && pending == gst::State::VoidPending
     }
 
     pub fn is_ended(&self) -> bool {
@@ -386,14 +395,38 @@ mod tests {
     use super::*;
 
     #[test]
-    fn clearing_a_deck_removes_its_previous_source() {
+    fn deck_is_ready_after_preroll_and_clear_removes_its_source() {
         let deck = GStreamerDeck::new();
-        deck.inner
-            .playbin
-            .set_property("uri", "file:///unused-test.wav");
-        deck.inner.has_stream.set(true);
+        let sink = gst::ElementFactory::make("fakesink").build().unwrap();
+        deck.inner.playbin.set_property("audio-sink", &sink);
+        assert!(!deck.is_prerolled());
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("silence.wav");
+        // PCM mono, 8 kHz, 16-bit, one second of silence.
+        let mut wav = b"RIFF".to_vec();
+        wav.extend_from_slice(&16_036_u32.to_le_bytes());
+        wav.extend_from_slice(b"WAVEfmt \x10\x00\x00\x00\x01\x00\x01\x00");
+        wav.extend_from_slice(&8_000_u32.to_le_bytes());
+        wav.extend_from_slice(&16_000_u32.to_le_bytes());
+        wav.extend_from_slice(b"\x02\x00\x10\x00data");
+        wav.extend_from_slice(&16_000_u32.to_le_bytes());
+        wav.resize(wav.len() + 16_000, 0);
+        std::fs::write(&path, wav).unwrap();
+
+        deck.set_stream(&StreamInfo {
+            url: path.to_string_lossy().into_owned(),
+            quality_label: "WAV".into(),
+            user_agent: None,
+            headers: HashMap::new(),
+            local_audio: None,
+        });
+        let (result, _, _) = deck.inner.playbin.state(gst::ClockTime::from_seconds(3));
+        assert_eq!(result, Ok(gst::StateChangeSuccess::Success));
+        assert!(deck.is_prerolled());
         deck.inner.is_remote.set(true);
         deck.clear();
+        assert!(!deck.is_prerolled());
         assert!(!deck.has_stream());
         assert!(!deck.is_remote_stream());
         assert!(!deck.is_prepared());

@@ -723,7 +723,7 @@ pub fn wire_search_popover(
         let suppress_suggest = Rc::clone(&suppress_suggest);
         let focus_ctrl = search_focus_ctrl.clone();
         let schedule_changed = schedule_suggestions.clone();
-        top_search_entry.connect_search_changed(move |entry| {
+        top_search_entry.connect_changed(move |entry| {
             if suppress_suggest.get() || !(entry.has_focus() || focus_ctrl.contains_focus()) {
                 return;
             }

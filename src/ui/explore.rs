@@ -15,12 +15,12 @@ use crate::backend::runtime;
 use crate::i18n::tr;
 use crate::models::{Artist, ArtistDetails, Genre, Track, format_subscribers};
 use crate::ui::player::play_queue_index;
-use crate::ui::state::AppState;
+use crate::ui::state::{AppState, ViewRequests};
 use crate::ui::widgets::{
-    build_album_card, build_carousel_section, build_playlist_card, build_skeleton_box,
-    cancel_collection_loading, clamped_cover, clear_box, highlight_active_track_in_list,
-    load_cover_into_picture, open_collection_page, populate_track_list, spawn_bg,
-    start_track_radio,
+    begin_collection_loading, build_album_card, build_carousel_section, build_playlist_card,
+    build_skeleton_box, cancel_collection_loading, clamped_cover, clear_box,
+    highlight_active_track_in_list, load_cover_into_picture, load_cover_into_picture_if,
+    open_collection_page, populate_track_list, spawn_bg, start_track_radio,
 };
 
 #[derive(Clone)]
@@ -33,6 +33,7 @@ pub struct ExploreActions {
 pub fn build_explore_page(
     state: Rc<RefCell<AppState>>,
     top_search_entry: SearchEntry,
+    content_stack: &libadwaita::ViewStack,
 ) -> (ScrolledWindow, ExploreActions) {
     let container = GtkBox::new(Orientation::Vertical, 16);
     container.set_margin_top(18);
@@ -551,7 +552,9 @@ pub fn build_explore_page(
     {
         let genres_section = genres_section.clone();
         let genre_playlists_section = genre_playlists_section.clone();
+        let requests = state.borrow().view_requests.clone();
         genre_back_btn.connect_clicked(move |_| {
+            requests.begin();
             genre_playlists_section.set_visible(false);
             genres_section.set_visible(true);
         });
@@ -564,6 +567,9 @@ pub fn build_explore_page(
         spinner: spinner.clone(),
         status_label: status_label.clone(),
         search_results_section: search_results_section.clone(),
+        search_skeleton: search_skeleton.clone(),
+        genre_skeleton: genre_playlists_skeleton.clone(),
+        banners: ViewRequests::default(),
         genres_section: genres_section.clone(),
         genre_playlists_section: genre_playlists_section.clone(),
         artist_section: artist_section.clone(),
@@ -600,6 +606,7 @@ pub fn build_explore_page(
         let aw_back = artist_widgets.clone();
         let state_back = Rc::clone(&state);
         artist_back_btn.connect_clicked(move |_| {
+            state_back.borrow().view_requests.begin();
             if let Some((prev_id, prev_name)) = aw_back.artist_history.borrow_mut().pop() {
                 *aw_back.current_artist.borrow_mut() = None;
                 open_artist_page(
@@ -642,8 +649,13 @@ pub fn build_explore_page(
         let genre_playlists_section = genre_playlists_section.clone();
         let artist_widgets = artist_widgets.clone();
 
+        let stack = content_stack.clone();
         Rc::new(move |raw_query: &str| {
             let query = raw_query.trim().to_string();
+            if !query.is_empty() {
+                stack.set_visible_child_name("explore");
+            }
+            let request = state.borrow().view_requests.begin();
             if query.is_empty() {
                 search_results_section.set_visible(false);
                 search_skeleton_ref.set_visible(false);
@@ -689,7 +701,9 @@ pub fn build_explore_page(
             let artist_widgets = artist_widgets.clone();
 
             glib::spawn_future_local(async move {
-                if let Ok(result) = rx.recv().await {
+                if let Ok(result) = rx.recv().await
+                    && state.borrow().view_requests.is_current(request)
+                {
                     search_skeleton_done.set_visible(false);
                     match result {
                         Ok(res)
@@ -762,14 +776,41 @@ pub fn build_explore_page(
         let genres_section = genres_section.clone();
         let genre_playlists_skeleton_ref = genre_playlists_skeleton.clone();
         let genre_playlists_section = genre_playlists_section.clone();
-        top_search_entry.connect_search_changed(move |entry| {
-            if entry.text().trim().is_empty() {
+        let search_skeleton = search_skeleton.clone();
+        let requests = state.borrow().view_requests.clone();
+        let stack = content_stack.clone();
+        top_search_entry.connect_changed(move |entry| {
+            let exploring = stack.visible_child_name().as_deref() == Some("explore");
+            if entry.text().trim().is_empty() || (exploring && search_skeleton.is_visible()) {
+                if exploring {
+                    requests.begin();
+                }
+                search_skeleton.set_visible(false);
                 search_results_section.set_visible(false);
                 artist_section.set_visible(false);
                 artist_skeleton.set_visible(false);
                 status_label.set_visible(false);
                 genre_playlists_skeleton_ref.set_visible(false);
                 genre_playlists_section.set_visible(false);
+                genres_section.set_visible(true);
+            }
+        });
+    }
+
+    {
+        let loading = [
+            search_skeleton,
+            artist_widgets.skeleton.clone(),
+            genre_playlists_skeleton,
+        ];
+        let genres_section = genres_section.clone();
+        content_stack.connect_visible_child_name_notify(move |stack| {
+            if stack.visible_child_name().as_deref() != Some("explore")
+                && loading.iter().any(|widget| widget.is_visible())
+            {
+                for widget in &loading {
+                    widget.set_visible(false);
+                }
                 genres_section.set_visible(true);
             }
         });
@@ -784,6 +825,9 @@ pub fn build_explore_page(
             if name.is_empty() {
                 return;
             }
+            let request = state.borrow().view_requests.begin();
+            artist_widgets.search_skeleton.set_visible(false);
+            artist_widgets.genre_skeleton.set_visible(false);
             artist_widgets.search_results_section.set_visible(false);
             artist_widgets.genres_section.set_visible(false);
             artist_widgets.genre_playlists_section.set_visible(false);
@@ -801,6 +845,9 @@ pub fn build_explore_page(
             spawn_bg(
                 move || async move { backend.search_all(&query).await },
                 move |res| {
+                    if !state_cb.borrow().view_requests.is_current(request) {
+                        return;
+                    }
                     if let Ok(sr) = res
                         && let Some(artist) = sr
                             .artists
@@ -831,7 +878,7 @@ pub fn build_explore_page(
             } else {
                 format!("{album} {artist_name}")
             };
-            open_collection_page(album.clone(), None, None, Rc::clone(&state));
+            let request = begin_collection_loading(album.clone(), None, &state);
             let backend = state.borrow().backend.clone();
             let state_cb = Rc::clone(&state);
             let fallback_search = Rc::clone(&run_search);
@@ -856,6 +903,9 @@ pub fn build_explore_page(
                     Option<(String, Option<String>, Vec<crate::models::Track>)>,
                     String,
                 >| {
+                    if !state_cb.borrow().view_requests.is_current(request) {
+                        return;
+                    }
                     match res {
                         Ok(Some((title, cover, tracks))) if !tracks.is_empty() => {
                             open_collection_page(title, cover, Some(tracks), state_cb);
@@ -889,6 +939,9 @@ struct ArtistPageWidgets {
     spinner: Spinner,
     status_label: Label,
     search_results_section: GtkBox,
+    search_skeleton: GtkBox,
+    genre_skeleton: GtkBox,
+    banners: ViewRequests,
     genres_section: GtkBox,
     genre_playlists_section: GtkBox,
     artist_section: GtkBox,
@@ -921,6 +974,9 @@ fn open_artist_page(
     ui: ArtistPageWidgets,
     state: Rc<RefCell<AppState>>,
 ) {
+    let request = state.borrow().view_requests.begin();
+    ui.search_skeleton.set_visible(false);
+    ui.genre_skeleton.set_visible(false);
     if ui.artist_section.is_visible()
         && let Some(prev) = ui.current_artist.borrow().clone()
         && prev.0 != artist_id
@@ -948,7 +1004,9 @@ fn open_artist_page(
 
     let fallback_name = artist_name.to_string();
     glib::spawn_future_local(async move {
-        if let Ok(result) = rx.recv().await {
+        if let Ok(result) = rx.recv().await
+            && state.borrow().view_requests.is_current(request)
+        {
             ui.skeleton.set_visible(false);
             match result {
                 Ok(details) => {
@@ -979,9 +1037,13 @@ fn populate_artist_page(
         ui.subs_label.set_visible(false);
     }
 
+    let banner_request = ui.banners.begin();
     if let Some(url) = &details.header_url {
         ui.banner.set_paintable(None::<&gdk::Paintable>);
-        load_cover_into_picture(&ui.banner, url, Rc::clone(&state));
+        let banners = ui.banners.clone();
+        load_cover_into_picture_if(&ui.banner, url, Rc::clone(&state), move || {
+            banners.is_current(banner_request)
+        });
         ui.banner.set_visible(true);
     } else {
         ui.banner.set_visible(false);
@@ -1196,6 +1258,7 @@ fn build_genre_button(
     let playlists_flow = playlists_flow.clone();
 
     btn.connect_clicked(move |_| {
+        let request = state.borrow().view_requests.begin();
         genres_section.set_visible(false);
         genre_playlists_section.set_visible(false);
         genre_playlists_skeleton.set_visible(true);
@@ -1217,7 +1280,9 @@ fn build_genre_button(
         let fallback_name = genre_name.clone();
 
         glib::spawn_future_local(async move {
-            if let Ok(result) = rx.recv().await {
+            if let Ok(result) = rx.recv().await
+                && state.borrow().view_requests.is_current(request)
+            {
                 genre_playlists_skeleton.set_visible(false);
                 match result {
                     Ok((name, playlists)) => {
