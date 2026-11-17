@@ -444,6 +444,32 @@ pub fn build_explore_page(
         .max_children_per_line(4)
         .build();
 
+    let genre_playlists_skeleton = GtkBox::new(Orientation::Vertical, 12);
+    genre_playlists_skeleton.set_visible(false);
+    let genre_skel_header = GtkBox::new(Orientation::Horizontal, 10);
+    let genre_skel_back = build_skeleton_box(34, 34);
+    genre_skel_back.add_css_class("circular");
+    genre_skel_header.append(&genre_skel_back);
+    genre_skel_header.append(&build_skeleton_box(180, 22));
+    genre_playlists_skeleton.append(&genre_skel_header);
+
+    let genre_skel_flow = FlowBox::builder()
+        .selection_mode(SelectionMode::None)
+        .min_children_per_line(2)
+        .max_children_per_line(6)
+        .row_spacing(14)
+        .column_spacing(14)
+        .homogeneous(true)
+        .build();
+    for _ in 0..10 {
+        let card = GtkBox::new(Orientation::Vertical, 6);
+        card.append(&build_skeleton_box(156, 156));
+        card.append(&build_skeleton_box(128, 13));
+        card.append(&build_skeleton_box(92, 11));
+        genre_skel_flow.insert(&card, -1);
+    }
+    genre_playlists_skeleton.append(&genre_skel_flow);
+
     let genre_playlists_section = GtkBox::new(Orientation::Vertical, 12);
     genre_playlists_section.set_visible(false);
     genre_playlists_section.append(&genre_header);
@@ -462,6 +488,7 @@ pub fn build_explore_page(
     container.append(&artist_skeleton);
     container.append(&artist_section);
     container.append(&genres_section);
+    container.append(&genre_playlists_skeleton);
     container.append(&genre_playlists_section);
 
     let clamp = adw::Clamp::builder()
@@ -487,10 +514,10 @@ pub fn build_explore_page(
         let moods_flow = moods_flow.clone();
         let genres_flow = genres_flow.clone();
         let genres_section = genres_section.clone();
+        let genre_playlists_skeleton = genre_playlists_skeleton.clone();
         let genre_playlists_section = genre_playlists_section.clone();
         let genre_heading = genre_heading.clone();
         let playlists_flow = playlists_flow.clone();
-        let spinner = spinner.clone();
 
         glib::spawn_future_local(async move {
             if let Ok(Ok(genres)) = rx.recv().await {
@@ -503,10 +530,10 @@ pub fn build_explore_page(
                         &genre,
                         Rc::clone(&state),
                         &genres_section,
+                        &genre_playlists_skeleton,
                         &genre_playlists_section,
                         &genre_heading,
                         &playlists_flow,
-                        &spinner,
                     );
                     let lower = genre.name.to_lowercase();
                     if mood_names.iter().any(|m| lower.contains(m)) {
@@ -604,6 +631,7 @@ pub fn build_explore_page(
         let artist_section = artist_section.clone();
         let artist_skeleton_ref = artist_skeleton.clone();
         let genres_section = genres_section.clone();
+        let genre_playlists_skeleton_ref = genre_playlists_skeleton.clone();
         let genre_playlists_section = genre_playlists_section.clone();
         let artist_widgets = artist_widgets.clone();
 
@@ -615,12 +643,14 @@ pub fn build_explore_page(
                 artist_section.set_visible(false);
                 artist_skeleton_ref.set_visible(false);
                 status_label.set_visible(false);
+                genre_playlists_skeleton_ref.set_visible(false);
                 genre_playlists_section.set_visible(false);
                 genres_section.set_visible(true);
                 return;
             }
 
             genres_section.set_visible(false);
+            genre_playlists_skeleton_ref.set_visible(false);
             genre_playlists_section.set_visible(false);
             artist_section.set_visible(false);
             artist_skeleton_ref.set_visible(false);
@@ -723,6 +753,7 @@ pub fn build_explore_page(
         let artist_section = artist_section.clone();
         let status_label = status_label.clone();
         let genres_section = genres_section.clone();
+        let genre_playlists_skeleton_ref = genre_playlists_skeleton.clone();
         let genre_playlists_section = genre_playlists_section.clone();
         top_search_entry.connect_search_changed(move |entry| {
             if entry.text().trim().is_empty() {
@@ -730,6 +761,7 @@ pub fn build_explore_page(
                 artist_section.set_visible(false);
                 artist_skeleton.set_visible(false);
                 status_label.set_visible(false);
+                genre_playlists_skeleton_ref.set_visible(false);
                 genre_playlists_section.set_visible(false);
                 genres_section.set_visible(true);
             }
@@ -1090,10 +1122,10 @@ fn build_genre_button(
     genre: &Genre,
     state: Rc<RefCell<AppState>>,
     genres_section: &GtkBox,
+    genre_playlists_skeleton: &GtkBox,
     genre_playlists_section: &GtkBox,
     genre_heading: &Label,
     playlists_flow: &FlowBox,
-    spinner: &Spinner,
 ) -> Button {
     let color = &genre.color_hex;
 
@@ -1145,16 +1177,15 @@ fn build_genre_button(
     let genre_id = genre.id.clone();
     let genre_name = genre.name.clone();
     let genres_section = genres_section.clone();
+    let genre_playlists_skeleton = genre_playlists_skeleton.clone();
     let genre_playlists_section = genre_playlists_section.clone();
     let genre_heading = genre_heading.clone();
     let playlists_flow = playlists_flow.clone();
-    let spinner = spinner.clone();
 
     btn.connect_clicked(move |_| {
         genres_section.set_visible(false);
         genre_playlists_section.set_visible(false);
-        spinner.set_visible(true);
-        spinner.set_spinning(true);
+        genre_playlists_skeleton.set_visible(true);
 
         let backend = state.borrow().backend.clone();
         let (tx, rx) = async_channel::bounded(1);
@@ -1165,16 +1196,16 @@ fn build_genre_button(
         });
 
         let state = Rc::clone(&state);
+        let genres_section = genres_section.clone();
+        let genre_playlists_skeleton = genre_playlists_skeleton.clone();
         let genre_playlists_section = genre_playlists_section.clone();
         let genre_heading = genre_heading.clone();
         let playlists_flow = playlists_flow.clone();
-        let spinner = spinner.clone();
         let fallback_name = genre_name.clone();
 
         glib::spawn_future_local(async move {
             if let Ok(result) = rx.recv().await {
-                spinner.set_spinning(false);
-                spinner.set_visible(false);
+                genre_playlists_skeleton.set_visible(false);
                 match result {
                     Ok((name, playlists)) => {
                         while let Some(child) = playlists_flow.first_child() {
@@ -1192,6 +1223,7 @@ fn build_genre_button(
                         genre_playlists_section.set_visible(true);
                     }
                     Err(err) => {
+                        genres_section.set_visible(true);
                         state.borrow().show_toast(&err);
                     }
                 }

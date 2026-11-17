@@ -10,8 +10,8 @@ use ytmapi_rs::common::{
     AlbumID, ArtistChannelID, MoodCategoryParams, PlaylistID, VideoID, YoutubeID,
 };
 use ytmapi_rs::parse::{
-    GetArtistTopReleases, MoodCategory, MoodPlaylistCategory, PlaylistItem, SearchResultAlbum,
-    SearchResultArtist, SearchResultPlaylist, SearchResultSong,
+    GetArtistTopReleases, MoodCategory, PlaylistItem, SearchResultAlbum, SearchResultArtist,
+    SearchResultPlaylist, SearchResultSong,
 };
 
 use crate::models::{
@@ -281,27 +281,44 @@ impl Backend {
         genre_id: &str,
     ) -> Result<(String, Vec<Playlist>), String> {
         let ytm = self.primary().await?;
-        let categories: Vec<MoodPlaylistCategory> = ytm
+        match ytm
             .get_mood_playlists(MoodCategoryParams::from_raw(genre_id))
             .await
-            .map_err(|e| format!("Error obteniendo playlists del género: {e:?}"))?;
-
-        let name = categories
-            .first()
-            .map(|c| c.category_name.clone())
-            .unwrap_or_default();
-        let playlists = categories
-            .into_iter()
-            .flat_map(|c| c.playlists)
-            .map(|pl| Playlist {
-                id: pl.playlist_id.get_raw().to_string(),
-                name: pl.title,
-                subtitle: pl.author,
-                cover_url: best_ytm_thumb(&pl.thumbnails),
-            })
-            .collect();
-
-        Ok((name, playlists))
+        {
+            Ok(categories) => {
+                let name = categories
+                    .first()
+                    .map(|c| c.category_name.clone())
+                    .unwrap_or_default();
+                let playlists = categories
+                    .into_iter()
+                    .flat_map(|c| c.playlists)
+                    .map(|pl| Playlist {
+                        id: pl.playlist_id.get_raw().to_string(),
+                        name: pl.title,
+                        subtitle: pl.author,
+                        cover_url: best_ytm_thumb(&pl.thumbnails),
+                    })
+                    .collect();
+                Ok((name, playlists))
+            }
+            Err(primary_err) => {
+                let raw = ytm
+                    .raw_json_query(ytmapi_rs::query::GetMoodPlaylistsQuery::new(
+                        MoodCategoryParams::from_raw(genre_id),
+                    ))
+                    .await
+                    .map_err(|_| format!("Error obteniendo playlists del género: {primary_err:?}"))?;
+                let json: serde_json::Value = serde_json::from_str(&raw)
+                    .map_err(|_| format!("Error obteniendo playlists del género: {primary_err:?}"))?;
+                let parsed = parse_mood_playlists_json(&json);
+                if parsed.1.is_empty() {
+                    Err(format!("Error obteniendo playlists del género: {primary_err:?}"))
+                } else {
+                    Ok(parsed)
+                }
+            }
+        }
     }
 
     pub async fn fetch_playlist_tracks(
@@ -1020,6 +1037,88 @@ fn best_ytm_thumb(thumbs: &[ytmapi_rs::common::Thumbnail]) -> Option<String> {
         .map(|t| crate::models::upgrade_cover_url(&t.url, 544))
 }
 
+fn runs_text(val: &serde_json::Value) -> String {
+    val.get("runs")
+        .and_then(|r| r.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|run| run.get("text").and_then(|t| t.as_str()))
+                .collect::<String>()
+        })
+        .unwrap_or_default()
+}
+
+fn best_json_thumb(thumbs: &serde_json::Value) -> Option<String> {
+    thumbs
+        .as_array()?
+        .iter()
+        .filter_map(|t| {
+            let url = t.get("url")?.as_str()?;
+            let w = t.get("width").and_then(|v| v.as_u64()).unwrap_or(0);
+            let h = t.get("height").and_then(|v| v.as_u64()).unwrap_or(0);
+            Some((w.saturating_mul(h), url))
+        })
+        .max_by_key(|(area, _)| *area)
+        .map(|(_, url)| crate::models::upgrade_cover_url(url, 544))
+}
+
+fn collect_mood_playlists(node: &serde_json::Value, out: &mut Vec<Playlist>) {
+    match node {
+        serde_json::Value::Object(map) => {
+            if let Some(item) = map.get("musicTwoRowItemRenderer") {
+                let browse_id = item
+                    .pointer("/navigationEndpoint/browseEndpoint/browseId")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.strip_prefix("VL").unwrap_or(s).to_string())
+                    .or_else(|| {
+                        item.pointer("/thumbnailOverlay/musicItemThumbnailOverlayRenderer/content/musicPlayButtonRenderer/playNavigationEndpoint/watchPlaylistEndpoint/playlistId")
+                            .and_then(|v| v.as_str())
+                            .map(ToString::to_string)
+                    });
+                let title = item.get("title").map(runs_text).unwrap_or_default();
+                if let Some(id) = browse_id
+                    && !id.is_empty()
+                    && !title.is_empty()
+                {
+                    let subtitle = item.get("subtitle").map(runs_text).unwrap_or_default();
+                    let cover_url = item
+                        .pointer("/thumbnailRenderer/musicThumbnailRenderer/thumbnail/thumbnails")
+                        .and_then(best_json_thumb);
+                    out.push(Playlist {
+                        id,
+                        name: title,
+                        subtitle,
+                        cover_url,
+                    });
+                }
+            } else {
+                for v in map.values() {
+                    collect_mood_playlists(v, out);
+                }
+            }
+        }
+        serde_json::Value::Array(arr) => {
+            for v in arr {
+                collect_mood_playlists(v, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn parse_mood_playlists_json(json: &serde_json::Value) -> (String, Vec<Playlist>) {
+    let name = json
+        .pointer("/header/musicHeaderRenderer/title")
+        .or_else(|| json.pointer("/header/musicVisualHeaderRenderer/title"))
+        .map(runs_text)
+        .unwrap_or_default();
+    let mut playlists = Vec::new();
+    if let Some(contents) = json.get("contents") {
+        collect_mood_playlists(contents, &mut playlists);
+    }
+    (name, playlists)
+}
+
 fn playlist_browse_id(id: &str) -> PlaylistID<'static> {
     PlaylistID::from_raw(format!("VL{}", id.strip_prefix("VL").unwrap_or(id)))
 }
@@ -1396,5 +1495,59 @@ mod tests {
         assert_eq!(parse_mm_ss("1:02:03"), Some(3723));
         assert_eq!(parse_sub_count("9.4M subscribers"), Some(9_400_000));
         assert_eq!(parse_sub_count("120K"), Some(120_000));
+    }
+
+    #[test]
+    fn parses_mood_playlists_from_raw_json() {
+        let json = serde_json::json!({
+            "header": {
+                "musicHeaderRenderer": {
+                    "title": { "runs": [{ "text": "Cumbia" }] }
+                }
+            },
+            "contents": {
+                "singleColumnBrowseResultsRenderer": {
+                    "tabs": [{
+                        "tabRenderer": {
+                            "content": {
+                                "sectionListRenderer": {
+                                    "contents": [{
+                                        "gridRenderer": {
+                                            "items": [{
+                                                "musicTwoRowItemRenderer": {
+                                                    "title": { "runs": [{ "text": "Cumbia Sonidera" }] },
+                                                    "subtitle": { "runs": [{ "text": "YouTube Music" }] },
+                                                    "navigationEndpoint": {
+                                                        "browseEndpoint": { "browseId": "VLRDCLAK5uy_test123" }
+                                                    },
+                                                    "thumbnailRenderer": {
+                                                        "musicThumbnailRenderer": {
+                                                            "thumbnail": {
+                                                                "thumbnails": [
+                                                                    { "url": "https://lh3.googleusercontent.com/abc=w226-h226", "width": 226, "height": 226 },
+                                                                    { "url": "https://lh3.googleusercontent.com/abc=w544-h544", "width": 544, "height": 544 }
+                                                                ]
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }]
+                                        }
+                                    }]
+                                }
+                            }
+                        }
+                    }]
+                }
+            }
+        });
+
+        let (name, playlists) = parse_mood_playlists_json(&json);
+        assert_eq!(name, "Cumbia");
+        assert_eq!(playlists.len(), 1);
+        assert_eq!(playlists[0].id, "RDCLAK5uy_test123");
+        assert_eq!(playlists[0].name, "Cumbia Sonidera");
+        assert_eq!(playlists[0].subtitle, "YouTube Music");
+        assert!(playlists[0].cover_url.is_some());
     }
 }
