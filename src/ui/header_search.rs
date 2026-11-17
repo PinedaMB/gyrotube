@@ -10,6 +10,7 @@ use gtk4::{
 };
 use libadwaita as adw;
 
+use crate::i18n::{AppLanguage, set_language_preference, tr};
 use crate::models::save_search_history;
 use crate::ui::state::AppState;
 use crate::ui::widgets::spawn_bg;
@@ -21,6 +22,7 @@ pub struct HeaderWidgets {
     pub search_entry: SearchEntry,
     pub settings_btn: Button,
     pub menu_popover: Popover,
+    pub party_btn: Button,
 }
 
 pub fn build_header_bar(_content_view_stack: &adw::ViewStack) -> HeaderWidgets {
@@ -48,7 +50,7 @@ pub fn build_header_bar(_content_view_stack: &adw::ViewStack) -> HeaderWidgets {
         .css_classes(["brand-title"])
         .build();
     let brand_badge = Label::builder()
-        .label("Música")
+        .label(tr("Música", "Music"))
         .css_classes(["brand-badge"])
         .build();
 
@@ -59,7 +61,10 @@ pub fn build_header_bar(_content_view_stack: &adw::ViewStack) -> HeaderWidgets {
     brand_box.append(&brand_badge);
 
     let search_entry = SearchEntry::builder()
-        .placeholder_text("Buscar canciones, álbumes, artistas…")
+        .placeholder_text(tr(
+            "Buscar canciones, álbumes, artistas…",
+            "Search songs, albums, artists…",
+        ))
         .width_chars(8)
         .hexpand(true)
         .can_focus(false)
@@ -77,14 +82,14 @@ pub fn build_header_bar(_content_view_stack: &adw::ViewStack) -> HeaderWidgets {
     menu_box.set_margin_end(6);
 
     let settings_btn = Button::builder()
-        .label("Configuración")
+        .label(tr("Configuración", "Settings"))
         .css_classes(["flat"])
         .halign(Align::Fill)
         .build();
     settings_btn.set_cursor_from_name(Some("pointer"));
 
     let about_btn = Button::builder()
-        .label("Acerca de GyroTube")
+        .label(tr("Acerca de GyroTube", "About GyroTube"))
         .css_classes(["flat"])
         .halign(Align::Fill)
         .build();
@@ -96,7 +101,7 @@ pub fn build_header_bar(_content_view_stack: &adw::ViewStack) -> HeaderWidgets {
     let menu_popover = Popover::builder().child(&menu_box).build();
     let menu_btn = MenuButton::builder()
         .icon_name("open-menu-symbolic")
-        .tooltip_text("Opciones")
+        .tooltip_text(tr("Opciones", "Options"))
         .popover(&menu_popover)
         .css_classes(["flat", "circular"])
         .build();
@@ -110,12 +115,22 @@ pub fn build_header_bar(_content_view_stack: &adw::ViewStack) -> HeaderWidgets {
                 .application_name("GyroTube")
                 .application_icon(crate::ui::APP_ID)
                 .version(env!("CARGO_PKG_VERSION"))
-                .comments("Reproductor de música para YouTube Music")
+                .comments(tr(
+                    "Reproductor de música para YouTube Music",
+                    "Music player for YouTube Music",
+                ))
                 .build();
             let root = btn.root().and_then(|r| r.downcast::<gtk4::Window>().ok());
             dialog.present(root.as_ref());
         });
     }
+
+    let party_btn = Button::builder()
+        .icon_name("sparkle-regular")
+        .tooltip_text(tr("Modo Fiesta (F11)", "Party Mode (F11)"))
+        .css_classes(["flat", "circular"])
+        .build();
+    party_btn.set_cursor_from_name(Some("pointer"));
 
     let header_bar = adw::HeaderBar::builder()
         .centering_policy(adw::CenteringPolicy::Loose)
@@ -123,6 +138,7 @@ pub fn build_header_bar(_content_view_stack: &adw::ViewStack) -> HeaderWidgets {
         .build();
     header_bar.pack_start(&brand_box);
     header_bar.pack_end(&menu_btn);
+    header_bar.pack_end(&party_btn);
 
     HeaderWidgets {
         header_bar,
@@ -131,6 +147,7 @@ pub fn build_header_bar(_content_view_stack: &adw::ViewStack) -> HeaderWidgets {
         search_entry,
         settings_btn,
         menu_popover,
+        party_btn,
     }
 }
 
@@ -145,19 +162,70 @@ pub fn wire_settings_dialog(
     settings_btn.connect_clicked(move |btn| {
         pop.popdown();
         let dialog = adw::PreferencesDialog::builder()
-            .title("Configuración")
+            .title(tr("Configuración", "Settings"))
             .build();
         let page = adw::PreferencesPage::new();
 
+        let lang_group = adw::PreferencesGroup::builder()
+            .title(tr("Idioma", "Language"))
+            .description(tr(
+                "Detección automática del sistema o selección manual",
+                "Automatic system detection or manual selection",
+            ))
+            .build();
+        let lang_model = gtk4::StringList::new(&[
+            tr("Automático (sistema)", "Automatic (system)"),
+            "Español",
+            "English",
+        ]);
+        let current_lang_idx = match state.borrow().language {
+            AppLanguage::Auto => 0,
+            AppLanguage::Es => 1,
+            AppLanguage::En => 2,
+        };
+        let lang_row = adw::ComboRow::builder()
+            .title(tr("Idioma de la interfaz", "Interface language"))
+            .model(&lang_model)
+            .selected(current_lang_idx)
+            .build();
+        {
+            let state_lang = Rc::clone(&state);
+            lang_row.connect_selected_notify(move |row| {
+                let pref = match row.selected() {
+                    1 => AppLanguage::Es,
+                    2 => AppLanguage::En,
+                    _ => AppLanguage::Auto,
+                };
+                {
+                    let mut s = state_lang.borrow_mut();
+                    if s.language == pref {
+                        return;
+                    }
+                    s.language = pref;
+                    set_language_preference(pref);
+                    s.save_session();
+                    s.show_toast(tr(
+                        "Idioma guardado. Reinicia la app para aplicar todos los textos.",
+                        "Language saved. Restart the app to apply all texts.",
+                    ));
+                }
+            });
+        }
+        lang_group.add(&lang_row);
+        page.add(&lang_group);
+
         let playback_group = adw::PreferencesGroup::builder()
-            .title("Reproducción")
-            .description("Transición suave entre pistas")
+            .title(tr("Reproducción", "Playback"))
+            .description(tr(
+                "Transición suave entre pistas",
+                "Smooth transition between tracks",
+            ))
             .build();
 
         let current_cf = state.borrow().crossfade_secs.min(10);
         let format_cf = |secs: u32| -> String {
             if secs == 0 {
-                String::from("Desactivado (0 s)")
+                String::from(tr("Desactivado (0 s)", "Disabled (0 s)"))
             } else {
                 format!("{secs} s")
             }
@@ -200,8 +268,11 @@ pub fn wire_settings_dialog(
         page.add(&playback_group);
 
         let storage_group = adw::PreferencesGroup::builder()
-            .title("Almacenamiento")
-            .description("Audios descargados para reproducción instantánea")
+            .title(tr("Almacenamiento", "Storage"))
+            .description(tr(
+                "Audios descargados para reproducción instantánea",
+                "Downloaded audio files for instant playback",
+            ))
             .build();
 
         let streams_dir = crate::models::cache_dir().map(|d| d.join("streams"));

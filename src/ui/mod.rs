@@ -3,6 +3,7 @@ pub mod collection;
 pub mod explore;
 pub mod header_search;
 pub mod home;
+pub mod party_mode;
 pub mod player;
 pub mod responsive;
 pub mod shortcuts;
@@ -25,6 +26,7 @@ use libadwaita as adw;
 
 use crate::backend::Backend;
 use crate::gst_deck::GStreamerDeck;
+use crate::i18n::{set_language_preference, tr};
 use crate::models::{
     load_favorites, load_recent_tracks, load_search_history, load_session_state,
     load_user_playlists, save_user_playlists,
@@ -38,6 +40,9 @@ use crate::ui::header_search::{
     build_header_bar, install_unfocus_on_click, wire_search_popover, wire_settings_dialog,
 };
 use crate::ui::home::build_home_page;
+use crate::ui::party_mode::{
+    build_party_mode, enter_party_mode, exit_party_mode, refresh_party_next_up,
+};
 use crate::ui::player::{
     load_current_lyrics, play_queue_index, refresh_queue_ui, restore_last_track,
     scroll_to_active_lyric, wire_media_signals,
@@ -89,9 +94,10 @@ pub fn build_ui(app: &adw::Application) {
     let decks = [GStreamerDeck::new(), GStreamerDeck::new()];
     let toast_overlay = adw::ToastOverlay::new();
     let saved_session = load_session_state();
+    set_language_preference(saved_session.language);
     let initial_sidebar_collapsed = saved_session.sidebar_collapsed;
     let initial_source_name = if saved_session.source_name.is_empty() {
-        String::from("Sin reproducción")
+        String::from(tr("Sin reproducción", "Not playing"))
     } else {
         saved_session.source_name
     };
@@ -112,9 +118,9 @@ pub fn build_ui(app: &adw::Application) {
         btn.set_cursor_from_name(Some("pointer"));
         btn
     };
-    let nav_tab_home = make_nav_tab("home-regular", "Inicio", true);
-    let nav_tab_explore = make_nav_tab("search-regular", "Explorar", false);
-    let nav_tab_collection = make_nav_tab("library-regular", "Colección", false);
+    let nav_tab_home = make_nav_tab("home-regular", tr("Inicio", "Home"), true);
+    let nav_tab_explore = make_nav_tab("search-regular", tr("Explorar", "Explore"), false);
+    let nav_tab_collection = make_nav_tab("library-regular", tr("Colección", "Collection"), false);
     nav_tab_explore.set_group(Some(&nav_tab_home));
     nav_tab_collection.set_group(Some(&nav_tab_home));
 
@@ -206,6 +212,7 @@ pub fn build_ui(app: &adw::Application) {
         source_name: initial_source_name,
         shuffle: saved_session.shuffle,
         repeat: saved_session.repeat,
+        language: saved_session.language,
         cover_cache: HashMap::new(),
         toast_overlay: toast_overlay.clone(),
         player_source_label: sb.player_source_label.clone(),
@@ -236,6 +243,15 @@ pub fn build_ui(app: &adw::Application) {
         lyrics_auto_scroll: true,
         lyrics_programmatic_scroll: Rc::new(Cell::new(false)),
         lyrics_loaded_for: None,
+        party_active: false,
+        party_lyrics_box: GtkBox::new(Orientation::Vertical, 0),
+        party_lyrics_scroll: gtk4::ScrolledWindow::new(),
+        party_lyrics_body_label: Label::new(None),
+        party_synced_lyrics: Vec::new(),
+        party_next_box: GtkBox::new(Orientation::Vertical, 0),
+        party_next_cover: gtk4::Picture::new(),
+        party_next_title: Label::new(None),
+        party_next_artist: Label::new(None),
         queue_list: sb.queue_list.clone(),
         queue_empty_label: sb.queue_empty_label.clone(),
         queue_title_label: sb.queue_title_label.clone(),
@@ -412,8 +428,25 @@ pub fn build_ui(app: &adw::Application) {
         Rc::clone(&state),
         &sb.crossfade_btn,
     );
+    let party = build_party_mode(&state, &sb.shuffle_btn, &sb.repeat_btn);
+    {
+        let mut s = state.borrow_mut();
+        s.party_lyrics_box = party.lyrics_box.clone();
+        s.party_lyrics_scroll = party.lyrics_scroll.clone();
+        s.party_lyrics_body_label = party.lyrics_body_label.clone();
+        s.party_next_box = party.next_box.clone();
+        s.party_next_cover = party.next_cover.clone();
+        s.party_next_title = party.next_title.clone();
+        s.party_next_artist = party.next_artist.clone();
+    }
+
     main_toolbar.set_content(Some(&main_overlay));
-    toast_overlay.set_child(Some(&main_toolbar));
+    let root_stack = gtk4::Stack::builder()
+        .transition_type(gtk4::StackTransitionType::Crossfade)
+        .build();
+    root_stack.add_named(&main_toolbar, Some("main"));
+    root_stack.add_named(&party.root, Some("party"));
+    toast_overlay.set_child(Some(&root_stack));
 
     let window = adw::ApplicationWindow::builder()
         .application(app)
@@ -424,6 +457,55 @@ pub fn build_ui(app: &adw::Application) {
         .height_request(294)  // Alto mínimo requerido por Libadwaita
         .content(&toast_overlay)
         .build();
+
+    let enter_party = {
+        let state = Rc::clone(&state);
+        let root_stack = root_stack.clone();
+        let window = window.clone();
+        let fs_btn = party.fullscreen_btn.clone();
+        Rc::new(move || {
+            enter_party_mode(&state, &root_stack, &window, &fs_btn);
+        })
+    };
+    let exit_party = {
+        let state = Rc::clone(&state);
+        let root_stack = root_stack.clone();
+        let window = window.clone();
+        Rc::new(move || {
+            if state.borrow().party_active {
+                exit_party_mode(&state, &root_stack, &window);
+                true
+            } else {
+                false
+            }
+        })
+    };
+    {
+        let ep = Rc::clone(&enter_party);
+        sb.party_btn.connect_clicked(move |_| ep());
+    }
+    {
+        let ep = Rc::clone(&enter_party);
+        hdr.party_btn.connect_clicked(move |_| ep());
+    }
+    {
+        let ex = Rc::clone(&exit_party);
+        party.exit_btn.connect_clicked(move |_| {
+            ex();
+        });
+    }
+    {
+        let win = window.clone();
+        party.fullscreen_btn.connect_clicked(move |btn| {
+            if win.is_fullscreen() {
+                win.unfullscreen();
+                btn.set_icon_name("full-screen-maximize-regular");
+            } else {
+                win.fullscreen();
+                btn.set_icon_name("full-screen-minimize-regular");
+            }
+        });
+    }
 
     setup_responsive(ResponsiveTargets {
         window: window.clone(),
@@ -461,6 +543,19 @@ pub fn build_ui(app: &adw::Application) {
         });
     }
 
+    let on_toggle_party: Rc<dyn Fn()> = {
+        let state = Rc::clone(&state);
+        let ep = Rc::clone(&enter_party);
+        let ex = Rc::clone(&exit_party);
+        Rc::new(move || {
+            if state.borrow().party_active {
+                ex();
+            } else {
+                ep();
+            }
+        })
+    };
+
     install_shortcuts(ShortcutTargets {
         window: window.clone(),
         search_entry: hdr.search_entry,
@@ -471,6 +566,8 @@ pub fn build_ui(app: &adw::Application) {
         prev_btn: sb.prev_btn,
         next_btn: sb.next_btn,
         content_stack: content_view_stack,
+        on_toggle_party,
+        on_exit_party: exit_party,
     });
 
     window.present();
@@ -540,11 +637,14 @@ fn wire_sidebar_actions(
             .borrow_mut()
             .on_track_changed
             .push(Rc::new(move || {
-                if tab_lyrics.is_active() {
+                refresh_party_next_up(&state_cb);
+                let party_active = state_cb.borrow().party_active;
+                if tab_lyrics.is_active() || party_active {
                     load_current_lyrics(Rc::clone(&state_cb));
                 } else {
                     let mut s = state_cb.borrow_mut();
                     s.synced_lyrics.clear();
+                    s.party_synced_lyrics.clear();
                     s.active_lyric_idx = None;
                     s.lyrics_loaded_for = None;
                     s.lyrics_resync_btn.set_visible(false);

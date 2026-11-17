@@ -12,6 +12,7 @@ use gtk4::{
 use libadwaita as adw;
 
 use crate::backend::runtime;
+use crate::i18n::tr;
 use crate::models::{Artist, ArtistDetails, Genre, Track, format_subscribers};
 use crate::ui::player::play_queue_index;
 use crate::ui::state::AppState;
@@ -399,7 +400,7 @@ pub fn build_explore_page(
         .build();
 
     let genres_title = Label::builder()
-        .label("Géneros musicales")
+        .label(tr("Géneros musicales", "Music genres"))
         .xalign(0.0)
         .margin_top(8)
         .css_classes(["title-3"])
@@ -422,7 +423,7 @@ pub fn build_explore_page(
     // Genre playlists sub-view
     let genre_back_btn = Button::builder()
         .icon_name("go-previous-symbolic")
-        .tooltip_text("Volver a géneros")
+        .tooltip_text(tr("Volver a géneros", "Back to genres"))
         .css_classes(["flat", "circular"])
         .build();
     let genre_heading = Label::builder()

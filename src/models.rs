@@ -403,6 +403,8 @@ pub struct SessionState {
     pub position_secs: f64,
     #[serde(default = "default_crossfade_secs")]
     pub crossfade_secs: u32,
+    #[serde(default)]
+    pub language: crate::i18n::AppLanguage,
 }
 
 pub fn load_session_state() -> SessionState {

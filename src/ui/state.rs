@@ -34,6 +34,7 @@ pub struct AppState {
     pub source_name: String,
     pub shuffle: bool,
     pub repeat: bool,
+    pub language: crate::i18n::AppLanguage,
     pub cover_cache: HashMap<String, gdk::Texture>,
     pub toast_overlay: adw::ToastOverlay,
     // Sidebar player widgets
@@ -66,6 +67,16 @@ pub struct AppState {
     pub lyrics_auto_scroll: bool,
     pub lyrics_programmatic_scroll: Rc<Cell<bool>>,
     pub lyrics_loaded_for: Option<String>,
+    // Party Mode widgets
+    pub party_active: bool,
+    pub party_lyrics_box: GtkBox,
+    pub party_lyrics_scroll: ScrolledWindow,
+    pub party_lyrics_body_label: Label,
+    pub party_synced_lyrics: Vec<(f64, Button)>,
+    pub party_next_box: GtkBox,
+    pub party_next_cover: Picture,
+    pub party_next_title: Label,
+    pub party_next_artist: Label,
     pub queue_list: ListBox,
     pub queue_empty_label: Label,
     pub queue_title_label: Label,
@@ -99,6 +110,7 @@ impl AppState {
             repeat: self.repeat,
             position_secs: pos_secs,
             crossfade_secs: self.crossfade_secs,
+            language: self.language,
         });
     }
     pub fn active_media(&self) -> &GStreamerDeck {

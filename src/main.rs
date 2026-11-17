@@ -1,5 +1,6 @@
 mod backend;
 mod gst_deck;
+mod i18n;
 mod models;
 mod mpris;
 mod ui;

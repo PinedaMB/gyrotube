@@ -209,6 +209,36 @@ pub fn refresh_queue_ui(state: Rc<RefCell<AppState>>) {
 
         queue_list.append(&row);
     }
+    crate::ui::party_mode::refresh_party_next_up(&state);
+}
+
+fn make_lyric_line_button(
+    text: &str,
+    time_secs: f64,
+    state: Rc<RefCell<AppState>>,
+    css_class: &str,
+) -> Button {
+    let lbl = Label::builder()
+        .label(text)
+        .xalign(0.0)
+        .wrap(true)
+        .build();
+    let btn = Button::builder()
+        .child(&lbl)
+        .css_classes(["flat", css_class])
+        .build();
+    btn.connect_clicked(move |_| {
+        let mut s = state.borrow_mut();
+        s.lyrics_auto_scroll = true;
+        s.lyrics_resync_btn.set_visible(false);
+        let media = s.active_media().clone();
+        let target_us = (time_secs * 1_000_000.0) as i64;
+        media.seek(target_us);
+        s.seek_scale.set_value(time_secs);
+        s.time_label.set_label(&format_duration(time_secs as u32));
+        update_synced_lyrics_position(&mut s, time_secs);
+    });
+    btn
 }
 
 pub fn load_current_lyrics(state: Rc<RefCell<AppState>>) {
@@ -217,6 +247,8 @@ pub fn load_current_lyrics(state: Rc<RefCell<AppState>>) {
         let Some(track) = s.current_track().cloned() else {
             clear_box(&s.lyrics_box);
             s.synced_lyrics.clear();
+            clear_box(&s.party_lyrics_box);
+            s.party_synced_lyrics.clear();
             s.active_lyric_idx = None;
             s.lyrics_auto_scroll = true;
             s.lyrics_resync_btn.set_visible(false);
@@ -224,9 +256,11 @@ pub fn load_current_lyrics(state: Rc<RefCell<AppState>>) {
             s.lyrics_title_label.set_label("Letras");
             s.lyrics_artist_label.set_visible(false);
             s.lyrics_sync_badge.set_visible(false);
-            s.lyrics_body_label
-                .set_label("Reproduce una canción para ver su letra.");
+            let empty_msg = "Reproduce una canción para ver su letra.";
+            s.lyrics_body_label.set_label(empty_msg);
             s.lyrics_box.append(&s.lyrics_body_label);
+            s.party_lyrics_body_label.set_label(empty_msg);
+            s.party_lyrics_box.append(&s.party_lyrics_body_label);
             return;
         };
         if s.lyrics_loaded_for.as_deref() == Some(&track.id) {
@@ -234,6 +268,8 @@ pub fn load_current_lyrics(state: Rc<RefCell<AppState>>) {
         }
         clear_box(&s.lyrics_box);
         s.synced_lyrics.clear();
+        clear_box(&s.party_lyrics_box);
+        s.party_synced_lyrics.clear();
         s.active_lyric_idx = None;
         s.lyrics_auto_scroll = true;
         s.lyrics_resync_btn.set_visible(false);
@@ -243,6 +279,8 @@ pub fn load_current_lyrics(state: Rc<RefCell<AppState>>) {
         s.lyrics_sync_badge.set_visible(false);
         s.lyrics_body_label.set_label("Cargando letra…");
         s.lyrics_box.append(&s.lyrics_body_label);
+        s.party_lyrics_body_label.set_label("Cargando letra…");
+        s.party_lyrics_box.append(&s.party_lyrics_body_label);
         (track, s.backend.clone())
     };
 
@@ -259,6 +297,8 @@ pub fn load_current_lyrics(state: Rc<RefCell<AppState>>) {
             if s.current_track().is_some_and(|cur| cur.id == track.id) {
                 clear_box(&s.lyrics_box);
                 s.synced_lyrics.clear();
+                clear_box(&s.party_lyrics_box);
+                s.party_synced_lyrics.clear();
                 s.active_lyric_idx = None;
                 match result {
                     Ok(LyricsData::Synced(lines)) => {
@@ -267,31 +307,32 @@ pub fn load_current_lyrics(state: Rc<RefCell<AppState>>) {
                         s.lyrics_sync_badge.add_css_class("lyrics-badge-synced");
                         s.lyrics_sync_badge.set_visible(true);
                         for line in lines {
-                            let lbl = Label::builder()
-                                .label(&line.text)
-                                .xalign(0.0)
-                                .wrap(true)
-                                .build();
-                            let btn = Button::builder()
-                                .child(&lbl)
-                                .css_classes(["flat", "lyric-line"])
-                                .build();
-                            let state_click = Rc::clone(&state);
-                            let time_secs = line.time_secs;
-                            btn.connect_clicked(move |_| {
-                                let mut s = state_click.borrow_mut();
-                                s.lyrics_auto_scroll = true;
-                                s.lyrics_resync_btn.set_visible(false);
-                                let media = s.active_media().clone();
-                                let target_us = (time_secs * 1_000_000.0) as i64;
-                                media.seek(target_us);
-                                s.seek_scale.set_value(time_secs);
-                                s.time_label.set_label(&format_duration(time_secs as u32));
-                            });
+                            let btn = make_lyric_line_button(
+                                &line.text,
+                                line.time_secs,
+                                Rc::clone(&state),
+                                "lyric-line",
+                            );
+                            let party_btn = make_lyric_line_button(
+                                &line.text,
+                                line.time_secs,
+                                Rc::clone(&state),
+                                "party-lyric-line",
+                            );
                             s.lyrics_box.append(&btn);
-                            s.synced_lyrics.push((time_secs, btn));
+                            s.synced_lyrics.push((line.time_secs, btn));
+                            s.party_lyrics_box.append(&party_btn);
+                            s.party_synced_lyrics.push((line.time_secs, party_btn));
                         }
                         s.lyrics_loaded_for = Some(track.id);
+                        let state_fade = Rc::clone(&state);
+                        glib::idle_add_local_once(move || {
+                            let s = state_fade.borrow();
+                            if s.party_active {
+                                scroll_party_lyric_centered(&s, false);
+                            }
+                            update_party_lyrics_fade(&s);
+                        });
                     }
                     Ok(LyricsData::Plain(text)) => {
                         s.lyrics_sync_badge.set_label("Estática");
@@ -300,12 +341,24 @@ pub fn load_current_lyrics(state: Rc<RefCell<AppState>>) {
                         s.lyrics_sync_badge.set_visible(true);
                         s.lyrics_body_label.set_label(&text);
                         s.lyrics_box.append(&s.lyrics_body_label);
+                        s.party_lyrics_body_label.set_label(&text);
+                        s.party_lyrics_box.append(&s.party_lyrics_body_label);
                         s.lyrics_loaded_for = Some(track.id);
+                        let state_fade = Rc::clone(&state);
+                        glib::idle_add_local_once(move || {
+                            let s = state_fade.borrow();
+                            if s.party_active {
+                                scroll_party_lyric_centered(&s, false);
+                            }
+                            update_party_lyrics_fade(&s);
+                        });
                     }
                     Err(err) => {
                         s.lyrics_sync_badge.set_visible(false);
                         s.lyrics_body_label.set_label(&err);
                         s.lyrics_box.append(&s.lyrics_body_label);
+                        s.party_lyrics_body_label.set_label(&err);
+                        s.party_lyrics_box.append(&s.party_lyrics_body_label);
                     }
                 }
             }
@@ -313,18 +366,149 @@ pub fn load_current_lyrics(state: Rc<RefCell<AppState>>) {
     });
 }
 
-pub fn scroll_to_active_lyric(s: &AppState) {
-    if let Some(idx) = s.active_lyric_idx
-        && let Some((_, btn)) = s.synced_lyrics.get(idx)
-        && let Some(bounds) = btn.compute_bounds(&s.lyrics_box)
+fn scroll_lyric_list_to_idx(
+    lyrics: &[(f64, Button)],
+    lyrics_box: &gtk4::Box,
+    scroll: &gtk4::ScrolledWindow,
+    programmatic_flag: Option<&std::cell::Cell<bool>>,
+    idx: Option<usize>,
+) {
+    if let Some(idx) = idx
+        && let Some((_, btn)) = lyrics.get(idx)
+        && let Some(bounds) = btn.compute_bounds(lyrics_box)
     {
-        let adj = s.lyrics_scroll.vadjustment();
+        let adj = scroll.vadjustment();
         let target = (bounds.y() as f64 - adj.page_size() * 0.35)
             .clamp(0.0, (adj.upper() - adj.page_size()).max(0.0));
-        s.lyrics_programmatic_scroll.set(true);
+        if let Some(flag) = programmatic_flag {
+            flag.set(true);
+        }
         adj.set_value(target);
-        s.lyrics_programmatic_scroll.set(false);
+        if let Some(flag) = programmatic_flag {
+            flag.set(false);
+        }
     }
+}
+
+pub fn scroll_to_active_lyric(s: &AppState) {
+    scroll_lyric_list_to_idx(
+        &s.synced_lyrics,
+        &s.lyrics_box,
+        &s.lyrics_scroll,
+        Some(&s.lyrics_programmatic_scroll),
+        s.active_lyric_idx,
+    );
+}
+
+pub fn update_party_lyrics_fade(s: &AppState) {
+    if !s.party_active || s.party_synced_lyrics.is_empty() {
+        return;
+    }
+    let adj = s.party_lyrics_scroll.vadjustment();
+    let scroll_top = adj.value();
+    let page_h = adj.page_size();
+    let fade_zone = 130.0_f64;
+
+    for (i, (_, btn)) in s.party_synced_lyrics.iter().enumerate() {
+        let base_opacity = match s.active_lyric_idx {
+            Some(active) if i == active => 1.0,
+            Some(active) if i.abs_diff(active) == 1 => 0.62,
+            Some(active) if i.abs_diff(active) == 2 => 0.38,
+            Some(_) => 0.20,
+            None => 0.45,
+        };
+        let edge_fade = if page_h > 0.0
+            && let Some(bounds) = btn.compute_bounds(&s.party_lyrics_box)
+        {
+            let center_y = (bounds.y() as f64 + bounds.height() as f64 * 0.5) - scroll_top;
+            if center_y < fade_zone {
+                (center_y / fade_zone).clamp(0.08, 1.0)
+            } else if center_y > page_h - fade_zone {
+                ((page_h - center_y) / fade_zone).clamp(0.08, 1.0)
+            } else {
+                1.0
+            }
+        } else {
+            1.0
+        };
+        btn.set_opacity(base_opacity * edge_fade);
+    }
+}
+
+pub fn scroll_party_lyric_centered(s: &AppState, animate: bool) {
+    use std::cell::Cell;
+    use std::time::{Duration, Instant};
+    thread_local! {
+        static PARTY_SCROLL_GEN: Cell<u64> = const { Cell::new(0) };
+    }
+
+    let target_idx = s.active_lyric_idx.or_else(|| {
+        if s.party_synced_lyrics.is_empty() {
+            None
+        } else {
+            Some(0)
+        }
+    });
+    let Some(idx) = target_idx else {
+        return;
+    };
+    let Some((_, btn)) = s.party_synced_lyrics.get(idx).cloned() else {
+        return;
+    };
+
+    let scroll_gen = PARTY_SCROLL_GEN.with(|g| {
+        let next = g.get().wrapping_add(1);
+        g.set(next);
+        next
+    });
+
+    let lyrics_box = s.party_lyrics_box.clone();
+    let scroll = s.party_lyrics_scroll.clone();
+
+    let compute_target = move |b: &Button, lb: &gtk4::Box, sc: &gtk4::ScrolledWindow| -> Option<f64> {
+        let bounds = b.compute_bounds(lb)?;
+        let adj = sc.vadjustment();
+        let max_val = (adj.upper() - adj.page_size()).max(0.0);
+        Some(
+            (bounds.y() as f64 - adj.page_size() * 0.35)
+                .clamp(0.0, max_val),
+        )
+    };
+
+    if !animate {
+        if let Some(target) = compute_target(&btn, &lyrics_box, &scroll) {
+            scroll.vadjustment().set_value(target);
+            update_party_lyrics_fade(s);
+        }
+        return;
+    }
+
+    let start = scroll.vadjustment().value();
+    let started = Instant::now();
+    let duration_secs = 0.36_f64;
+
+    glib::timeout_add_local(Duration::from_millis(16), move || {
+        let still_current = PARTY_SCROLL_GEN.with(|g| g.get() == scroll_gen);
+        if !still_current {
+            return glib::ControlFlow::Break;
+        }
+        let Some(target) = compute_target(&btn, &lyrics_box, &scroll) else {
+            return glib::ControlFlow::Break;
+        };
+        let adj = scroll.vadjustment();
+        if (target - start).abs() < 1.0 {
+            adj.set_value(target);
+            return glib::ControlFlow::Break;
+        }
+        let progress = (started.elapsed().as_secs_f64() / duration_secs).clamp(0.0, 1.0);
+        let ease = 1.0 - (1.0 - progress).powi(3);
+        adj.set_value(start + (target - start) * ease);
+        if progress >= 1.0 {
+            glib::ControlFlow::Break
+        } else {
+            glib::ControlFlow::Continue
+        }
+    });
 }
 
 fn update_synced_lyrics_position(s: &mut AppState, pos_secs_exact: f64) {
@@ -336,19 +520,29 @@ fn update_synced_lyrics_position(s: &mut AppState, pos_secs_exact: f64) {
         .iter()
         .rposition(|(t, _)| *t <= pos_secs_exact + 0.15);
     if new_idx != s.active_lyric_idx {
-        if let Some(old) = s.active_lyric_idx
-            && let Some((_, btn)) = s.synced_lyrics.get(old)
-        {
-            btn.remove_css_class("lyric-line-active");
+        if let Some(old) = s.active_lyric_idx {
+            if let Some((_, btn)) = s.synced_lyrics.get(old) {
+                btn.remove_css_class("lyric-line-active");
+            }
+            if let Some((_, btn)) = s.party_synced_lyrics.get(old) {
+                btn.remove_css_class("lyric-line-active");
+            }
         }
-        if let Some(idx) = new_idx
-            && let Some((_, btn)) = s.synced_lyrics.get(idx)
-        {
-            btn.add_css_class("lyric-line-active");
+        if let Some(idx) = new_idx {
+            if let Some((_, btn)) = s.synced_lyrics.get(idx) {
+                btn.add_css_class("lyric-line-active");
+            }
+            if let Some((_, btn)) = s.party_synced_lyrics.get(idx) {
+                btn.add_css_class("lyric-line-active");
+            }
         }
         s.active_lyric_idx = new_idx;
         if s.lyrics_auto_scroll {
             scroll_to_active_lyric(s);
+        }
+        if s.party_active {
+            scroll_party_lyric_centered(s, true);
+            update_party_lyrics_fade(s);
         }
     }
 }

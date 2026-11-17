@@ -12,6 +12,7 @@ use gtk4::{
 use libadwaita as adw;
 
 use crate::backend::runtime;
+use crate::i18n::tr;
 use crate::models::{Track, format_duration};
 use crate::ui::player::{play_queue_index, refresh_queue_ui};
 use crate::ui::state::AppState;
@@ -453,29 +454,29 @@ pub fn build_home_page(
         .build();
     let card_new = build_quick_card(
         "01",
-        "Nuevos lanzamientos",
-        "Álbumes y sencillos recientes",
+        tr("Nuevos lanzamientos", "New releases"),
+        tr("Álbumes y sencillos recientes", "Recent albums & singles"),
         "media-optical-symbolic",
         1,
     );
     let card_charts = build_quick_card(
         "02",
-        "Listas de éxitos",
-        "Tendencias y Top Música",
+        tr("Listas de éxitos", "Top charts"),
+        tr("Tendencias y Top Música", "Trending & Top Music"),
         "view-list-ordered-symbolic",
         2,
     );
     let card_moods = build_quick_card(
         "03",
-        "Estados de ánimo",
-        "Explorar géneros y ritmos",
+        tr("Estados de ánimo", "Moods"),
+        tr("Explorar géneros y ritmos", "Explore genres & vibes"),
         "search-regular",
         3,
     );
     let card_collection = build_quick_card(
         "04",
-        "Colección",
-        "Tus canciones favoritas",
+        tr("Colección", "Collection"),
+        tr("Tus canciones favoritas", "Your favorite songs"),
         "heart-filled",
         4,
     );
@@ -490,7 +491,7 @@ pub fn build_home_page(
     let chart_header = GtkBox::new(Orientation::Horizontal, 10);
     chart_header.append(
         &Label::builder()
-            .label("Éxitos en tendencia")
+            .label(tr("Éxitos en tendencia", "Trending hits"))
             .xalign(0.0)
             .hexpand(true)
             .ellipsize(gtk4::pango::EllipsizeMode::End)
@@ -500,7 +501,7 @@ pub fn build_home_page(
 
     let refresh_btn = Button::builder()
         .icon_name("view-refresh-symbolic")
-        .tooltip_text("Recargar inicio")
+        .tooltip_text(tr("Recargar inicio", "Reload home"))
         .css_classes(["flat", "circular"])
         .build();
     chart_header.append(&refresh_btn);
@@ -508,12 +509,12 @@ pub fn build_home_page(
     let pill_box = GtkBox::new(Orientation::Horizontal, 2);
     pill_box.add_css_class("pill-switch-group");
     let trending_pill = ToggleButton::builder()
-        .label("Tendencias")
+        .label(tr("Tendencias", "Trending"))
         .active(true)
         .css_classes(["flat", "pill-switch"])
         .build();
     let top_pill = ToggleButton::builder()
-        .label("Top Música")
+        .label(tr("Top Música", "Top Music"))
         .group(&trending_pill)
         .css_classes(["flat", "pill-switch"])
         .build();

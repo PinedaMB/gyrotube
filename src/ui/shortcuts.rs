@@ -17,6 +17,8 @@ pub struct ShortcutTargets {
     pub prev_btn: Button,
     pub next_btn: Button,
     pub content_stack: adw::ViewStack,
+    pub on_toggle_party: Rc<dyn Fn()>,
+    pub on_exit_party: Rc<dyn Fn() -> bool>,
 }
 
 pub fn install_shortcuts(targets: ShortcutTargets) {
@@ -35,6 +37,13 @@ pub fn install_shortcuts(targets: ShortcutTargets) {
         }
         if alt && key == gdk::Key::_3 {
             targets.content_stack.set_visible_child_name("collection");
+            return glib::Propagation::Stop;
+        }
+        if key == gdk::Key::F11 {
+            (targets.on_toggle_party)();
+            return glib::Propagation::Stop;
+        }
+        if key == gdk::Key::Escape && (targets.on_exit_party)() {
             return glib::Propagation::Stop;
         }
         if ctrl && (key == gdk::Key::f || key == gdk::Key::F) {

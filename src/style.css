@@ -607,3 +607,70 @@
     padding: 4px 12px 2px 12px;
     border-bottom: 1px solid alpha(@window_fg_color, 0.08);
 }
+
+/* Party Mode */
+.party-mode-bg {
+    background-color: @window_bg_color;
+}
+
+.party-badge {
+    padding: 5px 12px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    background-color: alpha(@accent_bg_color, 0.22);
+    color: @accent_color;
+}
+
+.party-cover {
+    box-shadow: 0 18px 48px alpha(#000000, 0.55);
+}
+
+.party-title {
+    font-size: 26px;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+}
+
+.party-artist {
+    font-size: 16px;
+    opacity: 0.78;
+}
+
+.party-next-card {
+    padding: 10px 14px;
+    border-radius: 14px;
+    background-color: alpha(@window_fg_color, 0.06);
+    border: 1px solid alpha(@window_fg_color, 0.08);
+}
+
+.party-lyrics-card {
+    padding: 36px 16px 56px 16px;
+    background-color: transparent;
+}
+
+.party-lyric-line {
+    font-size: 28px;
+    line-height: 1.4;
+    padding: 12px 18px;
+    border-radius: 14px;
+    transition: background-color 180ms ease;
+}
+
+.party-lyric-line:hover {
+    background-color: alpha(@window_fg_color, 0.06);
+}
+
+.party-lyric-line.lyric-line-active {
+    font-size: 36px;
+    font-weight: 800;
+    color: @window_fg_color;
+    background-color: alpha(@accent_bg_color, 0.18);
+}
+
+.party-lyrics-plain {
+    font-size: 26px;
+    line-height: 1.6;
+    opacity: 0.9;
+}

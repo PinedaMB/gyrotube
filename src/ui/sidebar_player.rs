@@ -9,6 +9,7 @@ use gtk4::{
 };
 use libadwaita as adw;
 
+use crate::i18n::tr;
 use crate::ui::state::AppState;
 use crate::ui::widgets::clamped_cover;
 
@@ -39,6 +40,7 @@ pub struct SidebarPlayerWidgets {
     pub volume_btn: MenuButton,
     pub crossfade_btn: ToggleButton,
     pub sleep_timer_btn: MenuButton,
+    pub party_btn: Button,
     pub lyrics_title_label: Label,
     pub lyrics_artist_label: Label,
     pub lyrics_sync_badge: Label,
@@ -66,7 +68,7 @@ pub fn build_sidebar_player() -> SidebarPlayerWidgets {
     context_text.set_hexpand(true);
     context_text.append(
         &Label::builder()
-            .label("Reproduciendo desde")
+            .label(tr("Reproduciendo desde", "Playing from"))
             .xalign(0.0)
             .css_classes(["dim-label", "caption"])
             .build(),
@@ -75,7 +77,7 @@ pub fn build_sidebar_player() -> SidebarPlayerWidgets {
 
     let sidebar_collapse_btn = Button::builder()
         .icon_name("go-previous-symbolic")
-        .tooltip_text("Ocultar reproductor")
+        .tooltip_text(tr("Ocultar reproductor", "Hide player"))
         .css_classes(["flat", "circular"])
         .build();
     sidebar_collapse_btn.set_cursor_from_name(Some("pointer"));
@@ -103,7 +105,7 @@ pub fn build_sidebar_player() -> SidebarPlayerWidgets {
     player_cover_overlay.add_overlay(&player_cover_spinner);
 
     let player_title = Label::builder()
-        .label("Nada reproduciéndose")
+        .label(tr("Nada reproduciéndose", "Nothing playing"))
         .halign(Align::Center)
         .ellipsize(gtk4::pango::EllipsizeMode::End)
         .max_width_chars(28)
@@ -111,7 +113,7 @@ pub fn build_sidebar_player() -> SidebarPlayerWidgets {
         .build();
 
     let player_artist = Label::builder()
-        .label("Selecciona una canción")
+        .label(tr("Selecciona una canción", "Select a song"))
         .halign(Align::Center)
         .use_markup(true)
         .ellipsize(gtk4::pango::EllipsizeMode::End)
@@ -138,21 +140,21 @@ pub fn build_sidebar_player() -> SidebarPlayerWidgets {
     let volume_popover = Popover::builder().child(&volume_scale).build();
     let volume_btn = MenuButton::builder()
         .icon_name("speaker-2-regular")
-        .tooltip_text("Volumen")
+        .tooltip_text(tr("Volumen", "Volume"))
         .popover(&volume_popover)
         .css_classes(["flat", "circular"])
         .build();
 
     let player_fav_btn = ToggleButton::builder()
         .icon_name("heart-regular")
-        .tooltip_text("Agregar a favoritos")
+        .tooltip_text(tr("Agregar a favoritos", "Add to favorites"))
         .sensitive(false)
         .css_classes(["flat", "circular"])
         .build();
 
     let player_radio_btn = Button::builder()
         .icon_name("sound-wave-circle-regular")
-        .tooltip_text("Iniciar radio desde esta canción")
+        .tooltip_text(tr("Iniciar radio desde esta canción", "Start radio from this song"))
         .sensitive(false)
         .css_classes(["flat", "circular"])
         .build();
@@ -160,23 +162,30 @@ pub fn build_sidebar_player() -> SidebarPlayerWidgets {
     let crossfade_btn = ToggleButton::builder()
         .label("CF")
         .active(true)
-        .tooltip_text("Crossfade automático (4 s)")
+        .tooltip_text(tr("Crossfade automático (4 s)", "Auto crossfade (4 s)"))
         .css_classes(["flat", "circular", "caption"])
         .build();
 
     let sleep_timer_btn = MenuButton::builder()
         .icon_name("timer-regular")
-        .tooltip_text("Temporizador de apagado")
+        .tooltip_text(tr("Temporizador de apagado", "Sleep timer"))
         .css_classes(["flat", "circular"])
         .build();
 
-    let action_icons_row = GtkBox::new(Orientation::Horizontal, 14);
+    let party_btn = Button::builder()
+        .icon_name("sparkle-regular")
+        .tooltip_text(tr("Modo Fiesta (F11)", "Party Mode (F11)"))
+        .css_classes(["flat", "circular"])
+        .build();
+
+    let action_icons_row = GtkBox::new(Orientation::Horizontal, 12);
     action_icons_row.set_halign(Align::Center);
     action_icons_row.append(&volume_btn);
     action_icons_row.append(&player_fav_btn);
     action_icons_row.append(&player_radio_btn);
     action_icons_row.append(&crossfade_btn);
     action_icons_row.append(&sleep_timer_btn);
+    action_icons_row.append(&party_btn);
 
     let seek_scale = Scale::with_range(Orientation::Horizontal, 0.0, 100.0, 1.0);
     seek_scale.set_draw_value(false);
@@ -207,7 +216,7 @@ pub fn build_sidebar_player() -> SidebarPlayerWidgets {
 
     let shuffle_btn = ToggleButton::builder()
         .icon_name("arrow-shuffle-regular")
-        .tooltip_text("Aleatorio")
+        .tooltip_text(tr("Aleatorio", "Shuffle"))
         .css_classes(["flat", "circular"])
         .build();
 
@@ -236,7 +245,7 @@ pub fn build_sidebar_player() -> SidebarPlayerWidgets {
 
     let repeat_btn = ToggleButton::builder()
         .icon_name("arrow-repeat-all-regular")
-        .tooltip_text("Repetir")
+        .tooltip_text(tr("Repetir", "Repeat"))
         .css_classes(["flat", "circular"])
         .build();
 
@@ -265,7 +274,7 @@ pub fn build_sidebar_player() -> SidebarPlayerWidgets {
 
     // Lyrics View
     let lyrics_title_label = Label::builder()
-        .label("Letras")
+        .label(tr("Letras", "Lyrics"))
         .xalign(0.0)
         .ellipsize(gtk4::pango::EllipsizeMode::End)
         .css_classes(["title-4"])
@@ -294,7 +303,10 @@ pub fn build_sidebar_player() -> SidebarPlayerWidgets {
     lyrics_header.append(&lyrics_sync_badge);
 
     let lyrics_body_label = Label::builder()
-        .label("Reproduce una canción para ver su letra.")
+        .label(tr(
+            "Reproduce una canción para ver su letra.",
+            "Play a song to view its lyrics.",
+        ))
         .xalign(0.0)
         .yalign(0.0)
         .wrap(true)
@@ -328,7 +340,7 @@ pub fn build_sidebar_player() -> SidebarPlayerWidgets {
         .build();
     let resync_content = GtkBox::new(Orientation::Horizontal, 6);
     resync_content.append(&Image::from_icon_name("arrow-sync-regular"));
-    resync_content.append(&Label::new(Some("Volver a la letra")));
+    resync_content.append(&Label::new(Some(tr("Volver a la letra", "Back to lyrics"))));
     lyrics_resync_btn.set_child(Some(&resync_content));
 
     let lyrics_overlay = gtk4::Overlay::builder()
@@ -461,25 +473,25 @@ pub fn build_sidebar_player() -> SidebarPlayerWidgets {
         .css_classes(["boxed-list"])
         .build();
     let queue_empty_label = Label::builder()
-        .label("La cola está vacía.")
+        .label(tr("La cola está vacía.", "The queue is empty."))
         .justify(Justification::Center)
         .margin_top(36)
         .css_classes(["dim-label"])
         .build();
 
     let queue_title_label = Label::builder()
-        .label("Cola")
+        .label(tr("Cola", "Queue"))
         .xalign(0.0)
         .hexpand(true)
         .css_classes(["title-4"])
         .build();
     let queue_save_btn = Button::builder()
         .icon_name("music-note-2-regular")
-        .tooltip_text("Guardar cola como playlist")
+        .tooltip_text(tr("Guardar cola como playlist", "Save queue as playlist"))
         .css_classes(["flat", "circular"])
         .build();
     let queue_clear_btn = Button::builder()
-        .label("Limpiar")
+        .label(tr("Limpiar", "Clear"))
         .css_classes(["flat"])
         .build();
     let queue_header = GtkBox::new(Orientation::Horizontal, 6);
@@ -510,13 +522,13 @@ pub fn build_sidebar_player() -> SidebarPlayerWidgets {
     sidebar_stack.add_named(&lyrics_page, Some("lyrics"));
     sidebar_stack.add_named(&queue_scroll, Some("queue"));
 
-    let tab_player = make_sidebar_tab("music-note-2-regular", "Reproductor", true);
+    let tab_player = make_sidebar_tab("music-note-2-regular", tr("Reproductor", "Player"), true);
     {
         let tp = tab_player.clone();
         lyrics_np_open_btn.connect_clicked(move |_| tp.set_active(true));
     }
-    let tab_lyrics = make_sidebar_tab("comment-quote-regular", "Letras", false);
-    let tab_queue = make_sidebar_tab("document-bullet-list-regular", "Cola", false);
+    let tab_lyrics = make_sidebar_tab("comment-quote-regular", tr("Letras", "Lyrics"), false);
+    let tab_queue = make_sidebar_tab("document-bullet-list-regular", tr("Cola", "Queue"), false);
     tab_lyrics.set_group(Some(&tab_player));
     tab_queue.set_group(Some(&tab_player));
 
@@ -578,6 +590,7 @@ pub fn build_sidebar_player() -> SidebarPlayerWidgets {
         volume_btn,
         crossfade_btn,
         sleep_timer_btn,
+        party_btn,
         lyrics_title_label,
         lyrics_artist_label,
         lyrics_sync_badge,
@@ -721,7 +734,7 @@ pub fn build_mini_bar(
     (bar, open_btn)
 }
 
-fn build_bound_progress_bar(adj: &gtk4::Adjustment) -> gtk4::ProgressBar {
+pub fn build_bound_progress_bar(adj: &gtk4::Adjustment) -> gtk4::ProgressBar {
     let pb = gtk4::ProgressBar::builder()
         .fraction(0.0)
         .css_classes(["mini-progress"])
