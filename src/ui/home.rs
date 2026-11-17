@@ -18,7 +18,7 @@ use crate::ui::player::{play_queue_index, refresh_queue_ui};
 use crate::ui::state::AppState;
 use crate::ui::widgets::{
     build_album_card, build_playlist_card, build_skeleton_box, clamped_cover, clear_list_box,
-    load_cover_into_picture, set_track_favorite,
+    load_cover_into_picture, open_album_by_id, play_album_by_id, set_track_favorite,
 };
 
 fn build_quick_card(
@@ -436,11 +436,52 @@ pub fn build_home_page(
     state: Rc<RefCell<AppState>>,
     content_view_stack: adw::ViewStack,
 ) -> (ScrolledWindow, FlowBox) {
-    let container = GtkBox::new(Orientation::Vertical, 26);
+    let container = GtkBox::new(Orientation::Vertical, 24);
     container.set_margin_top(16);
     container.set_margin_bottom(88);
     container.set_margin_start(20);
     container.set_margin_end(20);
+
+    // 0. Contextual greeting header + refresh button
+    let greeting_text = match glib::DateTime::now_local()
+        .map(|dt| dt.hour())
+        .unwrap_or(12)
+    {
+        5..=11 => tr("Buenos días", "Good morning"),
+        12..=18 => tr("Buenas tardes", "Good afternoon"),
+        _ => tr("Buenas noches", "Good evening"),
+    };
+    let greeting_col = GtkBox::new(Orientation::Vertical, 2);
+    greeting_col.set_hexpand(true);
+    greeting_col.append(
+        &Label::builder()
+            .label(greeting_text)
+            .xalign(0.0)
+            .css_classes(["home-greeting-title"])
+            .build(),
+    );
+    greeting_col.append(
+        &Label::builder()
+            .label(tr(
+                "Tu música lista para reproducir",
+                "Your music ready to play",
+            ))
+            .xalign(0.0)
+            .css_classes(["dim-label", "caption"])
+            .build(),
+    );
+
+    let refresh_btn = Button::builder()
+        .icon_name("view-refresh-symbolic")
+        .tooltip_text(tr("Recargar inicio", "Reload home"))
+        .valign(Align::Center)
+        .css_classes(["flat", "circular"])
+        .build();
+    refresh_btn.set_cursor_from_name(Some("pointer"));
+
+    let greeting_header = GtkBox::new(Orientation::Horizontal, 12);
+    greeting_header.append(&greeting_col);
+    greeting_header.append(&refresh_btn);
 
     // 1. Quick-category 4-card adaptive grid (4 in 1 row on desktop -> 2x2 on tablet/mobile)
     let quick_grid = FlowBox::builder()
@@ -487,6 +528,99 @@ pub fn build_home_page(
 
     let skeleton = build_home_skeleton();
 
+    // 1b. "Escuchar de nuevo" (Listen again) from recent_tracks
+    let listen_again_grid = FlowBox::builder()
+        .valign(Align::Start)
+        .homogeneous(true)
+        .min_children_per_line(1)
+        .max_children_per_line(3)
+        .row_spacing(10)
+        .column_spacing(10)
+        .selection_mode(SelectionMode::None)
+        .build();
+    let listen_again_section = GtkBox::new(Orientation::Vertical, 10);
+    listen_again_section.set_visible(false);
+    listen_again_section.append(
+        &Label::builder()
+            .label(tr("Escuchar de nuevo", "Listen again"))
+            .xalign(0.0)
+            .css_classes(["title-2"])
+            .build(),
+    );
+    listen_again_section.append(&listen_again_grid);
+
+    let render_listen_again: Rc<dyn Fn()> = {
+        let listen_again_grid = listen_again_grid.clone();
+        let listen_again_section = listen_again_section.clone();
+        let state = Rc::clone(&state);
+        Rc::new(move || {
+            while let Some(child) = listen_again_grid.first_child() {
+                listen_again_grid.remove(&child);
+            }
+            let recents: Vec<Track> = state.borrow().recent_tracks.iter().take(6).cloned().collect();
+            listen_again_section.set_visible(!recents.is_empty());
+            for (idx, track) in recents.iter().enumerate() {
+                let (cover_frame, cover_pic) = clamped_cover(46, 46, "cover-art");
+                if let Some(url) = &track.cover_url {
+                    load_cover_into_picture(&cover_pic, url, Rc::clone(&state));
+                }
+                let text_col = GtkBox::new(Orientation::Vertical, 2);
+                text_col.set_hexpand(true);
+                text_col.set_valign(Align::Center);
+                text_col.append(
+                    &Label::builder()
+                        .label(&track.title)
+                        .xalign(0.0)
+                        .ellipsize(gtk4::pango::EllipsizeMode::End)
+                        .css_classes(["heading"])
+                        .build(),
+                );
+                text_col.append(
+                    &Label::builder()
+                        .label(&track.artist)
+                        .xalign(0.0)
+                        .ellipsize(gtk4::pango::EllipsizeMode::End)
+                        .css_classes(["caption", "dim-label"])
+                        .build(),
+                );
+                let row_box = GtkBox::new(Orientation::Horizontal, 10);
+                row_box.append(&cover_frame);
+                row_box.append(&text_col);
+                row_box.append(
+                    &Image::builder()
+                        .icon_name("play-filled")
+                        .pixel_size(14)
+                        .valign(Align::Center)
+                        .css_classes(["dim-label"])
+                        .build(),
+                );
+                let tile_btn = Button::builder()
+                    .child(&row_box)
+                    .css_classes(["flat", "listen-again-tile"])
+                    .build();
+                tile_btn.set_cursor_from_name(Some("pointer"));
+                let state_click = Rc::clone(&state);
+                let queue_tracks = recents.clone();
+                tile_btn.connect_clicked(move |_| {
+                    {
+                        let mut s = state_click.borrow_mut();
+                        s.shuffle = false;
+                        s.unshuffled_queue.clear();
+                        s.queue = queue_tracks.clone();
+                        s.source_name = String::from(tr("Escuchar de nuevo", "Listen again"));
+                    }
+                    play_queue_index(Rc::clone(&state_click), idx);
+                });
+                listen_again_grid.insert(&tile_btn, -1);
+            }
+        })
+    };
+    render_listen_again();
+
+    // 1c. Featured Hero card
+    let hero_section = GtkBox::new(Orientation::Vertical, 0);
+    hero_section.set_visible(false);
+
     // 2. "Éxitos en tendencia" numbered chart with pill switcher
     let chart_header = GtkBox::new(Orientation::Horizontal, 10);
     chart_header.append(
@@ -498,13 +632,6 @@ pub fn build_home_page(
             .css_classes(["title-2"])
             .build(),
     );
-
-    let refresh_btn = Button::builder()
-        .icon_name("view-refresh-symbolic")
-        .tooltip_text(tr("Recargar inicio", "Reload home"))
-        .css_classes(["flat", "circular"])
-        .build();
-    chart_header.append(&refresh_btn);
 
     let pill_box = GtkBox::new(Orientation::Horizontal, 2);
     pill_box.add_css_class("pill-switch-group");
@@ -568,19 +695,22 @@ pub fn build_home_page(
     chart_section.append(&chart_header);
     chart_section.append(&chart_card);
 
-    // 3. "Nuevos lanzamientos destacados" adw::Carousel
+    // 3. "Nuevos lanzamientos" adw::Carousel
     let albums_header_text = GtkBox::new(Orientation::Vertical, 2);
     albums_header_text.set_hexpand(true);
     albums_header_text.append(
         &Label::builder()
-            .label("Nuevos lanzamientos destacados")
+            .label(tr("Nuevos lanzamientos", "New releases"))
             .xalign(0.0)
             .css_classes(["title-2"])
             .build(),
     );
     albums_header_text.append(
         &Label::builder()
-            .label("Álbumes y sencillos recién publicados")
+            .label(tr(
+                "Álbumes y sencillos recién publicados",
+                "Recently released albums & singles",
+            ))
             .xalign(0.0)
             .css_classes(["dim-label", "caption"])
             .build(),
@@ -646,7 +776,7 @@ pub fn build_home_page(
 
     // 4. "Estaciones y géneros" adaptive bento grid (4 -> 2 -> 1 columns)
     let stations_header = Label::builder()
-        .label("Estaciones y géneros")
+        .label(tr("Estaciones y géneros", "Stations & genres"))
         .xalign(0.0)
         .css_classes(["title-2"])
         .build();
@@ -664,10 +794,13 @@ pub fn build_home_page(
     stations_section.append(&stations_header);
     stations_section.append(&stations_grid);
 
+    container.append(&greeting_header);
     container.append(&quick_grid);
+    container.append(&listen_again_section);
     container.append(&skeleton);
-    container.append(&chart_section);
+    container.append(&hero_section);
     container.append(&albums_section);
+    container.append(&chart_section);
     container.append(&stations_section);
 
     let clamp = adw::Clamp::builder()
@@ -712,12 +845,14 @@ pub fn build_home_page(
         })
     };
 
-    // Re-highlight active track in chart when playback changes
+    // Re-highlight active track in chart & refresh Listen Again when playback changes
     {
         let render_chart = Rc::clone(&render_chart);
+        let render_listen_again = Rc::clone(&render_listen_again);
         let top_pill = top_pill.clone();
         state.borrow_mut().on_track_changed.push(Rc::new(move || {
             render_chart(top_pill.is_active());
+            render_listen_again();
         }));
     }
 
@@ -783,6 +918,7 @@ pub fn build_home_page(
     let load_home = {
         let state = Rc::clone(&state);
         let skeleton = skeleton.clone();
+        let hero_section = hero_section.clone();
         let chart_section = chart_section.clone();
         let albums_section = albums_section.clone();
         let albums_carousel = albums_carousel.clone();
@@ -813,6 +949,7 @@ pub fn build_home_page(
 
             let state = Rc::clone(&state);
             let skeleton = skeleton.clone();
+            let hero_section = hero_section.clone();
             let chart_section = chart_section.clone();
             let albums_section = albums_section.clone();
             let albums_carousel = albums_carousel.clone();
@@ -835,6 +972,99 @@ pub fn build_home_page(
                             render_chart(top_pill.is_active());
                             chart_section
                                 .set_visible(!feed.trending.is_empty() || !feed.top.is_empty());
+
+                            while let Some(child) = hero_section.first_child() {
+                                hero_section.remove(&child);
+                            }
+                            if let Some(featured) = feed.new_albums.first() {
+                                let (cover_frame, cover_pic) =
+                                    clamped_cover(128, 128, "cover-art-large");
+                                cover_frame.add_css_class("home-hero-cover");
+                                if let Some(url) = &featured.cover_url {
+                                    load_cover_into_picture(&cover_pic, url, Rc::clone(&state));
+                                }
+                                let badge = Label::builder()
+                                    .label(tr("DESTACADO", "FEATURED"))
+                                    .halign(Align::Start)
+                                    .css_classes(["home-hero-badge"])
+                                    .build();
+                                let title_lbl = Label::builder()
+                                    .label(&featured.title)
+                                    .xalign(0.0)
+                                    .wrap(true)
+                                    .max_width_chars(34)
+                                    .css_classes(["title-1"])
+                                    .build();
+                                let subtitle = match featured.year {
+                                    Some(y) => format!("{} • {y}", featured.artist),
+                                    None => featured.artist.clone(),
+                                };
+                                let sub_lbl = Label::builder()
+                                    .label(&subtitle)
+                                    .xalign(0.0)
+                                    .ellipsize(gtk4::pango::EllipsizeMode::End)
+                                    .css_classes(["dim-label"])
+                                    .build();
+
+                                let play_content = GtkBox::new(Orientation::Horizontal, 8);
+                                play_content.append(&Image::from_icon_name("play-filled"));
+                                play_content.append(&Label::new(Some(tr("Reproducir", "Play"))));
+                                let hero_play_btn = Button::builder()
+                                    .child(&play_content)
+                                    .css_classes(["suggested-action", "pill"])
+                                    .build();
+                                hero_play_btn.set_cursor_from_name(Some("pointer"));
+                                {
+                                    let st = Rc::clone(&state);
+                                    let id = featured.id.clone();
+                                    let title = featured.title.clone();
+                                    hero_play_btn.connect_clicked(move |_| {
+                                        play_album_by_id(id.clone(), title.clone(), Rc::clone(&st));
+                                    });
+                                }
+
+                                let hero_open_btn = Button::builder()
+                                    .label(tr("Abrir álbum", "Open album"))
+                                    .css_classes(["pill"])
+                                    .build();
+                                hero_open_btn.set_cursor_from_name(Some("pointer"));
+                                {
+                                    let st = Rc::clone(&state);
+                                    let id = featured.id.clone();
+                                    let title = featured.title.clone();
+                                    let cover = featured.cover_url.clone();
+                                    hero_open_btn.connect_clicked(move |_| {
+                                        open_album_by_id(
+                                            id.clone(),
+                                            title.clone(),
+                                            cover.clone(),
+                                            Rc::clone(&st),
+                                        );
+                                    });
+                                }
+
+                                let btns_row = GtkBox::new(Orientation::Horizontal, 10);
+                                btns_row.set_margin_top(6);
+                                btns_row.append(&hero_play_btn);
+                                btns_row.append(&hero_open_btn);
+
+                                let info_col = GtkBox::new(Orientation::Vertical, 6);
+                                info_col.set_hexpand(true);
+                                info_col.set_valign(Align::Center);
+                                info_col.append(&badge);
+                                info_col.append(&title_lbl);
+                                info_col.append(&sub_lbl);
+                                info_col.append(&btns_row);
+
+                                let hero_card = GtkBox::new(Orientation::Horizontal, 20);
+                                hero_card.add_css_class("home-hero-card");
+                                hero_card.append(&cover_frame);
+                                hero_card.append(&info_col);
+                                hero_section.append(&hero_card);
+                                hero_section.set_visible(true);
+                            } else {
+                                hero_section.set_visible(false);
+                            }
 
                             while albums_carousel.n_pages() > 0 {
                                 let page = albums_carousel.nth_page(0);

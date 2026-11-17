@@ -38,7 +38,6 @@ pub struct SidebarPlayerWidgets {
     pub repeat_btn: ToggleButton,
     pub volume_scale: Scale,
     pub volume_btn: MenuButton,
-    pub crossfade_btn: ToggleButton,
     pub sleep_timer_btn: MenuButton,
     pub party_btn: Button,
     pub lyrics_title_label: Label,
@@ -159,13 +158,6 @@ pub fn build_sidebar_player() -> SidebarPlayerWidgets {
         .css_classes(["flat", "circular"])
         .build();
 
-    let crossfade_btn = ToggleButton::builder()
-        .label("CF")
-        .active(true)
-        .tooltip_text(tr("Crossfade automático (4 s)", "Auto crossfade (4 s)"))
-        .css_classes(["flat", "circular", "caption"])
-        .build();
-
     let sleep_timer_btn = MenuButton::builder()
         .icon_name("timer-regular")
         .tooltip_text(tr("Temporizador de apagado", "Sleep timer"))
@@ -178,12 +170,11 @@ pub fn build_sidebar_player() -> SidebarPlayerWidgets {
         .css_classes(["flat", "circular"])
         .build();
 
-    let action_icons_row = GtkBox::new(Orientation::Horizontal, 12);
+    let action_icons_row = GtkBox::new(Orientation::Horizontal, 14);
     action_icons_row.set_halign(Align::Center);
     action_icons_row.append(&volume_btn);
     action_icons_row.append(&player_fav_btn);
     action_icons_row.append(&player_radio_btn);
-    action_icons_row.append(&crossfade_btn);
     action_icons_row.append(&sleep_timer_btn);
     action_icons_row.append(&party_btn);
 
@@ -588,7 +579,6 @@ pub fn build_sidebar_player() -> SidebarPlayerWidgets {
         repeat_btn,
         volume_scale,
         volume_btn,
-        crossfade_btn,
         sleep_timer_btn,
         party_btn,
         lyrics_title_label,

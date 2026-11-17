@@ -155,10 +155,8 @@ pub fn wire_settings_dialog(
     settings_btn: &Button,
     menu_popover: &Popover,
     state: Rc<RefCell<AppState>>,
-    crossfade_btn: &gtk4::ToggleButton,
 ) {
     let pop = menu_popover.clone();
-    let crossfade_btn = crossfade_btn.clone();
     settings_btn.connect_clicked(move |btn| {
         pop.popdown();
         let dialog = adw::PreferencesDialog::builder()
@@ -243,7 +241,6 @@ pub fn wire_settings_dialog(
         {
             let state_cf = Rc::clone(&state);
             let cf_row_ref = cf_row.clone();
-            let cf_btn_ref = crossfade_btn.clone();
             cf_scale.connect_value_changed(move |scale| {
                 let secs = (scale.value().round() as u32).min(10);
                 cf_row_ref.set_subtitle(&format_cf(secs));
@@ -257,9 +254,6 @@ pub fn wire_settings_dialog(
                         s.crossfade_triggered_for = None;
                     }
                     s.save_session();
-                }
-                if cf_btn_ref.is_active() != (secs > 0) {
-                    cf_btn_ref.set_active(secs > 0);
                 }
             });
         }
@@ -399,7 +393,8 @@ pub fn wire_search_popover(
         let suppress_suggest = Rc::clone(&suppress_suggest);
         let active_items = Rc::clone(&active_items);
         let selected_idx = Rc::clone(&selected_idx);
-        move |heading_text: &str, icon_name: &str, items: Vec<String>| {
+        let state_pop = Rc::clone(&state);
+        move |heading_text: &str, icon_name: &str, items: Vec<String>, is_history: bool| {
             active_items.borrow_mut().clear();
             selected_idx.set(None);
             if items.is_empty() {
@@ -411,15 +406,42 @@ pub fn wire_search_popover(
             box_hist.set_margin_bottom(6);
             box_hist.set_margin_start(6);
             box_hist.set_margin_end(6);
-            box_hist.set_width_request(300);
-            box_hist.append(
+            box_hist.set_width_request(320);
+
+            let header_row = GtkBox::new(Orientation::Horizontal, 6);
+            header_row.append(
                 &Label::builder()
                     .label(heading_text)
                     .xalign(0.0)
+                    .hexpand(true)
                     .margin_start(6)
                     .css_classes(["dim-label", "caption"])
                     .build(),
             );
+            if is_history {
+                let clear_all_btn = Button::builder()
+                    .label(tr("Limpiar", "Clear"))
+                    .can_focus(false)
+                    .focus_on_click(false)
+                    .css_classes(["flat", "caption"])
+                    .build();
+                clear_all_btn.set_cursor_from_name(Some("pointer"));
+                let st_clear = Rc::clone(&state_pop);
+                let pop_clear = search_popover.clone();
+                let items_clear = Rc::clone(&active_items);
+                clear_all_btn.connect_clicked(move |_| {
+                    {
+                        let mut s = st_clear.borrow_mut();
+                        s.search_history.clear();
+                        save_search_history(&s.search_history);
+                    }
+                    items_clear.borrow_mut().clear();
+                    pop_clear.popdown();
+                });
+                header_row.append(&clear_all_btn);
+            }
+            box_hist.append(&header_row);
+
             for term in items {
                 let row = GtkBox::new(Orientation::Horizontal, 8);
                 row.append(&Image::from_icon_name(icon_name));
@@ -433,6 +455,7 @@ pub fn wire_search_popover(
                 );
                 let item = Button::builder()
                     .child(&row)
+                    .hexpand(true)
                     .can_focus(false)
                     .focus_on_click(false)
                     .css_classes(["flat", "search-popover-row"])
@@ -447,8 +470,43 @@ pub fn wire_search_popover(
                     suppress.set(false);
                     run_fn(&term_clone);
                 });
-                active_items.borrow_mut().push((item.clone(), term));
-                box_hist.append(&item);
+                active_items.borrow_mut().push((item.clone(), term.clone()));
+
+                if is_history {
+                    let row_wrap = GtkBox::new(Orientation::Horizontal, 4);
+                    row_wrap.append(&item);
+                    let del_btn = Button::builder()
+                        .icon_name("window-close-symbolic")
+                        .tooltip_text(tr("Eliminar búsqueda", "Remove search"))
+                        .can_focus(false)
+                        .focus_on_click(false)
+                        .valign(Align::Center)
+                        .css_classes(["flat", "circular"])
+                        .build();
+                    del_btn.set_cursor_from_name(Some("pointer"));
+                    let st_del = Rc::clone(&state_pop);
+                    let box_ref = box_hist.clone();
+                    let wrap_ref = row_wrap.clone();
+                    let items_del = Rc::clone(&active_items);
+                    let pop_del = search_popover.clone();
+                    let term_del = term.clone();
+                    del_btn.connect_clicked(move |_| {
+                        {
+                            let mut s = st_del.borrow_mut();
+                            s.search_history.retain(|t| t != &term_del);
+                            save_search_history(&s.search_history);
+                        }
+                        items_del.borrow_mut().retain(|(_, t)| t != &term_del);
+                        box_ref.remove(&wrap_ref);
+                        if items_del.borrow().is_empty() {
+                            pop_del.popdown();
+                        }
+                    });
+                    row_wrap.append(&del_btn);
+                    box_hist.append(&row_wrap);
+                } else {
+                    box_hist.append(&item);
+                }
             }
             search_popover.set_child(Some(&box_hist));
             if !search_popover.is_visible() {
@@ -482,6 +540,7 @@ pub fn wire_search_popover(
                     tr("Búsquedas recientes", "Recent searches"),
                     "document-open-recent-symbolic",
                     history,
+                    true,
                 );
                 return;
             }
@@ -521,9 +580,10 @@ pub fn wire_search_popover(
                                 && !entry_inner.text().trim().is_empty()
                             {
                                 show_search_popover(
-                                    "Sugerencias",
+                                    tr("Sugerencias", "Suggestions"),
                                     "search-regular",
                                     terms,
+                                    false,
                                 );
                             }
                         },
@@ -557,9 +617,11 @@ pub fn wire_search_popover(
     }
     {
         let key_ctrl = gtk4::EventControllerKey::new();
+        key_ctrl.set_propagation_phase(gtk4::PropagationPhase::Capture);
         let active_items = Rc::clone(&active_items);
         let selected_idx = Rc::clone(&selected_idx);
         let search_popover_key = search_popover.clone();
+        let entry_tab = top_search_entry.clone();
         key_ctrl.connect_key_pressed(move |_, key, _, _| {
             if !search_popover_key.is_visible() {
                 return glib::Propagation::Proceed;
@@ -567,6 +629,18 @@ pub fn wire_search_popover(
             let items = active_items.borrow();
             let len = items.len();
             if len == 0 {
+                return glib::Propagation::Proceed;
+            }
+            if key == gtk4::gdk::Key::Tab {
+                let idx = selected_idx.get().unwrap_or(0).min(len - 1);
+                if let Some((_, term)) = items.get(idx) {
+                    let completed = term.clone();
+                    drop(items);
+                    entry_tab.set_text(&completed);
+                    entry_tab.set_position(-1);
+                    selected_idx.set(None);
+                    return glib::Propagation::Stop;
+                }
                 return glib::Propagation::Proceed;
             }
             let next_idx = match key {

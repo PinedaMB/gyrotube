@@ -583,14 +583,56 @@ fn connect_card_open(card: &GtkBox, on_open: impl Fn() + 'static) {
     card.add_controller(click);
 }
 
+pub fn open_album_by_id(
+    album_id: String,
+    album_title: String,
+    album_cover: Option<String>,
+    state: Rc<RefCell<AppState>>,
+) {
+    let backend = state.borrow().backend.clone();
+    open_collection_page(album_title, album_cover.clone(), None, Rc::clone(&state));
+    spawn_bg(
+        move || async move { backend.fetch_album_tracks(&album_id).await },
+        move |result| {
+            handle_fetched_queue(
+                result,
+                album_cover,
+                tr(
+                    "El álbum no tiene pistas disponibles.",
+                    "This album has no available tracks.",
+                ),
+                state,
+            );
+        },
+    );
+}
+
+pub fn play_album_by_id(album_id: String, album_title: String, state: Rc<RefCell<AppState>>) {
+    show_player_loading(&state, &album_title);
+    let backend = state.borrow().backend.clone();
+    spawn_bg(
+        move || async move { backend.fetch_album_tracks(&album_id).await },
+        move |result| {
+            play_fetched_queue(
+                result,
+                tr(
+                    "El álbum no tiene pistas disponibles.",
+                    "This album has no available tracks.",
+                ),
+                state,
+            );
+        },
+    );
+}
+
 pub fn build_album_card(album: &Album, state: Rc<RefCell<AppState>>) -> GtkBox {
     let year_str = album.year.map(|y| y.to_string());
     let badge = year_str
         .as_deref()
         .map(|y| (y, ["album-year-badge", "numeric"].as_slice()));
     let meta_text = match album.year {
-        Some(y) => format!("Álbum • {y}"),
-        None => String::from("Álbum"),
+        Some(y) => format!("{} • {y}", tr("Álbum", "Album")),
+        None => String::from(tr("Álbum", "Album")),
     };
     let (card, play_btn) = build_media_card(
         album.cover_url.as_deref(),
@@ -609,41 +651,17 @@ pub fn build_album_card(album: &Album, state: Rc<RefCell<AppState>>) -> GtkBox {
         let album_id = album_id.clone();
         let state = Rc::clone(&state);
         connect_card_open(&card, move || {
-            let backend = state.borrow().backend.clone();
-            open_collection_page(
+            open_album_by_id(
+                album_id.clone(),
                 album_title.clone(),
                 album_cover.clone(),
-                None,
                 Rc::clone(&state),
-            );
-            let id = album_id.clone();
-            let cover = album_cover.clone();
-            let state = Rc::clone(&state);
-            spawn_bg(
-                move || async move { backend.fetch_album_tracks(&id).await },
-                move |result| {
-                    handle_fetched_queue(
-                        result,
-                        cover,
-                        "El álbum no tiene pistas disponibles.",
-                        state,
-                    );
-                },
             );
         });
     }
 
     play_btn.connect_clicked(move |_| {
-        show_player_loading(&state, &album_title_play);
-        let backend = state.borrow().backend.clone();
-        let id = album_id.clone();
-        let state = Rc::clone(&state);
-        spawn_bg(
-            move || async move { backend.fetch_album_tracks(&id).await },
-            move |result| {
-                play_fetched_queue(result, "El álbum no tiene pistas disponibles.", state);
-            },
-        );
+        play_album_by_id(album_id.clone(), album_title_play.clone(), Rc::clone(&state));
     });
 
     card

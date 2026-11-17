@@ -603,6 +603,7 @@ pub fn play_queue_index(state: Rc<RefCell<AppState>>, index: usize) {
                 .unwrap_or_else(|| String::from("0:00")),
         );
         s.quality_label.set_label("...");
+        s.pending_restore_seek = None;
 
         let is_fav = s.is_favorite(&track.id);
         s.player_fav_btn.set_sensitive(true);
@@ -950,7 +951,9 @@ pub fn wire_media_signals(
                 standby.pause();
             } else if !active.has_stream() {
                 if let Some(idx) = current_idx {
+                    let saved_seek = state.borrow().pending_restore_seek;
                     play_queue_index(Rc::clone(&state), idx);
+                    state.borrow_mut().pending_restore_seek = saved_seek;
                 }
             } else {
                 active.play();
@@ -988,7 +991,7 @@ pub fn wire_media_signals(
             let state = Rc::clone(&state);
             media_file.connect_prepared_notify(move |media| {
                 if media.is_prepared() {
-                    let (should_play, target_vol) = {
+                    let (should_play, target_vol, restore_seek) = {
                         let mut s = state.borrow_mut();
                         if s.active_deck == deck_idx {
                             let vol = if s.crossfade_active {
@@ -1002,13 +1005,21 @@ pub fn wire_media_signals(
                             } else {
                                 false
                             };
-                            (play, vol)
+                            let restore = s.pending_restore_seek.take();
+                            if let Some(pos) = restore {
+                                s.seek_scale.set_value(pos);
+                                s.time_label.set_label(&format_duration(pos as u32));
+                            }
+                            (play, vol, restore)
                         } else {
-                            (false, None)
+                            (false, None, None)
                         }
                     };
                     if let Some(vol) = target_vol {
                         media.set_volume(vol);
+                    }
+                    if let Some(pos) = restore_seek {
+                        media.seek((pos * 1_000_000.0) as i64);
                     }
                     if should_play {
                         media.play();
@@ -1062,6 +1073,9 @@ pub fn wire_media_signals(
                     return;
                 }
                 let pos_us = media.timestamp();
+                if s.pending_restore_seek.is_some() && pos_us <= 1_000_000 {
+                    return;
+                }
                 if pos_us >= 0 {
                     let pos_secs = (pos_us / 1_000_000) as f64;
                     s.seek_scale.set_value(pos_secs);
@@ -1266,8 +1280,9 @@ pub fn restore_last_track(state: Rc<RefCell<AppState>>, position_secs: f64) {
             return;
         };
         let is_fav = s.favorites.iter().any(|t| t.id == track.id);
-        let cached = if track.is_music {
-            s.backend.cached_stream(&track.id)
+        let cached = s.backend.cached_stream(&track.id);
+        s.pending_restore_seek = if position_secs > 1.0 {
+            Some(position_secs)
         } else {
             None
         };
@@ -1320,17 +1335,6 @@ pub fn restore_last_track(state: Rc<RefCell<AppState>>, position_secs: f64) {
         let s = state.borrow();
         s.quality_label.set_label(&stream.quality_label);
         let media = s.active_media().clone();
-        if position_secs > 1.0 {
-            let pending_seek = Rc::new(std::cell::Cell::new(Some(position_secs)));
-            let pending_ref = Rc::clone(&pending_seek);
-            media.connect_prepared_notify(move |m| {
-                if m.is_prepared()
-                    && let Some(pos) = pending_ref.take()
-                {
-                    m.seek((pos * 1_000_000.0) as i64);
-                }
-            });
-        }
         set_stream_on_media(&media, stream);
     }
     refresh_queue_ui(Rc::clone(&state));

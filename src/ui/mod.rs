@@ -275,6 +275,7 @@ pub fn build_ui(app: &adw::Application) {
         sidebar_collapsed: initial_sidebar_collapsed,
         loading_generation: 0,
         preloading_id: None,
+        pending_restore_seek: None,
         on_track_changed: Vec::new(),
         on_open_collection: None,
         on_cancel_collection_loading: None,
@@ -435,7 +436,6 @@ pub fn build_ui(app: &adw::Application) {
         &hdr.settings_btn,
         &hdr.menu_popover,
         Rc::clone(&state),
-        &sb.crossfade_btn,
     );
     let party = build_party_mode(&state, &sb.shuffle_btn, &sb.repeat_btn);
     {
@@ -659,19 +659,6 @@ fn wire_sidebar_actions(
                     s.lyrics_resync_btn.set_visible(false);
                 }
             }));
-    }
-    sb.crossfade_btn.set_active(state.borrow().crossfade_secs > 0);
-    {
-        let state = Rc::clone(&state);
-        sb.crossfade_btn.connect_toggled(move |btn| {
-            let mut s = state.borrow_mut();
-            let active = btn.is_active();
-            s.crossfade_enabled = active;
-            if active && s.crossfade_secs == 0 {
-                s.crossfade_secs = 4;
-            }
-            s.save_session();
-        });
     }
     {
         let state = Rc::clone(state);

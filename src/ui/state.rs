@@ -92,6 +92,7 @@ pub struct AppState {
     pub sidebar_collapsed: bool,
     pub loading_generation: u64,
     pub preloading_id: Option<String>,
+    pub pending_restore_seek: Option<f64>,
     pub on_track_changed: Vec<Rc<dyn Fn()>>,
     pub on_open_collection: Option<Rc<dyn Fn(String, Option<String>, Option<Vec<Track>>)>>,
     pub on_cancel_collection_loading: Option<Rc<dyn Fn()>>,
@@ -99,7 +100,14 @@ pub struct AppState {
 
 impl AppState {
     pub fn save_session(&self) {
-        let pos_secs = self.active_media().timestamp().max(0) as f64 / 1_000_000.0;
+        let ts_us = self.active_media().timestamp();
+        let pos_secs = if ts_us > 0 {
+            ts_us as f64 / 1_000_000.0
+        } else if let Some(pending) = self.pending_restore_seek {
+            pending
+        } else {
+            self.seek_scale.value().max(0.0)
+        };
         save_session_state(&SessionState {
             sidebar_collapsed: self.sidebar_collapsed,
             queue: self.queue.clone(),
