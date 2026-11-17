@@ -286,7 +286,11 @@ fn update_synced_lyrics_position(s: &mut AppState, pos_secs_exact: f64) {
 }
 
 fn set_stream_on_media(media: &crate::gst_deck::GStreamerDeck, stream: crate::models::StreamInfo) {
-    media.set_stream(&stream.url, stream.user_agent.as_deref(), &stream.headers);
+    if let Some(live_rx) = stream.live_rx.and_then(|l| l.take()) {
+        media.set_live_stream(live_rx);
+    } else {
+        media.set_stream(&stream.url, stream.user_agent.as_deref(), &stream.headers);
+    }
 }
 
 pub fn show_player_loading(state: &Rc<RefCell<AppState>>, title: &str) {
@@ -405,9 +409,9 @@ pub fn play_queue_index(state: Rc<RefCell<AppState>>, index: usize) {
     notify_track_changed(Rc::clone(&state));
 
     let (tx, rx) = async_channel::bounded(1);
-    let video_id = track.id.clone();
+    let track_res = track.clone();
     runtime().spawn(async move {
-        let res = backend.resolve_audio_stream(&video_id).await;
+        let res = backend.resolve_track_stream(&track_res).await;
         let _ = tx.send(res).await;
     });
 
@@ -487,9 +491,9 @@ fn start_crossfade_to(state: Rc<RefCell<AppState>>, next_index: usize) {
     };
 
     let (tx, rx) = async_channel::bounded(1);
-    let video_id = track.id.clone();
+    let track_res = track.clone();
     runtime().spawn(async move {
-        let res = backend.resolve_audio_stream(&video_id).await;
+        let res = backend.resolve_track_stream(&track_res).await;
         let _ = tx.send(res).await;
     });
 

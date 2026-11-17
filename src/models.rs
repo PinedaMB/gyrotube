@@ -65,12 +65,32 @@ pub struct SearchResults {
     pub tracks: Vec<Track>,
 }
 
+#[derive(Clone)]
+pub struct LiveStreamRx(pub std::sync::Arc<std::sync::Mutex<Option<async_channel::Receiver<Vec<u8>>>>>);
+
+impl std::fmt::Debug for LiveStreamRx {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LiveStreamRx").finish()
+    }
+}
+
+impl LiveStreamRx {
+    pub fn new(rx: async_channel::Receiver<Vec<u8>>) -> Self {
+        Self(std::sync::Arc::new(std::sync::Mutex::new(Some(rx))))
+    }
+
+    pub fn take(&self) -> Option<async_channel::Receiver<Vec<u8>>> {
+        self.0.lock().ok().and_then(|mut g| g.take())
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct StreamInfo {
     pub url: String,
     pub quality_label: String,
     pub user_agent: Option<String>,
     pub headers: std::collections::HashMap<String, String>,
+    pub live_rx: Option<LiveStreamRx>,
 }
 
 pub fn upgrade_cover_url(url: &str, target_size: i32) -> String {

@@ -18,8 +18,8 @@ use ytmapi_rs::parse::{
 };
 
 use crate::models::{
-    Album, Artist, ArtistDetails, Genre, LyricsData, Playlist, SearchResults, StreamInfo, Track,
-    cache_dir, clean_track_title, color_to_hex, is_ytm_square_cover, parse_lrc,
+    Album, Artist, ArtistDetails, Genre, LiveStreamRx, LyricsData, Playlist, SearchResults,
+    StreamInfo, Track, cache_dir, clean_track_title, color_to_hex, is_ytm_square_cover, parse_lrc,
 };
 
 const HOME_CACHE_TTL: Duration = Duration::from_secs(15 * 60);
@@ -113,6 +113,13 @@ impl Backend {
                     match item {
                         HomeContent::Song(song) => {
                             let track = track_from_rs_song(song);
+                            let is_studio = track
+                                .cover_url
+                                .as_deref()
+                                .is_some_and(is_ytm_square_cover);
+                            if !is_studio {
+                                continue;
+                            }
                             if trending.len() < 12 {
                                 trending.push(track);
                             } else if top.len() < 12 {
@@ -304,9 +311,10 @@ impl Backend {
             .await
             .map_err(|e| format!("Error cargando pistas de playlist: {e:?}"))?;
 
-        let tracks = items
-            .into_iter()
-            .filter_map(|item| match item {
+        let mut song_tracks = Vec::new();
+        let mut video_tracks = Vec::new();
+        for item in items {
+            match item {
                 PlaylistItem::Song(s) => {
                     let artist = s
                         .artists
@@ -314,7 +322,7 @@ impl Backend {
                         .map(|a| a.name)
                         .collect::<Vec<_>>()
                         .join(", ");
-                    Some(Track {
+                    song_tracks.push(Track {
                         id: s.video_id.get_raw().to_string(),
                         title: clean_track_title(&s.title),
                         artist: if artist.is_empty() {
@@ -326,20 +334,27 @@ impl Backend {
                         duration_secs: parse_mm_ss(&s.duration),
                         cover_url: best_ytm_thumb(&s.thumbnails),
                         cover_large_url: best_ytm_thumb(&s.thumbnails),
-                    })
+                    });
                 }
-                PlaylistItem::Video(v) => Some(Track {
-                    id: v.video_id.get_raw().to_string(),
-                    title: clean_track_title(&v.title),
-                    artist: v.channel_name,
-                    album: None,
-                    duration_secs: parse_mm_ss(&v.duration),
-                    cover_url: best_ytm_thumb(&v.thumbnails),
-                    cover_large_url: best_ytm_thumb(&v.thumbnails),
-                }),
-                _ => None,
-            })
-            .collect();
+                PlaylistItem::Video(v) => {
+                    video_tracks.push(Track {
+                        id: v.video_id.get_raw().to_string(),
+                        title: clean_track_title(&v.title),
+                        artist: v.channel_name,
+                        album: None,
+                        duration_secs: parse_mm_ss(&v.duration),
+                        cover_url: best_ytm_thumb(&v.thumbnails),
+                        cover_large_url: best_ytm_thumb(&v.thumbnails),
+                    });
+                }
+                _ => {}
+            }
+        }
+        let tracks = if !song_tracks.is_empty() {
+            song_tracks
+        } else {
+            video_tracks
+        };
 
         Ok((details.title, tracks))
     }
@@ -679,10 +694,46 @@ impl Backend {
                     quality_label: label.to_string(),
                     user_agent: None,
                     headers: HashMap::new(),
+                    live_rx: None,
                 });
             }
         }
         None
+    }
+
+    async fn resolve_studio_track_id(&self, track: &Track) -> String {
+        let has_square_cover = track
+            .cover_large_url
+            .as_deref()
+            .or(track.cover_url.as_deref())
+            .is_some_and(is_ytm_square_cover);
+        if has_square_cover || track.album.is_some() {
+            return track.id.clone();
+        }
+
+        let query_str = format!("{} {}", track.artist, track.title);
+        if let Ok(ytm) = self.primary().await
+            && let Some(songs) = tokio::time::timeout(
+                Duration::from_secs(3),
+                ytm.search_songs(query_str.as_str()),
+            )
+            .await
+            .ok()
+            .and_then(|r| r.ok())
+            && let Some(studio) = songs.into_iter().find(|s| {
+                best_ytm_thumb(&s.thumbnails)
+                    .as_deref()
+                    .is_some_and(is_ytm_square_cover)
+            })
+        {
+            return studio.video_id.get_raw().to_string();
+        }
+        track.id.clone()
+    }
+
+    pub async fn resolve_track_stream(&self, track: &Track) -> Result<StreamInfo, String> {
+        let studio_id = self.resolve_studio_track_id(track).await;
+        self.resolve_audio_stream(&studio_id).await
     }
 
     pub async fn resolve_audio_stream(&self, video_id: &str) -> Result<StreamInfo, String> {
@@ -699,7 +750,171 @@ impl Backend {
             return Ok(cached);
         }
 
-        self.download_with_ytdlp_fallback(video_id).await
+        let existing_notify = {
+            let mut in_flight = self
+                .in_flight_resolves
+                .lock()
+                .map_err(|_| String::from("Error interno de sincronización"))?;
+            if let Some(notify) = in_flight.get(video_id) {
+                Some(Arc::clone(notify))
+            } else {
+                in_flight.insert(video_id.to_string(), Arc::new(tokio::sync::Notify::new()));
+                None
+            }
+        };
+
+        if let Some(notify) = existing_notify {
+            notify.notified().await;
+            if let Some(cached) = Self::find_cached_audio(video_id, &streams_dir) {
+                return Ok(cached);
+            }
+            return Err(String::from("La descarga previa no produjo audio."));
+        }
+
+        let live_res = self.start_live_ytdlp_pipe(video_id, &streams_dir).await;
+        if live_res.is_ok() {
+            return live_res;
+        }
+
+        let fallback_res = self.run_ytdlp_download(video_id, &streams_dir).await;
+        if let Ok(mut in_flight) = self.in_flight_resolves.lock()
+            && let Some(notify) = in_flight.remove(video_id)
+        {
+            notify.notify_waiters();
+        }
+        fallback_res
+    }
+
+    async fn start_live_ytdlp_pipe(
+        &self,
+        video_id: &str,
+        streams_dir: &std::path::Path,
+    ) -> Result<StreamInfo, String> {
+        use tokio::io::AsyncReadExt;
+
+        let spawn_pipe = |use_ejs: bool| -> Result<tokio::process::Child, String> {
+            let mut cmd = tokio::process::Command::new("yt-dlp");
+            cmd.kill_on_drop(true)
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::null());
+            if use_ejs {
+                cmd.args([
+                    "--ignore-config",
+                    "--no-playlist",
+                    "--no-warnings",
+                    "--js-runtimes",
+                    "node",
+                    "--remote-components",
+                    "ejs:github",
+                ]);
+            } else {
+                cmd.args([
+                    "--ignore-config",
+                    "--no-playlist",
+                    "--no-warnings",
+                    "--extractor-args",
+                    "youtube:player_client=android_vr",
+                ]);
+            }
+            cmd.args(["-f", "251/140/bestaudio", "-o", "-", "--"])
+                .arg(format!("https://www.youtube.com/watch?v={video_id}"));
+            cmd.spawn().map_err(|e| format!("Error al iniciar yt-dlp: {e}"))
+        };
+
+        let mut child = spawn_pipe(false)?;
+        let mut stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| String::from("Sin stdout de yt-dlp"))?;
+
+        let mut first_buf = vec![0u8; 64 * 1024];
+        let mut first_n = tokio::time::timeout(Duration::from_secs(12), stdout.read(&mut first_buf))
+            .await
+            .map_err(|_| String::from("Tiempo de espera agotado en yt-dlp"))?
+            .unwrap_or(0);
+
+        if first_n == 0 {
+            let _ = child.kill().await;
+            child = spawn_pipe(true)?;
+            stdout = child
+                .stdout
+                .take()
+                .ok_or_else(|| String::from("Sin stdout de yt-dlp"))?;
+            first_n = tokio::time::timeout(Duration::from_secs(20), stdout.read(&mut first_buf))
+                .await
+                .map_err(|_| String::from("Tiempo de espera agotado en yt-dlp"))?
+                .unwrap_or(0);
+        }
+
+        if first_n == 0 {
+            let _ = child.kill().await;
+            return Err(String::from("yt-dlp no emitió datos de audio."));
+        }
+
+        first_buf.truncate(first_n);
+        let is_m4a = first_buf.len() >= 8 && &first_buf[4..8] == b"ftyp";
+        let (ext, quality_label) = if is_m4a {
+            ("m4a", String::from("M4A"))
+        } else {
+            ("webm", String::from("OPUS"))
+        };
+
+        let (tx, rx) = async_channel::bounded::<Vec<u8>>(64);
+        let _ = tx.send(first_buf.clone()).await;
+
+        let vid = video_id.to_string();
+        let dir = streams_dir.to_path_buf();
+        let in_flight_ref = Arc::clone(&self.in_flight_resolves);
+        runtime().spawn(async move {
+            let part_path = dir.join(format!("{vid}.ytdlp.{ext}.part"));
+            let final_path = dir.join(format!("{vid}.ytdlp.{ext}"));
+            let mut file = std::fs::File::create(&part_path).ok();
+            if let Some(ref mut f) = file {
+                let _ = std::io::Write::write_all(f, &first_buf);
+            }
+
+            let mut buf = vec![0u8; 64 * 1024];
+            let mut stream_ok = true;
+            loop {
+                match stdout.read(&mut buf).await {
+                    Ok(0) => break,
+                    Ok(n) => {
+                        let chunk = buf[..n].to_vec();
+                        if let Some(ref mut f) = file {
+                            let _ = std::io::Write::write_all(f, &chunk);
+                        }
+                        let _ = tx.send(chunk).await;
+                    }
+                    Err(_) => {
+                        stream_ok = false;
+                        break;
+                    }
+                }
+            }
+            drop(file);
+            tx.close();
+
+            let exited_ok = child.wait().await.map(|s| s.success()).unwrap_or(false);
+            if stream_ok && exited_ok {
+                let _ = std::fs::rename(&part_path, &final_path);
+            } else {
+                let _ = std::fs::remove_file(&part_path);
+            }
+
+            if let Ok(mut in_flight) = in_flight_ref.lock()
+                && let Some(notify) = in_flight.remove(&vid)
+            {
+                notify.notify_waiters();
+            }
+        });
+
+        Ok(StreamInfo {
+            url: format!("appsrc://{video_id}"),
+            quality_label,
+            user_agent: None,
+            headers: HashMap::new(),
+            live_rx: Some(LiveStreamRx::new(rx)),
+        })
     }
 
     pub async fn download_with_ytdlp_fallback(&self, video_id: &str) -> Result<StreamInfo, String> {
@@ -842,6 +1057,7 @@ impl Backend {
             quality_label: ext.to_uppercase(),
             user_agent: None,
             headers: HashMap::new(),
+            live_rx: None,
         })
     }
 
@@ -864,7 +1080,7 @@ impl Backend {
             return;
         }
 
-        let _ = self.resolve_audio_stream(video_id).await;
+        let _ = self.download_with_ytdlp_fallback(video_id).await;
     }
 
     pub async fn fetch_synced_lyrics(&self, track: &Track) -> Result<LyricsData, String> {
