@@ -10,6 +10,7 @@ use gtk4::{
     Widget,
 };
 use libadwaita as adw;
+use libadwaita::prelude::AnimationExt;
 
 use crate::backend::runtime;
 use crate::i18n::tr;
@@ -120,6 +121,67 @@ pub fn record_recent_track(state: Rc<RefCell<AppState>>, track: &Track) {
     refresh_recent_ui(state);
 }
 
+const RAIL_COMPACT_WIDTH: f64 = 920.0;
+const SCROLL_EPSILON: f64 = 0.5;
+
+fn rail_target(cards: &[(f64, f64)], value: f64, page: f64, end: f64, forward: bool) -> f64 {
+    if forward {
+        cards
+            .iter()
+            .find(|&&(left, right)| {
+                left > value + SCROLL_EPSILON && right > value + page + SCROLL_EPSILON
+            })
+            .map_or(end, |&(left, _)| left.min(end))
+    } else {
+        cards
+            .iter()
+            .find(|&&(left, _)| {
+                left >= value - page - SCROLL_EPSILON && left < value - SCROLL_EPSILON
+            })
+            .map_or(0.0, |&(left, _)| left)
+    }
+}
+
+fn resize_rail_art(widget: &Widget, compact: bool) {
+    let size = if widget.has_css_class("rail-avatar") {
+        if compact { 108 } else { 128 }
+    } else if widget.has_css_class("rail-cover") {
+        if compact { 132 } else { 156 }
+    } else {
+        let mut child = widget.first_child();
+        while let Some(widget) = child {
+            child = widget.next_sibling();
+            resize_rail_art(&widget, compact);
+        }
+        return;
+    };
+
+    if let Some(horizontal) = widget.downcast_ref::<adw::Clamp>()
+        && let Some(vertical) = horizontal.child().and_downcast::<adw::Clamp>()
+        && let Some(picture) = vertical.child().and_downcast::<Picture>()
+    {
+        for clamp in [horizontal, &vertical] {
+            clamp.set_maximum_size(size);
+            clamp.set_tightening_threshold(size);
+        }
+        picture.set_size_request(size, size);
+    }
+}
+
+pub fn rail_art(size: i32, css_class: &str) -> (adw::Clamp, Picture) {
+    let (frame, picture) = clamped_cover(size, size, css_class);
+    frame.add_css_class(if css_class == "avatar-art" { "rail-avatar" } else { "rail-cover" });
+    frame.connect_map(|frame| {
+        if let Some(scroller) = frame.ancestor(ScrolledWindow::static_type()).and_downcast::<ScrolledWindow>()
+            && scroller.has_css_class("browse-rail")
+        {
+            let page = scroller.hadjustment().page_size();
+            resize_rail_art(frame.upcast_ref(), page > 0.0 && page < RAIL_COMPACT_WIDTH);
+        }
+    });
+    (frame, picture)
+}
+
 pub fn build_carousel_section(title: &str) -> (GtkBox, GtkBox, ScrolledWindow) {
     let header_box = GtkBox::new(Orientation::Horizontal, 8);
     let title_label = Label::builder()
@@ -128,47 +190,144 @@ pub fn build_carousel_section(title: &str) -> (GtkBox, GtkBox, ScrolledWindow) {
         .hexpand(true)
         .css_classes(["title-3"])
         .build();
-
-    let prev_scroll_btn = Button::builder()
-        .icon_name("go-previous-symbolic")
-        .css_classes(["circular", "flat"])
-        .build();
-    let next_scroll_btn = Button::builder()
-        .icon_name("go-next-symbolic")
-        .css_classes(["circular", "flat"])
-        .build();
-
     header_box.append(&title_label);
-    header_box.append(&prev_scroll_btn);
-    header_box.append(&next_scroll_btn);
 
     let cards_box = GtkBox::new(Orientation::Horizontal, 12);
-    cards_box.set_margin_bottom(6);
-
     let scroller = ScrolledWindow::builder()
-        .hscrollbar_policy(PolicyType::Automatic)
+        .hscrollbar_policy(PolicyType::External)
         .vscrollbar_policy(PolicyType::Never)
+        .css_classes(["browse-rail"])
         .child(&cards_box)
         .build();
 
-    {
-        let scroller = scroller.clone();
-        prev_scroll_btn.connect_clicked(move |_| {
-            let adj = scroller.hadjustment();
-            adj.set_value((adj.value() - 360.0).max(adj.lower()));
+    let adjustment = scroller.hadjustment();
+    // Keep the scrollbar out of the viewport's height allocation.
+    let scrollbar = gtk4::Scrollbar::new(Orientation::Horizontal, Some(&adjustment));
+    scrollbar.set_visible(false);
+    let weak_bar = scrollbar.downgrade();
+    adjustment.connect_changed(move |adj| {
+        if let Some(bar) = weak_bar.upgrade() {
+            bar.set_visible(adj.upper() - adj.page_size() > adj.lower() + SCROLL_EPSILON);
+        }
+    });
+    let motion = Rc::new(RefCell::new(None::<adw::TimedAnimation>));
+    let weak_motion = Rc::downgrade(&motion);
+    let cancel_motion = move || {
+        if let Some(motion) = weak_motion.upgrade()
+            && let Some(animation) = motion.take()
+        {
+            animation.pause();
+        }
+    };
+    let wheel = gtk4::EventControllerScroll::new(gtk4::EventControllerScrollFlags::BOTH_AXES);
+    wheel.set_propagation_phase(gtk4::PropagationPhase::Capture);
+    let cancel_wheel = cancel_motion.clone();
+    wheel.connect_scroll(move |_, _, _| {
+        cancel_wheel();
+        glib::Propagation::Proceed
+    });
+    scroller.add_controller(wheel);
+
+    let drag = gtk4::GestureClick::new();
+    drag.set_propagation_phase(gtk4::PropagationPhase::Capture);
+    let cancel_drag = cancel_motion.clone();
+    drag.connect_pressed(move |_, _, _, _| cancel_drag());
+    scrollbar.add_controller(drag);
+    scroller.connect_unmap(move |_| cancel_motion());
+
+    for (forward, icon, label) in [
+        (false, "go-previous-symbolic", tr("Anterior", "Previous")),
+        (true, "go-next-symbolic", tr("Siguiente", "Next")),
+    ] {
+        let button = Button::builder()
+            .icon_name(icon)
+            .tooltip_text(label)
+            .css_classes(["circular", "flat"])
+            .visible(false)
+            .build();
+        button.update_property(&[gtk4::accessible::Property::Label(label)]);
+        header_box.append(&button);
+
+        let weak = button.downgrade();
+        let sync_button = move |adj: &gtk4::Adjustment| {
+            if let Some(button) = weak.upgrade() {
+                let end = (adj.upper() - adj.page_size()).max(adj.lower());
+                button.set_visible(end > adj.lower() + SCROLL_EPSILON);
+                button.set_sensitive(if forward {
+                    adj.value() < end - SCROLL_EPSILON
+                } else {
+                    adj.value() > adj.lower() + SCROLL_EPSILON
+                });
+            }
+        };
+        adjustment.connect_changed(sync_button.clone());
+        adjustment.connect_value_changed(sync_button);
+
+        let rail = cards_box.downgrade();
+        let scroller = scroller.downgrade();
+        let adjustment = adjustment.clone();
+        let motion = motion.clone();
+        button.connect_clicked(move |_| {
+            let (Some(rail), Some(scroller)) = (rail.upgrade(), scroller.upgrade()) else {
+                return;
+            };
+            let mut cards = Vec::new();
+            let mut child = rail.first_child();
+            while let Some(widget) = child {
+                child = widget.next_sibling();
+                if let Some(bounds) = widget.compute_bounds(&rail) {
+                    let left = f64::from(bounds.x());
+                    cards.push((left, left + f64::from(bounds.width())));
+                }
+            }
+            cards.sort_unstable_by(|a, b| a.0.total_cmp(&b.0));
+            let end = (adjustment.upper() - adjustment.page_size()).max(adjustment.lower());
+            let from = adjustment.value();
+            let base = motion
+                .borrow()
+                .as_ref()
+                .filter(|animation| animation.state() == adw::AnimationState::Playing)
+                .map_or(from, adw::TimedAnimation::value_to);
+            let to = rail_target(&cards, base, adjustment.page_size(), end, forward);
+            if (to - base).abs() <= SCROLL_EPSILON {
+                return;
+            }
+            if let Some(previous) = motion.take() {
+                previous.pause();
+            }
+
+            let weak_adjustment = adjustment.downgrade();
+            let target = adw::CallbackAnimationTarget::new(move |value| {
+                if let Some(adjustment) = weak_adjustment.upgrade() {
+                    adjustment.set_value(value);
+                }
+            });
+            let animation = adw::TimedAnimation::new(&scroller, from, to, 260, target);
+            animation.set_easing(adw::Easing::EaseOutCubic);
+            animation.set_follow_enable_animations_setting(true);
+            motion.replace(Some(animation.clone()));
+            animation.play();
         });
     }
-    {
-        let scroller = scroller.clone();
-        next_scroll_btn.connect_clicked(move |_| {
-            let adj = scroller.hadjustment();
-            adj.set_value((adj.value() + 360.0).min(adj.upper() - adj.page_size()));
-        });
-    }
+
+    let weak_rail = cards_box.downgrade();
+    adjustment.connect_page_size_notify(move |adj| {
+        let Some(rail) = weak_rail.upgrade() else { return };
+        let compact = adj.page_size() > 0.0 && adj.page_size() < RAIL_COMPACT_WIDTH;
+        if rail.has_css_class("rail-compact") != compact {
+            if compact {
+                rail.add_css_class("rail-compact");
+            } else {
+                rail.remove_css_class("rail-compact");
+            }
+            resize_rail_art(rail.upcast_ref(), compact);
+        }
+    });
 
     let section = GtkBox::new(Orientation::Vertical, 10);
     section.append(&header_box);
     section.append(&scroller);
+    section.append(&scrollbar);
     section.set_visible(false);
 
     (section, cards_box, scroller)
@@ -341,10 +500,9 @@ fn build_media_card(
     badge: Option<(&str, &[&str])>,
     title: &str,
     subtitle: &str,
-    meta: Option<&str>,
     state: &Rc<RefCell<AppState>>,
 ) -> (GtkBox, Button) {
-    let (cover_frame, cover) = clamped_cover(156, 156, "cover-art");
+    let (cover_frame, cover) = rail_art(156, "cover-art");
     cover_frame.set_halign(Align::Center);
 
     if let Some(url) = cover_url {
@@ -405,20 +563,10 @@ fn build_media_card(
     let text_box = GtkBox::new(Orientation::Vertical, 2);
     text_box.append(&title_label);
     text_box.append(&sub_label);
-    if let Some(meta_text) = meta {
-        let meta_label = Label::builder()
-            .label(meta_text)
-            .xalign(0.0)
-            .ellipsize(gtk4::pango::EllipsizeMode::End)
-            .css_classes(["dim-label", "caption"])
-            .build();
-        meta_label.set_opacity(0.75);
-        text_box.append(&meta_label);
-    }
-
     let card_box = GtkBox::builder()
         .orientation(Orientation::Vertical)
         .spacing(10)
+        .tooltip_text(title)
         .css_classes(["album-featured-card"])
         .build();
     card_box.append(&cover_overlay);
@@ -575,6 +723,23 @@ fn play_fetched_queue(
 }
 
 fn connect_card_open(card: &GtkBox, on_open: impl Fn() + 'static) {
+    let on_open = Rc::new(on_open);
+    card.set_focusable(true);
+    let keys = gtk4::EventControllerKey::new();
+    let open_from_key = on_open.clone();
+    let weak = card.downgrade();
+    keys.connect_key_pressed(move |_, key, _, _| {
+        if matches!(key, gdk::Key::Return | gdk::Key::KP_Enter | gdk::Key::space)
+            && weak.upgrade().is_some_and(|card| card.has_focus())
+        {
+            open_from_key();
+            glib::Propagation::Stop
+        } else {
+            glib::Propagation::Proceed
+        }
+    });
+    card.add_controller(keys);
+
     let click = gtk4::GestureClick::new();
     click.connect_released(move |gesture, n_press, x, y| {
         if n_press != 1 {
@@ -640,16 +805,11 @@ pub fn build_album_card(album: &Album, state: Rc<RefCell<AppState>>) -> GtkBox {
     let badge = year_str
         .as_deref()
         .map(|y| (y, ["album-year-badge", "numeric"].as_slice()));
-    let meta_text = match album.year {
-        Some(y) => format!("{} • {y}", tr("Álbum", "Album")),
-        None => String::from(tr("Álbum", "Album")),
-    };
     let (card, play_btn) = build_media_card(
         album.cover_url.as_deref(),
         badge,
         &album.title,
         &album.artist,
-        Some(&meta_text),
         &state,
     );
 
@@ -687,7 +847,6 @@ pub fn build_playlist_card(playlist: &Playlist, state: Rc<RefCell<AppState>>) ->
         Some(("Playlist", ["album-year-badge"].as_slice())),
         &playlist.name,
         &playlist.subtitle,
-        None,
         &state,
     );
 
@@ -1305,4 +1464,129 @@ pub fn load_player_cover_with_fallback(
         s.player_cover_spinner.set_spinning(false);
         s.player_cover_spinner.set_visible(false);
     });
+}
+
+#[cfg(test)]
+mod rail_tests {
+    use super::*;
+
+    #[test]
+    fn rail_arrows_use_card_edges_and_clamp_the_final_page() {
+        let cards = [(0.0, 148.0), (160.0, 310.0), (322.0, 508.0), (520.0, 682.0)];
+        let page = 350.0;
+        let end = 682.0 - page;
+        assert_eq!(rail_target(&cards, 0.0, page, end, true), 322.0);
+        assert_eq!(rail_target(&cards, 322.0, page, end, true), end);
+        assert_eq!(rail_target(&cards, end, page, end, false), 0.0);
+        assert_eq!(rail_target(&cards, 329.0, 220.0, 462.0, false), 160.0);
+    }
+
+    #[test]
+    #[ignore = "Requires a GTK display"]
+    fn rail_uses_allocated_width_and_updates_its_controls() {
+        adw::init().unwrap();
+        let provider = CssProvider::new();
+        provider.load_from_string(include_str!("../style.css"));
+        gtk4::style_context_add_provider_for_display(
+            &gdk::Display::default().unwrap(),
+            &provider,
+            gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION,
+        );
+
+        for (width, art_size) in [(760, 132), (1040, 156)] {
+            let (section, rail, scroller) = build_carousel_section("Álbumes");
+            let cards: Vec<_> = (0..9).map(|i| {
+                let (frame, picture) = rail_art(156, "cover-art");
+                let card = GtkBox::new(Orientation::Vertical, 6);
+                card.add_css_class("album-featured-card");
+                card.append(&frame);
+                let text = GtkBox::new(Orientation::Vertical, 2);
+                text.append(&Label::new(Some(&format!("Álbum {i}"))));
+                let subtitle = Label::new(Some("Rammstein"));
+                subtitle.add_css_class("caption");
+                text.append(&subtitle);
+                card.append(&text);
+                rail.append(&card);
+                (picture, subtitle)
+            }).collect();
+
+            section.set_visible(true);
+            let page = GtkBox::new(Orientation::Vertical, 18);
+            page.append(&section);
+            let more_results = GtkBox::new(Orientation::Vertical, 0);
+            more_results.set_size_request(-1, 340);
+            page.append(&more_results);
+            let vertical_scroller = ScrolledWindow::builder()
+                .hscrollbar_policy(PolicyType::Never)
+                .child(&page)
+                .build();
+            let window = gtk4::Window::builder()
+                .default_width(width)
+                .default_height(280)
+                .child(&vertical_scroller)
+                .build();
+            window.present();
+
+            let adjustment = scroller.hadjustment();
+            let context = glib::MainContext::default();
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+            while (adjustment.page_size() < 2.0 || cards[0].0.width() != art_size)
+                && std::time::Instant::now() < deadline
+            {
+                context.iteration(false);
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+            assert_eq!(cards[0].0.width(), art_size);
+            let scrollbar = section.last_child().and_downcast::<gtk4::Scrollbar>().unwrap();
+            assert!(scrollbar.is_visible());
+            let viewport = scroller.child().unwrap();
+            let subtitle = cards[0].1.compute_bounds(&viewport).unwrap();
+            assert!(
+                subtitle.y() + subtitle.height() <= viewport.height() as f32,
+                "subtitle ends at {}, below viewport height {}",
+                subtitle.y() + subtitle.height(), viewport.height()
+            );
+            let first_card = rail.first_child().unwrap().compute_bounds(&viewport).unwrap();
+            assert!(first_card.y() + first_card.height() <= viewport.height() as f32);
+            let header = section.first_child().unwrap();
+            let next = header.last_child().and_downcast::<Button>().unwrap();
+            let prev = next.prev_sibling().and_downcast::<Button>().unwrap();
+            assert!(!prev.is_sensitive() && next.is_sensitive());
+
+            let settings = gtk4::Settings::default().unwrap();
+            settings.set_gtk_enable_animations(true);
+            next.emit_clicked();
+            assert_eq!(adjustment.value(), 0.0);
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+            let mut previous = 0.0;
+            let mut intermediate_steps = 0;
+            while intermediate_steps < 2 && std::time::Instant::now() < deadline {
+                context.iteration(false);
+                let value = adjustment.value();
+                if value > previous + SCROLL_EPSILON {
+                    intermediate_steps += 1;
+                    previous = value;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+            assert!(intermediate_steps >= 2 && prev.is_sensitive());
+            assert!(next.is_sensitive());
+
+            // Repeated input should advance from the pending destination.
+            next.emit_clicked();
+            let remaining = || adjustment.upper() - adjustment.page_size() - adjustment.value();
+            while remaining() > SCROLL_EPSILON && std::time::Instant::now() < deadline {
+                context.iteration(false);
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+            assert!(remaining().abs() < SCROLL_EPSILON);
+            assert!(!next.is_sensitive() && prev.is_sensitive());
+            let end = adjustment.value();
+
+            settings.set_gtk_enable_animations(false);
+            prev.emit_clicked();
+            assert!(adjustment.value() < end && next.is_sensitive());
+            window.close();
+        }
+    }
 }

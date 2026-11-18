@@ -387,7 +387,12 @@
     transition: background-color 150ms ease, border-color 150ms ease;
 }
 
-.album-featured-card:hover {
+.rail-compact .album-featured-card {
+    padding: 8px;
+}
+
+.album-featured-card:hover,
+.album-featured-card:focus-visible {
     background-color: alpha(@window_fg_color, 0.09);
     border-color: alpha(@window_fg_color, 0.16);
 }
@@ -427,7 +432,8 @@
     background-color: #c01c28;
 }
 
-.album-featured-card:hover .album-play-overlay {
+.album-featured-card:hover .album-play-overlay,
+.album-featured-card:focus-within .album-play-overlay {
     opacity: 1;
     transform: translateY(0);
 }

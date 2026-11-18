@@ -18,9 +18,9 @@ use crate::ui::player::play_queue_index;
 use crate::ui::state::{AppState, ViewRequests};
 use crate::ui::widgets::{
     begin_collection_loading, build_album_card, build_carousel_section, build_playlist_card,
-    build_skeleton_box, cancel_collection_loading, clamped_cover, clear_box,
+    build_skeleton_box, cancel_collection_loading, clear_box,
     highlight_active_track_in_list, load_cover_into_picture, load_cover_into_picture_if,
-    open_collection_page, populate_track_list, spawn_bg, start_track_radio,
+    open_collection_page, populate_track_list, rail_art, spawn_bg, start_track_radio,
 };
 
 #[derive(Clone)]
@@ -1143,7 +1143,7 @@ fn build_artist_card(
     state: Rc<RefCell<AppState>>,
     artist_widgets: ArtistPageWidgets,
 ) -> Button {
-    let (avatar_frame, avatar) = clamped_cover(128, 128, "avatar-art");
+    let (avatar_frame, avatar) = rail_art(128, "avatar-art");
     if let Some(url) = &artist.avatar_url {
         load_cover_into_picture(&avatar, url, Rc::clone(&state));
     }
@@ -1169,13 +1169,13 @@ fn build_artist_card(
         .build();
 
     let card_box = GtkBox::new(Orientation::Vertical, 6);
-    card_box.set_width_request(132);
     card_box.append(&avatar_frame);
     card_box.append(&name_label);
     card_box.append(&subs_label);
 
     let btn = Button::builder()
         .child(&card_box)
+        .tooltip_text(&artist.name)
         .css_classes(["flat", "media-card"])
         .build();
 
