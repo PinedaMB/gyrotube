@@ -798,145 +798,67 @@ impl Backend {
         let streams_dir = Self::streams_dir()?;
         let streamer = crate::audio_streamer::AudioStreamer::global().await?;
 
-        // Race fast native Rust InnerTube extraction (iOS + Android + TV) against yt-dlp
-        // so we never pay a sequential wait penalty when one path is faster.
-        let rp = self.rp.clone();
-        let streamer_rp = streamer.clone();
-        let streams_dir_rp = streams_dir.clone();
-        let vid_rp = video_id.to_string();
-
-        let rustypipe_fut = async move {
-            let rp_started = Instant::now();
-            let clients = [
-                rustypipe::client::ClientType::Ios,
-                rustypipe::client::ClientType::Android,
-                rustypipe::client::ClientType::Tv,
-            ];
-            let player_data = tokio::time::timeout(
-                Duration::from_secs(4),
-                rp.query().player_from_clients(&vid_rp, &clients),
-            )
-            .await
-            .map_err(|_| "rustypipe timeout".to_string())?
-            .map_err(|e| format!("rustypipe player err: {e}"))?;
-
-            let mut streams = player_data.audio_streams;
-            streams.sort_by(|a, b| b.bitrate.cmp(&a.bitrate));
-
-            for audio in streams.into_iter().take(2) {
-                let ext = match audio.mime.as_str() {
-                    m if m.contains("webm") || m.contains("opus") => "webm",
-                    m if m.contains("mp4") || m.contains("m4a") => "m4a",
-                    _ => "webm",
-                };
-                let remote = StreamInfo {
-                    url: audio.url,
-                    quality_label: format!(
-                        "{}kbps ({})",
-                        audio.bitrate / 1000,
-                        ext.to_uppercase()
-                    ),
-                    user_agent: None,
-                    headers: HashMap::new(),
-                    local_audio: None,
-                };
-                if let Ok(local_stream) = streamer_rp
-                    .start_chunked_http_stream(
-                        &vid_rp,
-                        remote,
-                        ext,
-                        Some(audio.size).filter(|&sz| sz > 0),
-                        &streams_dir_rp,
-                    )
-                    .await
-                {
-                    log_audio_timing(&vid_rp, "stream-bloques-rustypipe", rp_started);
-                    return Ok::<StreamInfo, String>(local_stream);
-                }
-            }
-            Err("rustypipe streams failed block 0".to_string())
-        };
-
-        let streamer_yt = streamer.clone();
-        let streams_dir_yt = streams_dir.clone();
-        let vid_yt = video_id.to_string();
-
-        let ytdlp_fut = async move {
-            let mut cmd = tokio::process::Command::new("yt-dlp");
-            cmd.kill_on_drop(true)
-                .args([
-                    "--ignore-config",
-                    "--no-playlist",
-                    "--no-warnings",
-                    "--socket-timeout",
-                    "5",
-                    "--retries",
-                    "0",
-                    "--dump-single-json",
-                    "--skip-download",
-                    "--js-runtimes",
-                    "node",
-                    "--remote-components",
-                    "ejs:github",
-                    "-f",
-                    "251/140/bestaudio",
-                    "--",
-                ])
-                .arg(format!("https://music.youtube.com/watch?v={vid_yt}"));
-            let started = Instant::now();
-            let result = tokio::time::timeout(Duration::from_secs(12), cmd.output()).await;
-            log_audio_timing(&vid_yt, "extraccion-yt-dlp", started);
-            let mut expected_bytes_hint: Option<u64> = None;
-            if let Ok(Ok(output)) = result
-                && output.status.success()
-            {
-                expected_bytes_hint = filesize_from_ytdlp_json(&output.stdout);
-                if let Ok(remote) = stream_from_ytdlp_json(&output.stdout) {
+        // Extract validated stream URL via yt-dlp (with full n-signature & po_token JS solver)
+        // so YouTube's CDN never throttles or cuts off the stream after the first ~1 MB.
+        let mut cmd = tokio::process::Command::new("yt-dlp");
+        cmd.kill_on_drop(true)
+            .args([
+                "--ignore-config",
+                "--no-playlist",
+                "--no-warnings",
+                "--socket-timeout",
+                "5",
+                "--retries",
+                "1",
+                "--dump-single-json",
+                "--skip-download",
+                "--js-runtimes",
+                "node",
+                "--remote-components",
+                "ejs:github",
+                "-f",
+                "251/140/bestaudio",
+                "--",
+            ])
+            .arg(format!("https://music.youtube.com/watch?v={video_id}"));
+        let started = Instant::now();
+        let result = tokio::time::timeout(Duration::from_secs(12), cmd.output()).await;
+        log_audio_timing(video_id, "extraccion-yt-dlp", started);
+        let mut expected_bytes_hint: Option<u64> = None;
+        if let Ok(Ok(output)) = result
+            && output.status.success()
+        {
+            expected_bytes_hint = filesize_from_ytdlp_json(&output.stdout);
+            if let Ok(remote) = stream_from_ytdlp_json(&output.stdout) {
                 let ext = remote
                     .url
                     .contains("mime=audio%2Fmp4")
                     .then_some("m4a")
                     .unwrap_or("webm");
-                if let Ok(local_stream) = streamer_yt
+                if let Ok(local_stream) = streamer
                     .start_chunked_http_stream(
-                        &vid_yt,
+                        video_id,
                         remote,
                         ext,
                         expected_bytes_hint,
-                        &streams_dir_yt,
+                        &streams_dir,
                     )
                     .await
                 {
-                    return Ok::<StreamInfo, String>(local_stream);
-                }
-                }
-            }
-
-            let pipe_started = Instant::now();
-            let pipe_stream = streamer_yt
-                .start_ytdlp_pipe_stream(&vid_yt, expected_bytes_hint, &streams_dir_yt)
-                .await?;
-            log_audio_timing(&vid_yt, "stream-tuberia-yt-dlp", pipe_started);
-            Ok(pipe_stream)
-        };
-
-        tokio::pin!(rustypipe_fut);
-        tokio::pin!(ytdlp_fut);
-
-        let resolved = tokio::select! {
-            rp_res = &mut rustypipe_fut => {
-                match rp_res {
-                    Ok(stream) => stream,
-                    Err(_) => ytdlp_fut.await?,
+                    if let Ok(mut cache) = self.stream_cache.write() {
+                        cache.retain(|_, (ts, s)| stream_url_is_fresh(*ts, s));
+                        cache.insert(video_id.to_string(), (Instant::now(), local_stream.clone()));
+                    }
+                    return Ok(local_stream);
                 }
             }
-            yt_res = &mut ytdlp_fut => {
-                match yt_res {
-                    Ok(stream) => stream,
-                    Err(e) => rustypipe_fut.await.map_err(|_| e)?,
-                }
-            }
-        };
+        }
+
+        let pipe_started = Instant::now();
+        let resolved = streamer
+            .start_ytdlp_pipe_stream(video_id, expected_bytes_hint, &streams_dir)
+            .await?;
+        log_audio_timing(video_id, "stream-tuberia-yt-dlp", pipe_started);
 
         if let Ok(mut cache) = self.stream_cache.write() {
             cache.retain(|_, (ts, s)| stream_url_is_fresh(*ts, s));

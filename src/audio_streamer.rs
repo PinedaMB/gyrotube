@@ -148,6 +148,8 @@ impl AudioStreamer {
             .or_else(|| parse_clen_from_url(&remote.url))
             .or(expected_total_bytes);
 
+        let itag_hint = parse_itag_from_url(&remote.url);
+
         let (progress_tx, mut progress_rx) = watch::channel(ChunkProgress {
             written: 0,
             total_bytes,
@@ -209,6 +211,7 @@ impl AudioStreamer {
             if fatal_err.is_none() && is_partial {
                 let mut known_total = total_bytes;
                 let mut active_url = remote_clone.url.clone();
+                let mut active_remote = remote_clone.clone();
                 loop {
                     if let Some(total) = known_total {
                         if written >= total {
@@ -220,7 +223,7 @@ impl AudioStreamer {
                         Some(total) => (start + SUBSEQUENT_HTTP_BLOCK_BYTES - 1).min(total - 1),
                         None => start + SUBSEQUENT_HTTP_BLOCK_BYTES - 1,
                     };
-                    match fetch_range_block_url(&client, &active_url, &remote_clone, start, end).await {
+                    match fetch_range_block_url(&client, &active_url, &active_remote, start, end).await {
                         Ok((bytes, discovered_total)) => {
                             if known_total.is_none() {
                                 known_total = discovered_total;
@@ -242,19 +245,22 @@ impl AudioStreamer {
                         }
                         Err(e) => {
                             // If a range request dropped or returned 403 mid-song, refresh the URL via yt-dlp
-                            // and continue from `written` using the fresh URL for all remaining blocks!
-                            if let Some(fresh_url) = refresh_ytdlp_audio_url(&video_id_owned).await
+                            // using the EXACT same itag/format and continue from `written`!
+                            if let Some(fresh_remote) =
+                                refresh_ytdlp_audio_stream(&video_id_owned, itag_hint.as_deref(), &ext_owned)
+                                    .await
                                 && let Ok((bytes, _)) = fetch_range_block_url(
                                     &client,
-                                    &fresh_url,
-                                    &remote_clone,
+                                    &fresh_remote.url,
+                                    &fresh_remote,
                                     start,
                                     end,
                                 )
                                 .await
                                 && !bytes.is_empty()
                             {
-                                active_url = fresh_url;
+                                active_url = fresh_remote.url.clone();
+                                active_remote = fresh_remote;
                                 if file.write_all(&bytes).await.is_ok() {
                                     written += bytes.len() as u64;
                                     let _ = progress_tx.send(ChunkProgress {
@@ -520,7 +526,15 @@ async fn fetch_range_block_url(
     Err(last_err)
 }
 
-async fn refresh_ytdlp_audio_url(video_id: &str) -> Option<String> {
+async fn refresh_ytdlp_audio_stream(
+    video_id: &str,
+    itag: Option<&str>,
+    ext: &str,
+) -> Option<StreamInfo> {
+    let format_selector = match itag {
+        Some(tag) if !tag.is_empty() => format!("{tag}/bestaudio[ext={ext}]/251/140/bestaudio"),
+        _ => format!("bestaudio[ext={ext}]/251/140/bestaudio"),
+    };
     let watch_url = format!("https://music.youtube.com/watch?v={video_id}");
     let out = tokio::time::timeout(
         Duration::from_secs(10),
@@ -534,13 +548,14 @@ async fn refresh_ytdlp_audio_url(video_id: &str) -> Option<String> {
                 "5",
                 "--retries",
                 "1",
+                "--dump-single-json",
+                "--skip-download",
                 "--js-runtimes",
                 "node",
                 "--remote-components",
                 "ejs:github",
                 "-f",
-                "251/140/bestaudio",
-                "-g",
+                &format_selector,
                 "--",
                 &watch_url,
             ])
@@ -552,13 +567,37 @@ async fn refresh_ytdlp_audio_url(video_id: &str) -> Option<String> {
     if !out.status.success() {
         return None;
     }
-    String::from_utf8(out.stdout)
-        .ok()?
-        .lines()
-        .next()
-        .map(str::trim)
-        .filter(|s| s.starts_with("http"))
-        .map(ToString::to_string)
+    #[derive(serde::Deserialize)]
+    struct FreshAudio {
+        url: String,
+        #[serde(default)]
+        http_headers: HashMap<String, String>,
+    }
+    let parsed: FreshAudio = serde_json::from_slice(&out.stdout).ok()?;
+    if !parsed.url.starts_with("http") {
+        return None;
+    }
+    let ua = parsed
+        .http_headers
+        .iter()
+        .find(|(k, _)| k.eq_ignore_ascii_case("user-agent"))
+        .map(|(_, v)| v.clone());
+    Some(StreamInfo {
+        url: parsed.url,
+        quality_label: ext.to_uppercase(),
+        user_agent: ua,
+        headers: parsed.http_headers,
+        local_audio: None,
+    })
+}
+
+fn parse_itag_from_url(raw_url: &str) -> Option<String> {
+    let parsed = reqwest::Url::parse(raw_url).ok()?;
+    parsed
+        .query_pairs()
+        .find(|(k, _)| k == "itag")
+        .map(|(_, v)| v.into_owned())
+        .filter(|s| !s.is_empty())
 }
 
 async fn wait_until_initial_chunk_ready(

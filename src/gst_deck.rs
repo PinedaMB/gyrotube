@@ -390,7 +390,7 @@ impl GStreamerDeck {
             .playbin
             .seek(
                 rate,
-                gst::SeekFlags::FLUSH | gst::SeekFlags::KEY_UNIT | gst::SeekFlags::SNAP_NEAREST,
+                gst::SeekFlags::FLUSH | gst::SeekFlags::ACCURATE,
                 gst::SeekType::Set,
                 target,
                 gst::SeekType::None,
@@ -398,10 +398,10 @@ impl GStreamerDeck {
             )
             .is_ok();
         if !ok {
-            let _ = self
-                .inner
-                .playbin
-                .seek_simple(gst::SeekFlags::FLUSH | gst::SeekFlags::ACCURATE, target);
+            let _ = self.inner.playbin.seek_simple(
+                gst::SeekFlags::FLUSH | gst::SeekFlags::KEY_UNIT | gst::SeekFlags::SNAP_NEAREST,
+                target,
+            );
         }
     }
 
