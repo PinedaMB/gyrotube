@@ -1,0 +1,913 @@
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::process::Stdio;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, OnceLock, RwLock};
+use std::time::Duration;
+
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncSeekExt, AsyncWriteExt, BufReader};
+use tokio::net::{TcpListener, TcpStream};
+use tokio::process::Command;
+use tokio::sync::watch;
+
+use crate::audio_cache;
+use crate::models::StreamInfo;
+
+const INITIAL_HTTP_BLOCK_BYTES: u64 = 256 * 1024;
+const SUBSEQUENT_HTTP_BLOCK_BYTES: u64 = 512 * 1024;
+const READY_THRESHOLD_BYTES: u64 = 32 * 1024;
+const FALLBACK_SEEKABLE_BYTES: u64 = 32 * 1024 * 1024;
+
+#[derive(Clone, Debug)]
+pub struct ChunkProgress {
+    pub written: u64,
+    pub total_bytes: Option<u64>,
+    pub done: bool,
+    pub error: Option<String>,
+}
+
+struct StreamSession {
+    file_path: PathBuf,
+    mime_type: String,
+    progress_rx: watch::Receiver<ChunkProgress>,
+}
+
+pub struct AudioStreamer {
+    port: u16,
+    sessions: Arc<RwLock<HashMap<String, Arc<StreamSession>>>>,
+    client: reqwest::Client,
+    next_id: AtomicU64,
+}
+
+static GLOBAL_STREAMER: OnceLock<Arc<AudioStreamer>> = OnceLock::new();
+
+impl AudioStreamer {
+    pub async fn global() -> Result<Arc<Self>, String> {
+        if let Some(s) = GLOBAL_STREAMER.get() {
+            return Ok(s.clone());
+        }
+        let created = Self::start_new().await?;
+        let _ = GLOBAL_STREAMER.set(created.clone());
+        Ok(GLOBAL_STREAMER.get().cloned().unwrap_or(created))
+    }
+
+    pub async fn start_new() -> Result<Arc<Self>, String> {
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .map_err(|e| format!("Failed to bind local audio streamer: {e}"))?;
+        let port = listener
+            .local_addr()
+            .map_err(|e| format!("Failed to read local audio streamer addr: {e}"))?
+            .port();
+        let sessions: Arc<RwLock<HashMap<String, Arc<StreamSession>>>> =
+            Arc::new(RwLock::new(HashMap::new()));
+        let client = reqwest::Client::builder()
+            .connect_timeout(Duration::from_secs(4))
+            .read_timeout(Duration::from_secs(12))
+            .pool_idle_timeout(Duration::from_secs(30))
+            .build()
+            .map_err(|e| format!("Failed to build chunked HTTP client: {e}"))?;
+
+        let sessions_for_loop = sessions.clone();
+        tokio::spawn(async move {
+            loop {
+                let Ok((socket, _)) = listener.accept().await else {
+                    break;
+                };
+                let sessions_ref = sessions_for_loop.clone();
+                tokio::spawn(async move {
+                    let _ = handle_client(socket, sessions_ref).await;
+                });
+            }
+        });
+
+        Ok(Arc::new(Self {
+            port,
+            sessions,
+            client,
+            next_id: AtomicU64::new(1),
+        }))
+    }
+
+    fn allocate_session_key(&self, video_id: &str) -> String {
+        let seq = self.next_id.fetch_add(1, Ordering::Relaxed);
+        format!("{video_id}-{seq}")
+    }
+
+    fn local_url(&self, session_key: &str, ext: &str) -> String {
+        format!("http://127.0.0.1:{}/stream/{session_key}.{ext}", self.port)
+    }
+
+    pub async fn start_chunked_http_stream(
+        &self,
+        video_id: &str,
+        remote: StreamInfo,
+        extension: &str,
+        expected_total_bytes: Option<u64>,
+        streams_dir: &Path,
+    ) -> Result<StreamInfo, String> {
+        let staging = tempfile::tempdir_in(streams_dir)
+            .map_err(|e| format!("Failed to create stream staging dir: {e}"))?;
+        let ext = normalize_ext(extension);
+        let staging_file_path = staging.path().join(format!("{video_id}.part.{ext}"));
+        let mut file = tokio::fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .read(true)
+            .truncate(true)
+            .open(&staging_file_path)
+            .await
+            .map_err(|e| format!("Failed to open staging stream file: {e}"))?;
+
+        // Fetch Block 0 first to validate the URL and prime the initial playback buffer.
+        let first_end = INITIAL_HTTP_BLOCK_BYTES - 1;
+        let mut req = self
+            .client
+            .get(&remote.url)
+            .header(reqwest::header::RANGE, format!("bytes=0-{first_end}"));
+        if let Some(ua) = &remote.user_agent {
+            req = req.header(reqwest::header::USER_AGENT, ua);
+        }
+        for (k, v) in &remote.headers {
+            if !k.eq_ignore_ascii_case("range") {
+                req = req.header(k.as_str(), v.as_str());
+            }
+        }
+
+        let mut resp = req
+            .send()
+            .await
+            .map_err(|e| format!("Initial audio block request failed: {e}"))?;
+        let status = resp.status();
+        if !status.is_success() {
+            return Err(format!("Initial audio block returned HTTP {status}"));
+        }
+
+        let is_partial = status == reqwest::StatusCode::PARTIAL_CONTENT;
+        let total_bytes = parse_total_bytes_from_headers(resp.headers(), is_partial)
+            .or_else(|| parse_clen_from_url(&remote.url))
+            .or(expected_total_bytes);
+
+        let (progress_tx, mut progress_rx) = watch::channel(ChunkProgress {
+            written: 0,
+            total_bytes,
+            done: false,
+            error: None,
+        });
+
+        let session_key = self.allocate_session_key(video_id);
+        let session = Arc::new(StreamSession {
+            file_path: staging_file_path.clone(),
+            mime_type: mime_for_ext(&ext).to_string(),
+            progress_rx: progress_rx.clone(),
+        });
+        if let Ok(mut map) = self.sessions.write() {
+            map.insert(session_key.clone(), session);
+        }
+
+        let client = self.client.clone();
+        let video_id_owned = video_id.to_string();
+        let ext_owned = ext.clone();
+        let streams_dir_owned = streams_dir.to_path_buf();
+        let remote_clone = remote.clone();
+        let sessions_map = self.sessions.clone();
+        let session_key_for_cleanup = session_key.clone();
+
+        tokio::spawn(async move {
+            let mut written: u64 = 0;
+            let mut fatal_err: Option<String> = None;
+
+            // Stream Block 0 body in network chunks
+            while let Some(chunk_res) = resp.chunk().await.transpose() {
+                match chunk_res {
+                    Ok(chunk) => {
+                        if chunk.is_empty() {
+                            break;
+                        }
+                        if let Err(e) = file.write_all(&chunk).await {
+                            fatal_err = Some(format!("Failed writing audio block 0: {e}"));
+                            break;
+                        }
+                        written += chunk.len() as u64;
+                        let _ = progress_tx.send(ChunkProgress {
+                            written,
+                            total_bytes,
+                            done: false,
+                            error: None,
+                        });
+                    }
+                    Err(e) => {
+                        fatal_err = Some(format!("Network error reading block 0: {e}"));
+                        break;
+                    }
+                }
+            }
+
+            // Fetch subsequent 512 KB blocks if the server honoured Range requests
+            if fatal_err.is_none() && is_partial {
+                let mut known_total = total_bytes;
+                loop {
+                    if let Some(total) = known_total {
+                        if written >= total {
+                            break;
+                        }
+                    }
+                    let start = written;
+                    let end = match known_total {
+                        Some(total) => (start + SUBSEQUENT_HTTP_BLOCK_BYTES - 1).min(total - 1),
+                        None => start + SUBSEQUENT_HTTP_BLOCK_BYTES - 1,
+                    };
+
+                    let mut block_res = None;
+                    for attempt in 0..3 {
+                        let mut r = client
+                            .get(&remote_clone.url)
+                            .header(reqwest::header::RANGE, format!("bytes={start}-{end}"));
+                        if let Some(ua) = &remote_clone.user_agent {
+                            r = r.header(reqwest::header::USER_AGENT, ua);
+                        }
+                        for (k, v) in &remote_clone.headers {
+                            if !k.eq_ignore_ascii_case("range") {
+                                r = r.header(k.as_str(), v.as_str());
+                            }
+                        }
+                        match r.send().await {
+                            Ok(resp_block) if resp_block.status().is_success() => {
+                                block_res = Some(resp_block);
+                                break;
+                            }
+                            Ok(resp_block)
+                                if resp_block.status()
+                                    == reqwest::StatusCode::RANGE_NOT_SATISFIABLE =>
+                            {
+                                known_total = Some(written);
+                                break;
+                            }
+                            _ if attempt < 2 => {
+                                tokio::time::sleep(Duration::from_millis(
+                                    120 * (attempt as u64 + 1),
+                                ))
+                                .await;
+                            }
+                            Ok(resp_block) => {
+                                fatal_err = Some(format!(
+                                    "Chunk range {start}-{end} returned HTTP {}",
+                                    resp_block.status()
+                                ));
+                                break;
+                            }
+                            Err(e) => {
+                                fatal_err =
+                                    Some(format!("Chunk range {start}-{end} failed: {e}"));
+                                break;
+                            }
+                        }
+                    }
+
+                    let Some(mut resp_block) = block_res else {
+                        break;
+                    };
+
+                    if known_total.is_none() {
+                        known_total = parse_total_bytes_from_headers(resp_block.headers(), true);
+                    }
+
+                    let before_block = written;
+                    while let Some(chunk_res) = resp_block.chunk().await.transpose() {
+                        match chunk_res {
+                            Ok(chunk) => {
+                                if chunk.is_empty() {
+                                    break;
+                                }
+                                if let Err(e) = file.write_all(&chunk).await {
+                                    fatal_err = Some(format!("Failed writing audio block: {e}"));
+                                    break;
+                                }
+                                written += chunk.len() as u64;
+                                let _ = progress_tx.send(ChunkProgress {
+                                    written,
+                                    total_bytes: known_total,
+                                    done: false,
+                                    error: None,
+                                });
+                            }
+                            Err(e) => {
+                                fatal_err = Some(format!("Network error in block: {e}"));
+                                break;
+                            }
+                        }
+                    }
+
+                    if fatal_err.is_some() || written == before_block {
+                        break;
+                    }
+                }
+            }
+
+            let _ = file.flush().await;
+            let completed_cleanly = fatal_err.is_none()
+                && written > 0
+                && total_bytes.map(|t| written >= t).unwrap_or(true);
+
+            let _ = progress_tx.send(ChunkProgress {
+                written,
+                total_bytes: Some(written),
+                done: true,
+                error: fatal_err,
+            });
+
+            if completed_cleanly {
+                // Copy into final cache file while keeping the staging file readable for active localhost clients
+                let final_cache_path =
+                    streams_dir_owned.join(format!("{video_id_owned}.ytdlp.{ext_owned}"));
+                let _ = tokio::fs::copy(&staging_file_path, &final_cache_path).await;
+            }
+
+            // Keep staging alive long enough for active playback to finish reading from localhost
+            tokio::time::sleep(Duration::from_secs(600)).await;
+            if let Ok(mut map) = sessions_map.write() {
+                map.remove(&session_key_for_cleanup);
+            }
+            drop(staging);
+        });
+
+        wait_until_initial_chunk_ready(&mut progress_rx).await?;
+
+        Ok(StreamInfo {
+            url: self.local_url(&session_key, &ext),
+            quality_label: remote.quality_label,
+            user_agent: None,
+            headers: HashMap::new(),
+            local_audio: None,
+        })
+    }
+
+    pub async fn start_ytdlp_pipe_stream(
+        &self,
+        video_id: &str,
+        expected_total_bytes: Option<u64>,
+        streams_dir: &Path,
+    ) -> Result<StreamInfo, String> {
+        if let Some(cached) = audio_cache::find(video_id, streams_dir) {
+            return Ok(cached);
+        }
+
+        let staging = tempfile::tempdir_in(streams_dir)
+            .map_err(|e| format!("Failed to create yt-dlp pipe staging dir: {e}"))?;
+        let ext = "webm".to_string();
+        let staging_file_path = staging.path().join(format!("{video_id}.pipe.{ext}"));
+        let mut file = tokio::fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .read(true)
+            .truncate(true)
+            .open(&staging_file_path)
+            .await
+            .map_err(|e| format!("Failed to open yt-dlp pipe staging file: {e}"))?;
+
+        let watch_url = format!("https://music.youtube.com/watch?v={video_id}");
+        let mut child = Command::new("yt-dlp")
+            .kill_on_drop(true)
+            .args([
+                "--ignore-config",
+                "--no-playlist",
+                "--no-warnings",
+                "--quiet",
+                "--no-part",
+                "--socket-timeout",
+                "5",
+                "--retries",
+                "1",
+                "--js-runtimes",
+                "node",
+                "--remote-components",
+                "ejs:github",
+                "--http-chunk-size",
+                "512K",
+                "-f",
+                "251/250/249/140/bestaudio[acodec=opus]/bestaudio/best",
+                "-o",
+                "-",
+                "--",
+                &watch_url,
+            ])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(|e| format!("Failed to spawn yt-dlp progressive stream: {e}"))?;
+
+        let mut stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| "Failed to capture yt-dlp stdout pipe".to_string())?;
+
+        let initial_total = expected_total_bytes.filter(|&sz| sz > 0);
+        let (progress_tx, mut progress_rx) = watch::channel(ChunkProgress {
+            written: 0,
+            total_bytes: initial_total,
+            done: false,
+            error: None,
+        });
+
+        let session_key = self.allocate_session_key(video_id);
+        let session = Arc::new(StreamSession {
+            file_path: staging_file_path.clone(),
+            mime_type: mime_for_ext(&ext).to_string(),
+            progress_rx: progress_rx.clone(),
+        });
+        if let Ok(mut map) = self.sessions.write() {
+            map.insert(session_key.clone(), session);
+        }
+
+        let video_id_owned = video_id.to_string();
+        let ext_owned = ext.clone();
+        let streams_dir_owned = streams_dir.to_path_buf();
+        let sessions_map = self.sessions.clone();
+        let session_key_for_cleanup = session_key.clone();
+
+        tokio::spawn(async move {
+            let mut buf = vec![0u8; 32 * 1024];
+            let mut written: u64 = 0;
+            let mut fatal_err: Option<String> = None;
+
+            loop {
+                match stdout.read(&mut buf).await {
+                    Ok(0) => break,
+                    Ok(n) => {
+                        if let Err(e) = file.write_all(&buf[..n]).await {
+                            fatal_err = Some(format!("Failed writing yt-dlp pipe chunk: {e}"));
+                            break;
+                        }
+                        written += n as u64;
+                        let _ = progress_tx.send(ChunkProgress {
+                            written,
+                            total_bytes: initial_total.map(|t| t.max(written)),
+                            done: false,
+                            error: None,
+                        });
+                    }
+                    Err(e) => {
+                        fatal_err = Some(format!("Failed reading yt-dlp stdout chunk: {e}"));
+                        break;
+                    }
+                }
+            }
+
+            let _ = file.flush().await;
+            let status_ok = child
+                .wait()
+                .await
+                .map(|s| s.success())
+                .unwrap_or(false);
+
+            if written == 0 && fatal_err.is_none() {
+                fatal_err = Some("yt-dlp pipe produced 0 bytes".to_string());
+            }
+
+            let _ = progress_tx.send(ChunkProgress {
+                written,
+                total_bytes: Some(written),
+                done: true,
+                error: fatal_err.clone(),
+            });
+
+            if fatal_err.is_none() && status_ok && written > 0 {
+                let final_cache_path =
+                    streams_dir_owned.join(format!("{video_id_owned}.ytdlp.{ext_owned}"));
+                let _ = tokio::fs::copy(&staging_file_path, &final_cache_path).await;
+            }
+
+            tokio::time::sleep(Duration::from_secs(600)).await;
+            if let Ok(mut map) = sessions_map.write() {
+                map.remove(&session_key_for_cleanup);
+            }
+            drop(staging);
+        });
+
+        wait_until_initial_chunk_ready(&mut progress_rx).await?;
+
+        Ok(StreamInfo {
+            url: self.local_url(&session_key, &ext),
+            quality_label: "Progressive Audio Stream".to_string(),
+            user_agent: None,
+            headers: HashMap::new(),
+            local_audio: None,
+        })
+    }
+}
+
+async fn wait_until_initial_chunk_ready(
+    progress_rx: &mut watch::Receiver<ChunkProgress>,
+) -> Result<(), String> {
+    loop {
+        {
+            let state = progress_rx.borrow();
+            if state.written >= READY_THRESHOLD_BYTES || (state.done && state.written > 0) {
+                return Ok(());
+            }
+            if let Some(err) = &state.error {
+                return Err(err.clone());
+            }
+            if state.done && state.written == 0 {
+                return Err("Audio stream ended with 0 bytes".to_string());
+            }
+        }
+        if progress_rx.changed().await.is_err() {
+            let state = progress_rx.borrow();
+            if state.written > 0 {
+                return Ok(());
+            }
+            return Err(state
+                .error
+                .clone()
+                .unwrap_or_else(|| "Audio stream channel closed early".to_string()));
+        }
+    }
+}
+
+async fn handle_client(
+    socket: TcpStream,
+    sessions: Arc<RwLock<HashMap<String, Arc<StreamSession>>>>,
+) -> Result<(), std::io::Error> {
+    let (read_half, mut write_half) = socket.into_split();
+    let mut reader = BufReader::new(read_half);
+
+    let mut request_line = String::new();
+    if reader.read_line(&mut request_line).await? == 0 {
+        return Ok(());
+    }
+
+    let parts: Vec<&str> = request_line.split_whitespace().collect();
+    if parts.len() < 2 {
+        return Ok(());
+    }
+    let method = parts[0];
+    let path = parts[1];
+
+    let mut range_header: Option<String> = None;
+    loop {
+        let mut line = String::new();
+        let n = reader.read_line(&mut line).await?;
+        if n == 0 || line == "\r\n" || line == "\n" {
+            break;
+        }
+        if let Some((k, v)) = line.split_once(':') {
+            if k.trim().eq_ignore_ascii_case("range") {
+                range_header = Some(v.trim().to_string());
+            }
+        }
+    }
+
+    let raw_key = path
+        .strip_prefix("/stream/")
+        .unwrap_or("")
+        .split('?')
+        .next()
+        .unwrap_or("");
+    let session_key = raw_key
+        .rsplit_once('.')
+        .map(|(prefix, _)| prefix)
+        .unwrap_or(raw_key);
+
+    let session = {
+        let map = sessions.read().ok();
+        map.and_then(|m| m.get(session_key).cloned())
+    };
+
+    let Some(session) = session else {
+        write_half
+            .write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+            .await?;
+        return Ok(());
+    };
+
+    let mut progress_rx = session.progress_rx.clone();
+    let (known_total, is_done) = {
+        let p = progress_rx.borrow();
+        (p.total_bytes, p.done)
+    };
+
+    let requested_range = range_header.as_deref().and_then(parse_range_header);
+
+    let (status_line, start_pos, end_pos_inclusive, headers_block) = match (requested_range, known_total) {
+        (Some((start, end_opt)), Some(total)) if total > 0 => {
+            if start >= total {
+                let hdr = format!(
+                    "HTTP/1.1 416 Range Not Satisfiable\r\nContent-Range: bytes */{total}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                );
+                write_half.write_all(hdr.as_bytes()).await?;
+                return Ok(());
+            }
+            let end = end_opt.map(|e| e.min(total - 1)).unwrap_or(total - 1);
+            let len = end - start + 1;
+            let hdr = format!(
+                "HTTP/1.1 206 Partial Content\r\nContent-Type: {}\r\nAccept-Ranges: bytes\r\nContent-Range: bytes {start}-{end}/{total}\r\nContent-Length: {len}\r\nConnection: close\r\n\r\n",
+                session.mime_type
+            );
+            ("206", start, Some(end), hdr)
+        }
+        (Some((start, end_opt)), None) => {
+            // Total unknown (e.g. yt-dlp pipe without prior filesize): advertise 206 Partial Content
+            // with a generous upper bound so GStreamer souphttpsrc enables push-mode byte-range seeking
+            // instead of treating the response as a restart from byte 0.
+            let synth_total = FALLBACK_SEEKABLE_BYTES.max(start + 1024 * 1024);
+            let end = end_opt.map(|e| e.min(synth_total - 1)).unwrap_or(synth_total - 1);
+            let len = end - start + 1;
+            let hdr = format!(
+                "HTTP/1.1 206 Partial Content\r\nContent-Type: {}\r\nAccept-Ranges: bytes\r\nContent-Range: bytes {start}-{end}/{synth_total}\r\nContent-Length: {len}\r\nConnection: close\r\n\r\n",
+                session.mime_type
+            );
+            ("206", start, end_opt, hdr)
+        }
+        (None, Some(total)) if total > 0 => {
+            let hdr = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: {}\r\nAccept-Ranges: bytes\r\nContent-Length: {total}\r\nConnection: close\r\n\r\n",
+                session.mime_type
+            );
+            ("200", 0, Some(total - 1), hdr)
+        }
+        _ => {
+            let hdr = if is_done {
+                let total = known_total.unwrap_or(0);
+                format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: {}\r\nAccept-Ranges: bytes\r\nContent-Length: {total}\r\nConnection: close\r\n\r\n",
+                    session.mime_type
+                )
+            } else {
+                format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: {}\r\nAccept-Ranges: bytes\r\nConnection: close\r\n\r\n",
+                    session.mime_type
+                )
+            };
+            ("200", 0, None, hdr)
+        }
+    };
+
+    let _ = status_line;
+    write_half.write_all(headers_block.as_bytes()).await?;
+    if method.eq_ignore_ascii_case("HEAD") {
+        return Ok(());
+    }
+
+    let mut file = tokio::fs::File::open(&session.file_path).await?;
+    let mut pos = start_pos;
+    let mut buf = vec![0u8; 32 * 1024];
+
+    loop {
+        if let Some(end_inc) = end_pos_inclusive {
+            if pos > end_inc {
+                break;
+            }
+        }
+
+        let (written, done) = {
+            let p = progress_rx.borrow();
+            (p.written, p.done)
+        };
+
+        if pos < written {
+            file.seek(std::io::SeekFrom::Start(pos)).await?;
+            let max_to_read = match end_pos_inclusive {
+                Some(end_inc) => ((end_inc + 1 - pos).min(written - pos)) as usize,
+                None => (written - pos) as usize,
+            };
+            let to_read = max_to_read.min(buf.len());
+            let n = file.read(&mut buf[..to_read]).await?;
+            if n > 0 {
+                write_half.write_all(&buf[..n]).await?;
+                pos += n as u64;
+                continue;
+            }
+        }
+
+        if done {
+            break;
+        }
+
+        if progress_rx.changed().await.is_err() {
+            break;
+        }
+    }
+
+    let _ = write_half.flush().await;
+    Ok(())
+}
+
+fn parse_total_bytes_from_headers(
+    headers: &reqwest::header::HeaderMap,
+    is_partial: bool,
+) -> Option<u64> {
+    if let Some(cr) = headers
+        .get(reqwest::header::CONTENT_RANGE)
+        .and_then(|v| v.to_str().ok())
+    {
+        if let Some((_, total_str)) = cr.rsplit_once('/') {
+            if let Ok(total) = total_str.trim().parse::<u64>() {
+                return Some(total);
+            }
+        }
+    }
+    if !is_partial {
+        if let Some(cl) = headers
+            .get(reqwest::header::CONTENT_LENGTH)
+            .and_then(|v| v.to_str().ok())
+        {
+            if let Ok(total) = cl.trim().parse::<u64>() {
+                return Some(total);
+            }
+        }
+    }
+    None
+}
+
+fn parse_clen_from_url(raw_url: &str) -> Option<u64> {
+    let parsed = reqwest::Url::parse(raw_url).ok()?;
+    parsed
+        .query_pairs()
+        .find(|(k, _)| k == "clen")
+        .and_then(|(_, v)| v.parse::<u64>().ok())
+        .filter(|&sz| sz > 0)
+}
+
+fn parse_range_header(header_val: &str) -> Option<(u64, Option<u64>)> {
+    let range_spec = header_val.strip_prefix("bytes=")?.trim();
+    let (start_str, end_str) = range_spec.split_once('-')?;
+    let start = start_str.trim().parse::<u64>().ok()?;
+    let end = if end_str.trim().is_empty() {
+        None
+    } else {
+        Some(end_str.trim().parse::<u64>().ok()?)
+    };
+    Some((start, end))
+}
+
+fn normalize_ext(ext: &str) -> String {
+    let trimmed = ext.trim().trim_start_matches('.').to_ascii_lowercase();
+    match trimmed.as_str() {
+        "webm" | "opus" => "webm".to_string(),
+        "m4a" | "mp4" | "aac" => "m4a".to_string(),
+        "mp3" => "mp3".to_string(),
+        "ogg" => "ogg".to_string(),
+        _ => "webm".to_string(),
+    }
+}
+
+fn mime_for_ext(ext: &str) -> &'static str {
+    match ext {
+        "m4a" | "mp4" => "audio/mp4",
+        "mp3" => "audio/mpeg",
+        "ogg" => "audio/ogg",
+        _ => "audio/webm",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    async fn spawn_slow_range_origin(payload: Arc<Vec<u8>>) -> u16 {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            loop {
+                let Ok((socket, _)) = listener.accept().await else {
+                    break;
+                };
+                let data = payload.clone();
+                tokio::spawn(async move {
+                    let (read_half, mut write_half) = socket.into_split();
+                    let mut reader = BufReader::new(read_half);
+                    let mut range_hdr: Option<String> = None;
+                    loop {
+                        let mut line = String::new();
+                        let Ok(n) = reader.read_line(&mut line).await else {
+                            return;
+                        };
+                        if n == 0 || line == "\r\n" || line == "\n" {
+                            break;
+                        }
+                        if let Some((k, v)) = line.split_once(':') {
+                            if k.trim().eq_ignore_ascii_case("range") {
+                                range_hdr = Some(v.trim().to_string());
+                            }
+                        }
+                    }
+
+                    let total = data.len() as u64;
+                    let (start, end) = range_hdr
+                        .as_deref()
+                        .and_then(parse_range_header)
+                        .map(|(s, e)| (s, e.unwrap_or(total - 1).min(total - 1)))
+                        .unwrap_or((0, total - 1));
+
+                    if start >= total {
+                        let _ = write_half
+                            .write_all(b"HTTP/1.1 416 Range Not Satisfiable\r\nContent-Length: 0\r\n\r\n")
+                            .await;
+                        return;
+                    }
+
+                    if start > 0 {
+                        // Delay subsequent blocks so the test can verify Block 0 plays before full download completes
+                        tokio::time::sleep(Duration::from_millis(250)).await;
+                    }
+
+                    let slice = &data[start as usize..=end as usize];
+                    let hdr = format!(
+                        "HTTP/1.1 206 Partial Content\r\nContent-Type: audio/webm\r\nContent-Range: bytes {start}-{end}/{total}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                        slice.len()
+                    );
+                    let _ = write_half.write_all(hdr.as_bytes()).await;
+                    let _ = write_half.write_all(slice).await;
+                });
+            }
+        });
+        port
+    }
+
+    #[tokio::test]
+    async fn streams_audio_in_blocks_before_full_download_completes() {
+        let total_size = 900 * 1024; // 900 KB (> 256 KB initial block + 512 KB second block)
+        let payload: Arc<Vec<u8>> =
+            Arc::new((0..total_size).map(|i| (i % 251) as u8).collect());
+        let origin_port = spawn_slow_range_origin(payload.clone()).await;
+
+        let temp = tempfile::tempdir().unwrap();
+        let streamer = AudioStreamer::start_new().await.unwrap();
+        let remote = StreamInfo {
+            url: format!("http://127.0.0.1:{origin_port}/audio.webm"),
+            quality_label: "160kbps (WEBM)".to_string(),
+            user_agent: Some("GyroTubeTest/1.0".to_string()),
+            headers: HashMap::new(),
+            local_audio: None,
+        };
+
+        let started = std::time::Instant::now();
+        let local_stream = streamer
+            .start_chunked_http_stream("dQw4w9WgXcQ", remote, "webm", None, temp.path())
+            .await
+            .unwrap();
+
+        // start_chunked_http_stream must return as soon as Block 0 is ready (< 150ms),
+        // without waiting for the delayed subsequent blocks (which take > 500ms).
+        assert!(
+            started.elapsed() < Duration::from_millis(200),
+            "Expected stream to become ready before subsequent blocks finished, took {:?}",
+            started.elapsed()
+        );
+
+        let client = reqwest::Client::new();
+        let full_bytes = client
+            .get(&local_stream.url)
+            .send()
+            .await
+            .unwrap()
+            .bytes()
+            .await
+            .unwrap();
+        assert_eq!(full_bytes.len(), total_size);
+        assert_eq!(&full_bytes[..], &payload[..]);
+    }
+
+    #[tokio::test]
+    async fn supports_byte_range_requests_on_progressive_stream() {
+        let total_size = 512 * 1024;
+        let payload: Arc<Vec<u8>> =
+            Arc::new((0..total_size).map(|i| (i % 239) as u8).collect());
+        let origin_port = spawn_slow_range_origin(payload.clone()).await;
+
+        let temp = tempfile::tempdir().unwrap();
+        let streamer = AudioStreamer::start_new().await.unwrap();
+        let remote = StreamInfo {
+            url: format!("http://127.0.0.1:{origin_port}/audio.webm"),
+            quality_label: "160kbps (WEBM)".to_string(),
+            user_agent: None,
+            headers: HashMap::new(),
+            local_audio: None,
+        };
+
+        let local_stream = streamer
+            .start_chunked_http_stream("3JZ_D3ELwOQ", remote, "webm", None, temp.path())
+            .await
+            .unwrap();
+
+        let client = reqwest::Client::new();
+        let resp = client
+            .get(&local_stream.url)
+            .header(reqwest::header::RANGE, "bytes=1000-4999")
+            .send()
+            .await
+            .unwrap();
+
+        assert_eq!(resp.status(), reqwest::StatusCode::PARTIAL_CONTENT);
+        let body = resp.bytes().await.unwrap();
+        assert_eq!(body.len(), 4000);
+        assert_eq!(&body[..], &payload[1000..5000]);
+    }
+
+    #[test]
+    fn extracts_clen_query_param_from_googlevideo_url() {
+        let url = "https://rr2---sn-abc.googlevideo.com/videoplayback?expire=1700000000&clen=3845120&mime=audio%2Fwebm";
+        assert_eq!(parse_clen_from_url(url), Some(3_845_120));
+    }
+}

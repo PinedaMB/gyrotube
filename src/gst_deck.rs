@@ -61,6 +61,12 @@ impl GStreamerDeck {
             .build()
             .expect("Failed to create GStreamer playbin element");
         playbin.set_property_from_str("flags", "audio+soft-volume");
+        if playbin.has_property("buffer-size") {
+            playbin.set_property("buffer-size", 64 * 1024i32);
+        }
+        if playbin.has_property("buffer-duration") {
+            playbin.set_property("buffer-duration", 500_000_000i64);
+        }
 
         let pending_user_agent: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
         let pending_headers: Arc<Mutex<HashMap<String, String>>> =
@@ -378,14 +384,25 @@ impl GStreamerDeck {
     pub fn seek(&self, target_us: i64) {
         let ns = (target_us.max(0) as u64).saturating_mul(1_000);
         let rate = self.inner.rate.get();
-        let _ = self.inner.playbin.seek(
-            rate,
-            gst::SeekFlags::FLUSH | gst::SeekFlags::KEY_UNIT,
-            gst::SeekType::Set,
-            gst::ClockTime::from_nseconds(ns),
-            gst::SeekType::None,
-            gst::ClockTime::NONE,
-        );
+        let target = gst::ClockTime::from_nseconds(ns);
+        let ok = self
+            .inner
+            .playbin
+            .seek(
+                rate,
+                gst::SeekFlags::FLUSH | gst::SeekFlags::KEY_UNIT | gst::SeekFlags::SNAP_NEAREST,
+                gst::SeekType::Set,
+                target,
+                gst::SeekType::None,
+                gst::ClockTime::NONE,
+            )
+            .is_ok();
+        if !ok {
+            let _ = self
+                .inner
+                .playbin
+                .seek_simple(gst::SeekFlags::FLUSH | gst::SeekFlags::ACCURATE, target);
+        }
     }
 
     pub fn set_volume(&self, volume: f64) {

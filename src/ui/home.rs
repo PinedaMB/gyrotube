@@ -274,6 +274,34 @@ fn build_chart_track_row(
             play_queue_index(Rc::clone(&state), section_index);
         });
     }
+    {
+        let backend = state.borrow().backend.clone();
+        let track_for_hover = track.clone();
+        let pending_hover: Rc<RefCell<Option<glib::SourceId>>> = Rc::new(RefCell::new(None));
+        let pending_leave = Rc::clone(&pending_hover);
+        let motion = gtk4::EventControllerMotion::new();
+        motion.connect_enter(move |_, _, _| {
+            if let Some(id) = pending_hover.borrow_mut().take() {
+                id.remove();
+            }
+            let backend = backend.clone();
+            let track = track_for_hover.clone();
+            let slot = Rc::clone(&pending_hover);
+            let id = glib::timeout_add_local_once(std::time::Duration::from_millis(180), move || {
+                *slot.borrow_mut() = None;
+                runtime().spawn(async move {
+                    let _ = backend.resolve_track_stream(&track).await;
+                });
+            });
+            *pending_hover.borrow_mut() = Some(id);
+        });
+        motion.connect_leave(move |_| {
+            if let Some(id) = pending_leave.borrow_mut().take() {
+                id.remove();
+            }
+        });
+        row.add_controller(motion);
+    }
     row
 }
 

@@ -687,6 +687,9 @@ pub fn load_queue_index(
             show_loading(&s, PlaybackLoad::Audio);
         }
         s.seek_scale.set_value(0.0);
+        if let Some(dur) = track.duration_secs.filter(|&d| d > 0) {
+            s.seek_scale.set_range(0.0, dur as f64);
+        }
         s.time_label.set_label("0:00");
         s.duration_label.set_label(
             &track
@@ -927,6 +930,9 @@ fn start_crossfade_to(state: Rc<RefCell<AppState>>, next_index: usize) {
             crate::ui::widgets::set_album_link(&s.player_album_label, track.album.as_deref());
             s.quality_label.set_label(&stream.quality_label);
             s.seek_scale.set_value(0.0);
+            if let Some(dur) = track.duration_secs.filter(|&d| d > 0) {
+                s.seek_scale.set_range(0.0, dur as f64);
+            }
             s.time_label.set_label("0:00");
             s.duration_label.set_label(
                 &track

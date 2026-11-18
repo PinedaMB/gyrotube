@@ -1,4 +1,5 @@
 mod audio_cache;
+mod audio_streamer;
 mod backend;
 mod gst_deck;
 mod i18n;
