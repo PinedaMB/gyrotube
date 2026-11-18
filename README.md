@@ -37,6 +37,14 @@ cargo build --release
 
 Para medir el arranque en la aplicación, ejecuta `GYROTUBE_AUDIO_TIMINGS=1 cargo run`. Las líneas `[audio]` en la terminal registran por ID la verificación del catálogo, la extracción, la descarga de respaldo cuando se usa, la preparación en GStreamer y el tiempo desde la selección hasta que GStreamer entra en reproducción. Las etapas ya resueltas por caché o precarga pueden no aparecer después del clic.
 
+## Paquetes Linux (x86_64)
+
+- **Debian 13** · Habilita [Trixie Backports](https://backports.debian.org/Instructions/) para obtener un `yt-dlp` compatible, luego ejecuta `sudo apt install ./dist/gyrotube_0.1.0-1_amd64.deb`. Instala [Node.js 22 o posterior](https://nodejs.org/en/download) y asegúrate de que `node` esté en el `PATH` de la sesión gráfica.
+- **Fedora 45** · `sudo dnf install ./dist/gyrotube-0.1.0-1.fc45.x86_64.rpm`
+- **AppImage** · Da permiso de ejecución con `chmod +x dist/GyroTube-0.1.0-x86_64.AppImage` y ejecútalo. Requiere glibc 2.41 o posterior y usa el `yt-dlp` actualizado con soporte EJS y Node.js 22 o posterior del sistema. En sistemas sin FUSE se puede ejecutar con `APPIMAGE_EXTRACT_AND_RUN=1`.
+
+Para regenerarlos, compila con `cargo build --release --locked` en Fedora 45 y en Debian 13. `packaging/Containerfile.debian` prepara las dependencias nativas de Debian; agrega el toolchain de Rust para compilar. Dentro de Debian, crea el AppDir con `packaging/make-appdir.sh target/release/gyrotube GyroTube.AppDir`. Con nFPM y appimagetool disponibles, ejecuta `packaging/package.sh BINARIO_DEBIAN BINARIO_FEDORA RUTA_APPDIR`. Los paquetes y `SHA256SUMS` quedan en `dist/`.
+
 ## Pruebas
 
 ```bash

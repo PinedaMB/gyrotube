@@ -1,0 +1,8 @@
+FROM docker.io/library/debian:13-slim
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential pkg-config cmake ca-certificates libssl-dev \
+    libgtk-4-dev libadwaita-1-dev libgstreamer1.0-dev desktop-file-utils \
+    gstreamer1.0-tools gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
+    gstreamer1.0-libav libgstreamer-plugins-base1.0-0 \
+    librsvg2-common librsvg2-bin webp-pixbuf-loader && \
+    rm -rf /var/lib/apt/lists/*
