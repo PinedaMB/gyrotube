@@ -230,6 +230,8 @@ pub fn build_sidebar_player() -> SidebarPlayerWidgets {
     let play_spinner = Spinner::builder()
         .halign(Align::Center)
         .valign(Align::Center)
+        .width_request(18)
+        .height_request(18)
         .build();
 
     let play_pause_btn = Button::builder()
@@ -689,6 +691,28 @@ pub fn build_mini_bar(
         .build();
     let prev_btn_ref = {
         let s = state.borrow();
+        let mini_spinner = Spinner::builder()
+            .halign(Align::Center)
+            .valign(Align::Center)
+            .width_request(16)
+            .height_request(16)
+            .build();
+        s.play_spinner
+            .bind_property("spinning", &mini_spinner, "spinning")
+            .sync_create()
+            .build();
+        let mini_btn_for_spin = mini_play_btn.clone();
+        let main_btn_for_spin = s.play_pause_btn.clone();
+        s.play_spinner.connect_spinning_notify(move |sp| {
+            if sp.is_spinning() {
+                mini_btn_for_spin.set_child(Some(&mini_spinner));
+            } else {
+                let icon = main_btn_for_spin
+                    .icon_name()
+                    .unwrap_or_else(|| "play-filled".into());
+                mini_btn_for_spin.set_icon_name(&icon);
+            }
+        });
         s.player_cover
             .bind_property("paintable", &cover, "paintable")
             .sync_create()

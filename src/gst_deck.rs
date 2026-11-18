@@ -82,10 +82,10 @@ impl GStreamerDeck {
                 source.set_property("iradio-mode", false);
             }
             if source.has_property("timeout") {
-                source.set_property("timeout", 8u32);
+                source.set_property("timeout", 30u32);
             }
             if source.has_property("retries") {
-                source.set_property("retries", 1i32);
+                source.set_property("retries", 3i32);
             }
 
             if let Ok(guard) = ua_for_signal.lock()

@@ -175,6 +175,30 @@ pub fn build_party_mode(
         .tooltip_text(tr("Reproducir / Pausar", "Play / Pause"))
         .css_classes(["suggested-action", "play-pill"])
         .build();
+    let party_spinner = gtk4::Spinner::builder()
+        .halign(Align::Center)
+        .valign(Align::Center)
+        .width_request(18)
+        .height_request(18)
+        .build();
+    s.play_spinner
+        .bind_property("spinning", &party_spinner, "spinning")
+        .sync_create()
+        .build();
+    {
+        let party_btn_for_spin = play_btn.clone();
+        let main_btn_for_spin = s.play_pause_btn.clone();
+        s.play_spinner.connect_spinning_notify(move |sp| {
+            if sp.is_spinning() {
+                party_btn_for_spin.set_child(Some(&party_spinner));
+            } else {
+                let icon = main_btn_for_spin
+                    .icon_name()
+                    .unwrap_or_else(|| "play-filled".into());
+                party_btn_for_spin.set_icon_name(&icon);
+            }
+        });
+    }
     s.play_pause_btn
         .bind_property("icon-name", &play_btn, "icon-name")
         .sync_create()

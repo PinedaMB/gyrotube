@@ -561,14 +561,10 @@ pub enum PlaybackLoad {
 }
 
 fn show_loading(s: &AppState, phase: PlaybackLoad) {
-    let text = match phase {
-        PlaybackLoad::Queue => tr("Cargando pistas…", "Loading tracks…"),
-        PlaybackLoad::Audio => tr("Buscando audio…", "Finding audio…"),
-        PlaybackLoad::Preparing => tr("Preparando audio…", "Preparing audio…"),
-        PlaybackLoad::Download => tr("Descargando audio…", "Downloading audio…"),
-    };
+    let text = tr("Cargando…", "Loading…");
     s.playback_load.set(Some(phase));
     s.playback_status.set_label(text);
+    s.play_spinner.set_visible(true);
     s.play_spinner.set_spinning(true);
     s.play_pause_btn.set_child(Some(&s.play_spinner));
     s.play_pause_btn.set_sensitive(false);
@@ -757,9 +753,19 @@ pub fn load_queue_index(
             (s.active_media().clone(), next_id)
         };
         media_file.set_stream_for_startup(&stream, timing);
-        if media_file.is_prepared() && state.borrow().pending_autoplay {
-            state.borrow_mut().pending_autoplay = false;
-            media_file.play();
+        if media_file.is_prepared() {
+            let should_play = {
+                let mut s = state.borrow_mut();
+                if s.playback_load.get().is_some() {
+                    finish_player_loading(&s, "");
+                }
+                let p = s.pending_autoplay;
+                s.pending_autoplay = false;
+                p
+            };
+            if should_play {
+                media_file.play();
+            }
         }
         if let Some(next_track) = next_id {
             runtime().spawn(async move {
@@ -820,9 +826,19 @@ pub fn load_queue_index(
         if let Some((media_file, stream, backend, next_id)) = stream_to_play {
             media_file.pause();
             media_file.set_stream_for_startup(&stream, timing);
-            if media_file.is_prepared() && state.borrow().pending_autoplay {
-                state.borrow_mut().pending_autoplay = false;
-                media_file.play();
+            if media_file.is_prepared() {
+                let should_play = {
+                    let mut s = state.borrow_mut();
+                    if s.playback_load.get().is_some() {
+                        finish_player_loading(&s, "");
+                    }
+                    let p = s.pending_autoplay;
+                    s.pending_autoplay = false;
+                    p
+                };
+                if should_play {
+                    media_file.play();
+                }
             }
             if let Some(next_track) = next_id {
                 runtime().spawn(async move {
@@ -1185,7 +1201,7 @@ pub fn wire_media_signals(
                             } else {
                                 false
                             };
-                            if s.playback_load.get() == Some(PlaybackLoad::Preparing) {
+                            if s.playback_load.get().is_some() {
                                 finish_player_loading(&s, "");
                             }
                             let local_restore = s.pending_restore_seek.take();
@@ -1250,7 +1266,9 @@ pub fn wire_media_signals(
                 } else {
                     "play-filled"
                 };
-                if s.playback_load.get().is_none() {
+                if playing && s.playback_load.get().is_some() {
+                    finish_player_loading(&s, "");
+                } else if s.playback_load.get().is_none() {
                     s.play_pause_btn.set_icon_name(icon);
                 }
                 if let Some(mpris) = &s.mpris {
@@ -1330,6 +1348,11 @@ pub fn wire_media_signals(
                             && let Some(track) =
                                 s.current_index.and_then(|i| s.queue.get(i)).cloned()
                         {
+                            let pos_secs = (media.timestamp() as f64 / 1_000_000.0)
+                                .max(s.seek_scale.value());
+                            if pos_secs > 1.0 && s.pending_restore_seek.is_none() {
+                                s.pending_restore_seek = Some(pos_secs);
+                            }
                             show_loading(&s, PlaybackLoad::Download);
                             s.pending_autoplay = if matches!(
                                 s.jam.remote_role,

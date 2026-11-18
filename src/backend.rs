@@ -953,14 +953,6 @@ impl Backend {
         if let Some(cached) = audio_cache::find(video_id, &streams_dir) {
             return Ok(cached);
         }
-        if let Ok(streamer) = crate::audio_streamer::AudioStreamer::global().await
-            && let Ok(stream) = streamer.start_ytdlp_pipe_stream(video_id, None, &streams_dir).await
-        {
-            if let Ok(mut guard) = self.stream_cache.write() {
-                guard.insert(video_id.to_string(), (Instant::now(), stream.clone()));
-            }
-            return Ok(stream);
-        }
         self.run_ytdlp_download(video_id, &streams_dir).await
     }
 

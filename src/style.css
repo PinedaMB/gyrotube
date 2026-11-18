@@ -117,6 +117,12 @@
     border-radius: 999px;
 }
 
+.play-pill:disabled spinner,
+button.suggested-action:disabled spinner {
+    color: #ffffff;
+    opacity: 1;
+}
+
 .media-card {
     padding: 6px;
     border-radius: 12px;

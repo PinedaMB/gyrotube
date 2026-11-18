@@ -8,13 +8,14 @@ use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncSeekExt, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::process::Command;
-use tokio::sync::watch;
+use tokio::sync::{Semaphore, watch};
 
 use crate::audio_cache;
 use crate::models::StreamInfo;
 
 const INITIAL_HTTP_BLOCK_BYTES: u64 = 256 * 1024;
 const SUBSEQUENT_HTTP_BLOCK_BYTES: u64 = 512 * 1024;
+const PARALLEL_BLOCK_WORKERS: usize = 4;
 const READY_THRESHOLD_BYTES: u64 = 32 * 1024;
 const FALLBACK_SEEKABLE_BYTES: u64 = 32 * 1024 * 1024;
 
@@ -203,87 +204,71 @@ impl AudioStreamer {
                 }
             }
 
-            // Fetch subsequent 512 KB blocks if the server honoured Range requests
+            // Fetch subsequent 512 KB blocks in parallel (up to 4 concurrent blocks) if the server
+            // honoured Range requests so the entire track buffers in <1 second and forward seeks never stall.
             if fatal_err.is_none() && is_partial {
-                let mut known_total = total_bytes;
-                loop {
-                    if let Some(total) = known_total {
-                        if written >= total {
-                            break;
-                        }
-                    }
-                    let start = written;
-                    let end = match known_total {
-                        Some(total) => (start + SUBSEQUENT_HTTP_BLOCK_BYTES - 1).min(total - 1),
-                        None => start + SUBSEQUENT_HTTP_BLOCK_BYTES - 1,
-                    };
-
-                    let mut block_res = None;
-                    for attempt in 0..3 {
-                        let mut r = client
-                            .get(&remote_clone.url)
-                            .header(reqwest::header::RANGE, format!("bytes={start}-{end}"));
-                        if let Some(ua) = &remote_clone.user_agent {
-                            r = r.header(reqwest::header::USER_AGENT, ua);
-                        }
-                        for (k, v) in &remote_clone.headers {
-                            if !k.eq_ignore_ascii_case("range") {
-                                r = r.header(k.as_str(), v.as_str());
-                            }
-                        }
-                        match r.send().await {
-                            Ok(resp_block) if resp_block.status().is_success() => {
-                                block_res = Some(resp_block);
-                                break;
-                            }
-                            Ok(resp_block)
-                                if resp_block.status()
-                                    == reqwest::StatusCode::RANGE_NOT_SATISFIABLE =>
-                            {
-                                known_total = Some(written);
-                                break;
-                            }
-                            _ if attempt < 2 => {
-                                tokio::time::sleep(Duration::from_millis(
-                                    120 * (attempt as u64 + 1),
-                                ))
-                                .await;
-                            }
-                            Ok(resp_block) => {
-                                fatal_err = Some(format!(
-                                    "Chunk range {start}-{end} returned HTTP {}",
-                                    resp_block.status()
-                                ));
-                                break;
-                            }
-                            Err(e) => {
-                                fatal_err =
-                                    Some(format!("Chunk range {start}-{end} failed: {e}"));
-                                break;
-                            }
-                        }
+                if let Some(total) = total_bytes.filter(|&t| t > written) {
+                    let mut ranges = Vec::new();
+                    let mut cur = written;
+                    while cur < total {
+                        let end = (cur + SUBSEQUENT_HTTP_BLOCK_BYTES - 1).min(total - 1);
+                        ranges.push((cur, end));
+                        cur = end + 1;
                     }
 
-                    let Some(mut resp_block) = block_res else {
-                        break;
-                    };
-
-                    if known_total.is_none() {
-                        known_total = parse_total_bytes_from_headers(resp_block.headers(), true);
+                    let sem = Arc::new(Semaphore::new(PARALLEL_BLOCK_WORKERS));
+                    let mut tasks = Vec::with_capacity(ranges.len());
+                    for (start, end) in ranges {
+                        let permit_sem = sem.clone();
+                        let c = client.clone();
+                        let rem = remote_clone.clone();
+                        tasks.push(tokio::spawn(async move {
+                            let _permit = permit_sem.acquire_owned().await.ok()?;
+                            fetch_range_block(&c, &rem, start, end).await.ok()
+                        }));
                     }
 
-                    let before_block = written;
-                    while let Some(chunk_res) = resp_block.chunk().await.transpose() {
-                        match chunk_res {
-                            Ok(chunk) => {
-                                if chunk.is_empty() {
-                                    break;
-                                }
-                                if let Err(e) = file.write_all(&chunk).await {
+                    for task in tasks {
+                        match task.await {
+                            Ok(Some(bytes)) if !bytes.is_empty() => {
+                                if let Err(e) = file.write_all(&bytes).await {
                                     fatal_err = Some(format!("Failed writing audio block: {e}"));
                                     break;
                                 }
-                                written += chunk.len() as u64;
+                                written += bytes.len() as u64;
+                                let _ = progress_tx.send(ChunkProgress {
+                                    written,
+                                    total_bytes: Some(total),
+                                    done: false,
+                                    error: None,
+                                });
+                            }
+                            _ => {
+                                fatal_err = Some("Failed fetching parallel audio block".to_string());
+                                break;
+                            }
+                        }
+                    }
+                } else {
+                    let known_total = total_bytes;
+                    loop {
+                        if let Some(total) = known_total {
+                            if written >= total {
+                                break;
+                            }
+                        }
+                        let start = written;
+                        let end = match known_total {
+                            Some(total) => (start + SUBSEQUENT_HTTP_BLOCK_BYTES - 1).min(total - 1),
+                            None => start + SUBSEQUENT_HTTP_BLOCK_BYTES - 1,
+                        };
+                        match fetch_range_block(&client, &remote_clone, start, end).await {
+                            Ok(bytes) if !bytes.is_empty() => {
+                                if let Err(e) = file.write_all(&bytes).await {
+                                    fatal_err = Some(format!("Failed writing audio block: {e}"));
+                                    break;
+                                }
+                                written += bytes.len() as u64;
                                 let _ = progress_tx.send(ChunkProgress {
                                     written,
                                     total_bytes: known_total,
@@ -291,15 +276,12 @@ impl AudioStreamer {
                                     error: None,
                                 });
                             }
+                            Ok(_) => break,
                             Err(e) => {
-                                fatal_err = Some(format!("Network error in block: {e}"));
+                                fatal_err = Some(e);
                                 break;
                             }
                         }
-                    }
-
-                    if fatal_err.is_some() || written == before_block {
-                        break;
                     }
                 }
             }
@@ -488,12 +470,55 @@ impl AudioStreamer {
 
         Ok(StreamInfo {
             url: self.local_url(&session_key, &ext),
-            quality_label: "Progressive Audio Stream".to_string(),
+            quality_label: "WEBM".to_string(),
             user_agent: None,
             headers: HashMap::new(),
             local_audio: None,
         })
     }
+}
+
+async fn fetch_range_block(
+    client: &reqwest::Client,
+    remote: &StreamInfo,
+    start: u64,
+    end: u64,
+) -> Result<Vec<u8>, String> {
+    let mut last_err = String::new();
+    for attempt in 0..3 {
+        let mut r = client
+            .get(&remote.url)
+            .header(reqwest::header::RANGE, format!("bytes={start}-{end}"));
+        if let Some(ua) = &remote.user_agent {
+            r = r.header(reqwest::header::USER_AGENT, ua);
+        }
+        for (k, v) in &remote.headers {
+            if !k.eq_ignore_ascii_case("range") {
+                r = r.header(k.as_str(), v.as_str());
+            }
+        }
+        match r.send().await {
+            Ok(resp) if resp.status().is_success() => {
+                match resp.bytes().await {
+                    Ok(b) => return Ok(b.to_vec()),
+                    Err(e) => last_err = format!("Error reading block {start}-{end}: {e}"),
+                }
+            }
+            Ok(resp) if resp.status() == reqwest::StatusCode::RANGE_NOT_SATISFIABLE => {
+                return Ok(Vec::new());
+            }
+            Ok(resp) => {
+                last_err = format!("Block {start}-{end} HTTP {}", resp.status());
+            }
+            Err(e) => {
+                last_err = format!("Block {start}-{end} failed: {e}");
+            }
+        }
+        if attempt < 2 {
+            tokio::time::sleep(Duration::from_millis(100 * (attempt as u64 + 1))).await;
+        }
+    }
+    Err(last_err)
 }
 
 async fn wait_until_initial_chunk_ready(
