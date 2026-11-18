@@ -892,19 +892,23 @@ impl Backend {
             {
                 expected_bytes_hint = filesize_from_ytdlp_json(&output.stdout);
                 if let Ok(remote) = stream_from_ytdlp_json(&output.stdout) {
-                    let ext = remote.quality_label.to_ascii_lowercase();
-                    if let Ok(local_stream) = streamer_yt
-                        .start_chunked_http_stream(
-                            &vid_yt,
-                            remote,
-                            &ext,
-                            expected_bytes_hint,
-                            &streams_dir_yt,
-                        )
-                        .await
-                    {
-                        return Ok::<StreamInfo, String>(local_stream);
-                    }
+                let ext = remote
+                    .url
+                    .contains("mime=audio%2Fmp4")
+                    .then_some("m4a")
+                    .unwrap_or("webm");
+                if let Ok(local_stream) = streamer_yt
+                    .start_chunked_http_stream(
+                        &vid_yt,
+                        remote,
+                        ext,
+                        expected_bytes_hint,
+                        &streams_dir_yt,
+                    )
+                    .await
+                {
+                    return Ok::<StreamInfo, String>(local_stream);
+                }
                 }
             }
 
@@ -1222,6 +1226,10 @@ fn stream_from_ytdlp_json(raw: &[u8]) -> Result<StreamInfo, String> {
         vcodec: String,
         acodec: String,
         #[serde(default)]
+        abr: Option<f64>,
+        #[serde(default)]
+        tbr: Option<f64>,
+        #[serde(default)]
         http_headers: HashMap<String, String>,
     }
     let audio: Audio =
@@ -1237,9 +1245,23 @@ fn stream_from_ytdlp_json(raw: &[u8]) -> Result<StreamInfo, String> {
             "yt-dlp no devolvió una fuente de solo audio HTTP(S).",
         ));
     }
+    let ext_upper = audio.ext.to_uppercase();
+    let kbps = audio
+        .abr
+        .or(audio.tbr)
+        .map(|b| b.round() as u32)
+        .filter(|&b| b > 0);
+    let quality_label = match kbps {
+        Some(k) => format!("{k}kbps ({ext_upper})"),
+        None => match ext_upper.as_str() {
+            "WEBM" | "OPUS" => format!("160kbps ({ext_upper})"),
+            "M4A" | "MP4" => format!("128kbps ({ext_upper})"),
+            _ => ext_upper,
+        },
+    };
     Ok(StreamInfo {
         url: audio.url,
-        quality_label: audio.ext.to_uppercase(),
+        quality_label,
         user_agent: audio
             .http_headers
             .iter()
@@ -1814,7 +1836,7 @@ mod tests {
         )
         .unwrap();
         assert!(stream.url.starts_with("https://rr1.googlevideo.com/"));
-        assert_eq!(stream.quality_label, "WEBM");
+        assert_eq!(stream.quality_label, "160kbps (WEBM)");
         assert_eq!(stream.user_agent.as_deref(), Some("test-agent"));
         assert_eq!(stream.headers["Referer"], "https://music.youtube.com/");
     }
@@ -1899,7 +1921,7 @@ mod tests {
 
         let found = audio_cache::find("dQw4w9WgXcQ", dir.path()).expect("cached audio");
         assert_eq!(found.url, file.to_string_lossy());
-        assert_eq!(found.quality_label, "M4A");
+        assert_eq!(found.quality_label, "128kbps (M4A)");
     }
 
     #[test]

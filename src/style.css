@@ -117,10 +117,12 @@
     border-radius: 999px;
 }
 
-.play-pill:disabled spinner,
-button.suggested-action:disabled spinner {
+.play-pill spinner,
+button.suggested-action spinner {
     color: #ffffff;
     opacity: 1;
+    min-width: 20px;
+    min-height: 20px;
 }
 
 .media-card {

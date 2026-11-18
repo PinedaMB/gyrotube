@@ -567,7 +567,8 @@ fn show_loading(s: &AppState, phase: PlaybackLoad) {
     s.play_spinner.set_visible(true);
     s.play_spinner.set_spinning(true);
     s.play_pause_btn.set_child(Some(&s.play_spinner));
-    s.play_pause_btn.set_sensitive(false);
+    s.play_pause_btn.add_css_class("is-loading");
+    s.play_pause_btn.set_sensitive(true);
     if phase != PlaybackLoad::Queue {
         s.seek_scale.set_sensitive(false);
     }
@@ -581,6 +582,7 @@ pub fn finish_player_loading(s: &AppState, message: &str) {
     s.playback_load.set(None);
     s.playback_status.set_label(message);
     s.play_spinner.set_spinning(false);
+    s.play_pause_btn.remove_css_class("is-loading");
     let media = s.active_media();
     s.play_pause_btn.set_icon_name(if media.is_playing() {
         "pause-filled"
@@ -1122,7 +1124,7 @@ pub fn wire_media_signals(
         let state = Rc::clone(&state);
         let play_pause_btn = state.borrow().play_pause_btn.clone();
         play_pause_btn.connect_clicked(move |button| {
-            if !button.is_sensitive() {
+            if !button.is_sensitive() || state.borrow().playback_load.get().is_some() {
                 return;
             }
             if guest_control(&state.borrow(), "play_pause") {

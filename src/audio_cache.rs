@@ -172,9 +172,14 @@ pub fn trim_existing(dir: &Path) {
 }
 
 fn local_stream(audio: Arc<LocalAudio>, extension: &str) -> StreamInfo {
+    let quality_label = match extension.to_ascii_lowercase().as_str() {
+        "webm" | "opus" => "160kbps (WEBM)".to_string(),
+        "m4a" | "mp4" | "aac" => "128kbps (M4A)".to_string(),
+        _ => extension.to_uppercase(),
+    };
     StreamInfo {
         url: audio.path.to_string_lossy().into_owned(),
-        quality_label: extension.to_uppercase(),
+        quality_label,
         user_agent: None,
         headers: HashMap::new(),
         local_audio: Some(audio),

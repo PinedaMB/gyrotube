@@ -470,7 +470,7 @@ impl AudioStreamer {
 
         Ok(StreamInfo {
             url: self.local_url(&session_key, &ext),
-            quality_label: "WEBM".to_string(),
+            quality_label: "160kbps (WEBM)".to_string(),
             user_agent: None,
             headers: HashMap::new(),
             local_audio: None,
