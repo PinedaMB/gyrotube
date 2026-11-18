@@ -192,16 +192,12 @@ pub fn wire_settings_dialog(
                 "Automatic system detection or manual selection",
             ))
             .build();
-        let lang_model = gtk4::StringList::new(&[
-            tr("Automático (sistema)", "Automatic (system)"),
-            "Español",
-            "English",
-        ]);
-        let current_lang_idx = match state.borrow().language {
-            AppLanguage::Auto => 0,
-            AppLanguage::Es => 1,
-            AppLanguage::En => 2,
-        };
+        let lang_names: Vec<&str> = AppLanguage::ALL
+            .iter()
+            .map(|l| l.display_name())
+            .collect();
+        let lang_model = gtk4::StringList::new(&lang_names);
+        let current_lang_idx = state.borrow().language.to_index();
         let lang_row = adw::ComboRow::builder()
             .title(tr("Idioma de la interfaz", "Interface language"))
             .model(&lang_model)
@@ -210,11 +206,7 @@ pub fn wire_settings_dialog(
         {
             let state_lang = Rc::clone(&state);
             lang_row.connect_selected_notify(move |row| {
-                let pref = match row.selected() {
-                    1 => AppLanguage::Es,
-                    2 => AppLanguage::En,
-                    _ => AppLanguage::Auto,
-                };
+                let pref = AppLanguage::from_index(row.selected());
                 {
                     let mut s = state_lang.borrow_mut();
                     if s.language == pref {
