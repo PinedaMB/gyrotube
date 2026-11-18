@@ -550,6 +550,13 @@ pub fn build_album_page(
 
                 scrolled.vadjustment().set_value(0.0);
                 stack.set_visible_child_name("album");
+
+                if let Some(first) = tracks.first().filter(|track| track.is_music).cloned() {
+                    let backend = state.borrow().backend.clone();
+                    crate::backend::runtime().spawn(async move {
+                        let _ = backend.resolve_track_stream(&first).await;
+                    });
+                }
             },
         )
     };

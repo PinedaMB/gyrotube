@@ -41,6 +41,14 @@ pub struct HomeFeed {
     pub new_albums: Vec<Album>,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+enum AudioWork {
+    Resolve,
+    Download,
+}
+
+type AudioLocks = Mutex<HashMap<(String, AudioWork), Arc<tokio::sync::Mutex<()>>>>;
+
 #[derive(Clone)]
 pub struct Backend {
     ytm: Arc<tokio::sync::OnceCell<YtMusic<NoAuthToken>>>,
@@ -49,7 +57,7 @@ pub struct Backend {
     home_cache: Arc<RwLock<Option<(Instant, HomeFeed)>>>,
     genres_cache: Arc<RwLock<Option<(Instant, Vec<Genre>)>>>,
     stream_cache: Arc<RwLock<HashMap<String, (Instant, StreamInfo)>>>,
-    in_flight_resolves: Arc<Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>>,
+    audio_locks: Arc<AudioLocks>,
 }
 
 impl Backend {
@@ -76,7 +84,7 @@ impl Backend {
             )),
             genres_cache: Arc::new(RwLock::new(None)),
             stream_cache: Arc::new(RwLock::new(HashMap::new())),
-            in_flight_resolves: Arc::new(Mutex::new(HashMap::new())),
+            audio_locks: Arc::default(),
         }
     }
 
@@ -640,13 +648,26 @@ impl Backend {
         }
         let video_id = &track.id;
         validate_video_id(video_id).ok()?;
-        if let Ok(cache) = self.stream_cache.read()
-            && let Some((ts, stream)) = cache.get(video_id)
-            && stream_url_is_fresh(*ts, stream)
-        {
-            return Some(stream.clone());
-        }
-        self.cached_stream(video_id)
+        self.cached_url(video_id).or_else(|| self.cached_stream(video_id))
+    }
+
+    fn cached_url(&self, video_id: &str) -> Option<StreamInfo> {
+        let cache = self.stream_cache.read().ok()?;
+        let (created, stream) = cache.get(video_id)?;
+        stream_url_is_fresh(*created, stream).then(|| stream.clone())
+    }
+
+    fn audio_lock(
+        &self,
+        video_id: &str,
+        work: AudioWork,
+    ) -> Result<Arc<tokio::sync::Mutex<()>>, String> {
+        let mut locks = self
+            .audio_locks
+            .lock()
+            .map_err(|_| String::from("Error interno de sincronización"))?;
+        locks.retain(|_, lock| Arc::strong_count(lock) > 1);
+        Ok(locks.entry((video_id.to_owned(), work)).or_default().clone())
     }
 
     pub fn trim_audio_cache_on_startup() {
@@ -678,14 +699,14 @@ impl Backend {
 
     async fn resolve_audio_stream(&self, video_id: &str) -> Result<StreamInfo, String> {
         validate_video_id(video_id)?;
-        if let Some(cached) = self.cached_stream(video_id) {
-            return Ok(cached);
+        let cached = || self.cached_stream(video_id).or_else(|| self.cached_url(video_id));
+        if let Some(stream) = cached() {
+            return Ok(stream);
         }
-        if let Ok(cache) = self.stream_cache.read()
-            && let Some((ts, stream)) = cache.get(video_id)
-            && stream_url_is_fresh(*ts, stream)
-        {
-            return Ok(stream.clone());
+        let lock = self.audio_lock(video_id, AudioWork::Resolve)?;
+        let _guard = lock.lock().await;
+        if let Some(stream) = cached() {
+            return Ok(stream);
         }
 
         let mut cmd = tokio::process::Command::new("yt-dlp");
@@ -700,6 +721,7 @@ impl Backend {
                 "0",
                 "--dump-single-json",
                 "--skip-download",
+                "--check-formats",
                 "--js-runtimes",
                 "node",
                 "--remote-components",
@@ -737,17 +759,7 @@ impl Backend {
             return Ok(cached);
         }
 
-        let download_lock = {
-            let mut in_flight = self
-                .in_flight_resolves
-                .lock()
-                .map_err(|_| String::from("Error interno de sincronización"))?;
-            in_flight.retain(|_, lock| Arc::strong_count(lock) > 1);
-            in_flight
-                .entry(video_id.to_string())
-                .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
-                .clone()
-        };
+        let download_lock = self.audio_lock(video_id, AudioWork::Download)?;
         let _guard = download_lock.lock().await;
         self.run_ytdlp_download(video_id, &streams_dir).await
     }
@@ -1256,6 +1268,33 @@ fn parse_sub_count(raw: &str) -> Option<u64> {
 mod tests {
     use super::*;
 
+    #[tokio::test]
+    async fn playback_reuses_a_url_published_by_an_in_flight_preload() {
+        use std::future::{Future, poll_fn};
+        use std::task::Poll;
+
+        let backend = Backend::new();
+        let id = "timingTest_";
+        let preload = backend.audio_lock(id, AudioWork::Resolve).unwrap();
+        let guard = preload.lock().await;
+        let mut playback = std::pin::pin!(backend.resolve_audio_stream(id));
+        assert!(poll_fn(|cx| Poll::Ready(playback.as_mut().poll(cx).is_pending())).await);
+        let stream = StreamInfo {
+            url: "https://example.com/preloaded-audio".into(),
+            quality_label: "OPUS".into(),
+            user_agent: None,
+            headers: HashMap::new(),
+            local_audio: None,
+        };
+        backend
+            .stream_cache
+            .write()
+            .unwrap()
+            .insert(id.into(), (Instant::now(), stream.clone()));
+        drop(guard);
+        assert_eq!(playback.await.unwrap().url, stream.url);
+    }
+
     #[test]
     fn unverified_tracks_cannot_use_a_cached_url() {
         let backend = Backend::new();
@@ -1530,44 +1569,26 @@ mod tests {
             gtk4::gdk::Texture::from_bytes(&gtk4::glib::Bytes::from_owned(image)).unwrap();
         use gtk4::prelude::TextureExt;
         assert!(texture.width() > 0 && texture.height() > 0);
-        let start = Instant::now();
+        let cold_start = Instant::now();
         let stream = backend.resolve_track_stream(track).await.unwrap();
-        eprintln!("Resolución de audio en frío: {:?}", start.elapsed());
+        eprintln!("Resolución inicial de audio: {:?}", cold_start.elapsed());
+        let ready = crate::gst_deck::preroll_for_test(&stream);
+        eprintln!(
+            "Preparación en GStreamer: {ready:?}; total desde resolución: {:?}",
+            cold_start.elapsed()
+        );
         let start = Instant::now();
         assert_eq!(
             backend.resolve_track_stream(track).await.unwrap().url,
             stream.url
         );
         eprintln!("Resolución con URL precargada: {:?}", start.elapsed());
-        let mut headers = reqwest::header::HeaderMap::new();
-        for (key, value) in &stream.headers {
-            headers.insert(
-                reqwest::header::HeaderName::from_bytes(key.as_bytes()).unwrap(),
-                reqwest::header::HeaderValue::from_str(value).unwrap(),
-            );
-        }
-        let response = backend
-            .http
-            .get(&stream.url)
-            .headers(headers)
-            .header(reqwest::header::RANGE, "bytes=0-1023")
-            .send()
-            .await
-            .unwrap();
-        if response.status().is_success() {
-            assert!(!response.bytes().await.unwrap().is_empty());
-        } else {
-            eprintln!(
-                "Audio directo HTTP {}; comprobando descarga de respaldo",
-                response.status()
-            );
+        if ready.is_err() {
+            assert!(stream.local_audio.is_none(), "No se pudo preparar el archivo en caché");
             let start = Instant::now();
-            let fallback = backend
-                .download_with_ytdlp_fallback(&track.id)
-                .await
-                .unwrap();
-            assert!(std::fs::metadata(&fallback.url).unwrap().len() > 0);
+            let fallback = backend.download_with_ytdlp_fallback(&track.id).await.unwrap();
             eprintln!("Descarga de respaldo: {:?}", start.elapsed());
+            assert!(crate::gst_deck::preroll_for_test(&fallback).is_ok());
         }
     }
 

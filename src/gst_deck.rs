@@ -391,6 +391,25 @@ impl GStreamerDeck {
 }
 
 #[cfg(test)]
+pub(crate) fn preroll_for_test(
+    stream: &StreamInfo,
+) -> Result<std::time::Duration, gst::StateChangeError> {
+    let deck = GStreamerDeck::new();
+    let sink = gst::ElementFactory::make("fakesink").build().unwrap();
+    deck.inner.playbin.set_property("audio-sink", &sink);
+    let start = std::time::Instant::now();
+    deck.set_stream(stream);
+    let _ = deck.inner.playbin.state(gst::ClockTime::from_seconds(12));
+    let result = if deck.is_prerolled() {
+        Ok(start.elapsed())
+    } else {
+        Err(gst::StateChangeError)
+    };
+    deck.clear();
+    result
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
