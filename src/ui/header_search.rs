@@ -319,15 +319,15 @@ pub fn wire_settings_dialog(
                 .map(|m| m.len())
                 .sum();
             let mb = bytes as f64 / (1024.0 * 1024.0);
-            format!("{mb:.1} MB en caché")
+            format!("{mb:.1} MB {}", tr("en caché", "cached"))
         };
 
         let cache_row = adw::ActionRow::builder()
-            .title("Caché de audio")
+            .title(tr("Caché de audio", "Audio cache"))
             .subtitle(&calc_size_text(streams_dir.as_ref()))
             .build();
         let clear_btn = Button::builder()
-            .label("Limpiar")
+            .label(tr("Limpiar", "Clear"))
             .valign(Align::Center)
             .css_classes(["destructive-action"])
             .build();
@@ -343,7 +343,7 @@ pub fn wire_settings_dialog(
                         let _ = std::fs::remove_file(entry.path());
                     }
                 }
-                cache_row_ref.set_subtitle("0.0 MB en caché");
+                cache_row_ref.set_subtitle(&format!("0.0 MB {}", tr("en caché", "cached")));
                 b.set_sensitive(false);
             });
         }

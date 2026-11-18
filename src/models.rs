@@ -303,7 +303,51 @@ pub fn cache_dir() -> Option<PathBuf> {
 pub struct UserPlaylist {
     pub id: String,
     pub name: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub color_hex: Option<String>,
+    #[serde(default)]
+    pub icon_name: Option<String>,
+    #[serde(default)]
+    pub cover_path: Option<String>,
     pub tracks: Vec<Track>,
+}
+
+impl UserPlaylist {
+    pub fn new_local(name: String, tracks: Vec<Track>) -> Self {
+        let id = format!(
+            "local-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        );
+        Self {
+            id,
+            name,
+            description: String::new(),
+            color_hex: None,
+            icon_name: None,
+            cover_path: None,
+            tracks,
+        }
+    }
+
+    pub fn total_duration_secs(&self) -> u32 {
+        self.tracks
+            .iter()
+            .filter_map(|t| t.duration_secs)
+            .fold(0u32, u32::saturating_add)
+    }
+
+    pub fn effective_cover_url(&self) -> Option<&str> {
+        self.tracks.iter().find_map(|t| {
+            t.cover_large_url
+                .as_deref()
+                .or(t.cover_url.as_deref())
+        })
+    }
 }
 
 fn upgrade_tracks_covers(tracks: &mut [Track]) {
@@ -726,5 +770,36 @@ mod tests {
         assert!((lines[1].time_secs - 62.0).abs() < 0.01);
         assert_eq!(lines[1].text, "Chorus");
         assert!((lines[2].time_secs - 70.25).abs() < 0.01);
+    }
+
+    #[test]
+    fn user_playlist_deserializes_legacy_json_and_computes_stats() {
+        let legacy: UserPlaylist = serde_json::from_value(serde_json::json!({
+            "id": "local-1",
+            "name": "Roadtrip",
+            "tracks": [
+                {
+                    "id": "abcdefghijk",
+                    "title": "Track 1",
+                    "artist": "Artist",
+                    "duration_secs": 180,
+                    "cover_url": "https://example.com/small.jpg"
+                },
+                {
+                    "id": "bcdefghijkl",
+                    "title": "Track 2",
+                    "artist": "Artist",
+                    "duration_secs": 210
+                }
+            ]
+        }))
+        .unwrap();
+        assert_eq!(legacy.name, "Roadtrip");
+        assert!(legacy.description.is_empty());
+        assert_eq!(legacy.color_hex, None);
+        assert_eq!(legacy.icon_name, None);
+        assert_eq!(legacy.cover_path, None);
+        assert_eq!(legacy.total_duration_secs(), 390);
+        assert_eq!(legacy.effective_cover_url(), Some("https://example.com/small.jpg"));
     }
 }

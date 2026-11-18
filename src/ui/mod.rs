@@ -30,7 +30,7 @@ use crate::gst_deck::GStreamerDeck;
 use crate::i18n::{set_language_preference, tr};
 use crate::models::{
     load_favorites, load_recent_tracks, load_search_history, load_session_state,
-    load_user_playlists, save_user_playlists,
+    load_user_playlists,
 };
 use crate::mpris::{MprisCommand, MprisController};
 use crate::ui::collection::{
@@ -690,39 +690,26 @@ pub fn build_ui(app: &adw::Application) {
 fn wire_sidebar_actions(state: &Rc<RefCell<AppState>>, sb: &sidebar_player::SidebarPlayerWidgets) {
     {
         let state = Rc::clone(state);
-        sb.queue_save_btn.connect_clicked(move |_| {
-            let saved = {
-                let mut s = state.borrow_mut();
+        sb.queue_save_btn.connect_clicked(move |btn| {
+            let (tracks, suggested_name) = {
+                let s = state.borrow();
                 if s.queue.is_empty() {
-                    s.show_toast("La cola está vacía.");
-                    false
-                } else {
-                    let id = format!(
-                        "local-{}",
-                        std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .map(|d| d.as_millis())
-                            .unwrap_or(0)
-                    );
-                    let name = if s.source_name.trim().is_empty() {
-                        String::from("Cola guardada")
-                    } else {
-                        s.source_name.clone()
-                    };
-                    let tracks = s.queue.clone();
-                    s.user_playlists.push(crate::models::UserPlaylist {
-                        id,
-                        name: name.clone(),
-                        tracks,
-                    });
-                    s.report_save_result(save_user_playlists(&s.user_playlists));
-                    s.show_toast(&format!("Playlist guardada: {name}"));
-                    true
+                    s.show_toast(tr("La cola está vacía.", "The queue is empty."));
+                    return;
                 }
+                let name = if s.source_name.trim().is_empty() {
+                    String::from(tr("Cola guardada", "Saved queue"))
+                } else {
+                    s.source_name.clone()
+                };
+                (s.queue.clone(), name)
             };
-            if saved {
-                refresh_playlists_ui(Rc::clone(&state));
-            }
+            crate::ui::collection::open_create_playlist_dialog(
+                btn,
+                Rc::clone(&state),
+                Some(suggested_name),
+                tracks,
+            );
         });
     }
     {
@@ -856,16 +843,16 @@ fn wire_sleep_timer(state: &Rc<RefCell<AppState>>, btn: &gtk4::MenuButton) {
             }
             stop_on_end.set(false);
             btn.remove_css_class("accent");
-            btn.set_tooltip_text(Some("Temporizador de apagado"));
+            btn.set_tooltip_text(Some(tr("Temporizador de apagado", "Sleep timer")));
         })
     };
 
     for (label, mins) in [
-        ("Desactivado", 0u32),
-        ("15 minutos", 15),
-        ("30 minutos", 30),
-        ("45 minutos", 45),
-        ("60 minutos", 60),
+        (tr("Desactivado", "Off"), 0u32),
+        (tr("15 minutos", "15 minutes"), 15),
+        (tr("30 minutos", "30 minutes"), 30),
+        (tr("45 minutos", "45 minutes"), 45),
+        (tr("60 minutos", "60 minutes"), 60),
     ] {
         let item = gtk4::Button::builder()
             .label(label)
@@ -882,24 +869,34 @@ fn wire_sleep_timer(state: &Rc<RefCell<AppState>>, btn: &gtk4::MenuButton) {
         item.connect_clicked(move |_| {
             clear();
             if mins == 0 {
-                state.borrow().show_toast("Temporizador desactivado");
-            } else {
-                btn.add_css_class("accent");
-                btn.set_tooltip_text(Some(&format!("Temporizador activo: {mins} min")));
                 state
                     .borrow()
-                    .show_toast(&format!("Temporizador: {mins} minutos"));
+                    .show_toast(tr("Temporizador desactivado", "Sleep timer off"));
+            } else {
+                btn.add_css_class("accent");
+                btn.set_tooltip_text(Some(&format!(
+                    "{}: {mins} min",
+                    tr("Temporizador activo", "Sleep timer active")
+                )));
+                state.borrow().show_toast(&format!(
+                    "{}: {mins} {}",
+                    tr("Temporizador", "Sleep timer"),
+                    tr("minutos", "minutes")
+                ));
                 let state_cb = Rc::clone(&state);
                 let timer_ref = Rc::clone(&timer_source);
                 let btn_cb = btn.clone();
                 let id = glib::timeout_add_seconds_local_once(mins * 60, move || {
                     timer_ref.borrow_mut().take();
                     btn_cb.remove_css_class("accent");
-                    btn_cb.set_tooltip_text(Some("Temporizador de apagado"));
+                    btn_cb.set_tooltip_text(Some(tr("Temporizador de apagado", "Sleep timer")));
                     let s = state_cb.borrow();
                     s.decks[0].pause();
                     s.decks[1].pause();
-                    s.show_toast("Temporizador: reproducción detenida");
+                    s.show_toast(tr(
+                        "Temporizador: reproducción detenida",
+                        "Sleep timer: playback stopped",
+                    ));
                 });
                 *timer_source.borrow_mut() = Some(id);
             }
@@ -909,7 +906,7 @@ fn wire_sleep_timer(state: &Rc<RefCell<AppState>>, btn: &gtk4::MenuButton) {
     }
 
     let end_track_btn = gtk4::Button::builder()
-        .label("Al terminar la canción")
+        .label(tr("Al terminar la canción", "At end of track"))
         .css_classes(["flat"])
         .build();
     if let Some(lbl) = end_track_btn.child().and_downcast::<Label>() {
@@ -925,10 +922,14 @@ fn wire_sleep_timer(state: &Rc<RefCell<AppState>>, btn: &gtk4::MenuButton) {
             clear();
             stop_on_end.set(true);
             btn.add_css_class("accent");
-            btn.set_tooltip_text(Some("Detener al terminar la canción"));
-            state
-                .borrow()
-                .show_toast("Se detendrá al terminar la canción");
+            btn.set_tooltip_text(Some(tr(
+                "Detener al terminar la canción",
+                "Stop at end of track",
+            )));
+            state.borrow().show_toast(tr(
+                "Se detendrá al terminar la canción",
+                "Will stop at end of track",
+            ));
             pop.popdown();
         });
     }
@@ -943,11 +944,14 @@ fn wire_sleep_timer(state: &Rc<RefCell<AppState>>, btn: &gtk4::MenuButton) {
         state.borrow_mut().on_track_changed.push(Rc::new(move || {
             if stop_on_end.replace(false) {
                 btn.remove_css_class("accent");
-                btn.set_tooltip_text(Some("Temporizador de apagado"));
+                btn.set_tooltip_text(Some(tr("Temporizador de apagado", "Sleep timer")));
                 let s = state_cb.borrow();
                 s.decks[0].pause();
                 s.decks[1].pause();
-                s.show_toast("Temporizador: reproducción detenida");
+                s.show_toast(tr(
+                    "Temporizador: reproducción detenida",
+                    "Sleep timer: playback stopped",
+                ));
             }
         }));
     }

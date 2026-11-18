@@ -1001,7 +1001,7 @@ pub fn build_track_row(
     let add_pl_popover = Popover::new();
     let add_pl_btn = MenuButton::builder()
         .icon_name("music-note-2-regular")
-        .tooltip_text("Agregar a playlist")
+        .tooltip_text(tr("Agregar a playlist", "Add to playlist"))
         .valign(Align::Center)
         .popover(&add_pl_popover)
         .css_classes(["flat", "circular"])
@@ -1018,56 +1018,86 @@ pub fn build_track_row(
             box_pl.set_margin_end(6);
 
             let playlists = state.borrow().user_playlists.clone();
-            if playlists.is_empty() {
-                box_pl.append(
-                    &Label::builder()
-                        .label("Crea una playlist en Colección")
-                        .css_classes(["dim-label", "caption"])
-                        .margin_top(4)
-                        .margin_bottom(4)
-                        .margin_start(6)
-                        .margin_end(6)
-                        .build(),
-                );
-            } else {
-                for pl in playlists {
-                    let item = Button::builder()
-                        .label(&pl.name)
-                        .css_classes(["flat"])
-                        .build();
-                    let state = Rc::clone(&state);
-                    let track = track.clone();
-                    let pl_id = pl.id.clone();
-                    let pop_inner = pop.clone();
-                    item.connect_clicked(move |_| {
+            for pl in playlists {
+                let already_in = pl.tracks.iter().any(|t| t.id == track.id);
+                let row = GtkBox::new(Orientation::Horizontal, 8);
+                let lbl = Label::builder()
+                    .label(&pl.name)
+                    .xalign(0.0)
+                    .hexpand(true)
+                    .ellipsize(gtk4::pango::EllipsizeMode::End)
+                    .build();
+                row.append(&lbl);
+                if already_in {
+                    row.append(&Image::from_icon_name("emblem-ok-symbolic"));
+                }
+                let item = Button::builder()
+                    .child(&row)
+                    .css_classes(["flat"])
+                    .build();
+                let state = Rc::clone(&state);
+                let track = track.clone();
+                let pl_id = pl.id.clone();
+                let pop_inner = pop.clone();
+                item.connect_clicked(move |_| {
+                    {
+                        let mut s = state.borrow_mut();
+                        if let Some(target) =
+                            s.user_playlists.iter_mut().find(|p| p.id == pl_id)
                         {
-                            let mut s = state.borrow_mut();
-                            if let Some(target) =
-                                s.user_playlists.iter_mut().find(|p| p.id == pl_id)
-                            {
-                                if !target.tracks.iter().any(|t| t.id == track.id) {
-                                    target.tracks.push(track.clone());
-                                    let name = target.name.clone();
-                                    s.report_save_result(save_user_playlists(&s.user_playlists));
-                                    s.show_toast(&format!("Agregado a {name}"));
-                                } else {
-                                    s.show_toast("Ya está en la playlist.");
-                                }
+                            if !target.tracks.iter().any(|t| t.id == track.id) {
+                                target.tracks.push(track.clone());
+                                let name = target.name.clone();
+                                s.report_save_result(save_user_playlists(&s.user_playlists));
+                                s.show_toast(&format!(
+                                    "{}: {name}",
+                                    tr("Agregado a", "Added to")
+                                ));
+                            } else {
+                                s.show_toast(tr(
+                                    "Ya está en la playlist.",
+                                    "Already in this playlist.",
+                                ));
                             }
                         }
-                        refresh_playlists_ui(Rc::clone(&state));
-                        pop_inner.popdown();
-                    });
-                    box_pl.append(&item);
-                }
+                    }
+                    refresh_playlists_ui(Rc::clone(&state));
+                    pop_inner.popdown();
+                });
+                box_pl.append(&item);
             }
+            if !state.borrow().user_playlists.is_empty() {
+                box_pl.append(&gtk4::Separator::new(Orientation::Horizontal));
+            }
+            let new_row = GtkBox::new(Orientation::Horizontal, 6);
+            new_row.append(&Image::from_icon_name("add-regular"));
+            new_row.append(&Label::new(Some(tr("Nueva playlist…", "New playlist…"))));
+            let new_btn = Button::builder()
+                .child(&new_row)
+                .css_classes(["flat"])
+                .build();
+            {
+                let state_new = Rc::clone(&state);
+                let track_new = track.clone();
+                let pop_inner = pop.clone();
+                new_btn.connect_clicked(move |btn| {
+                    pop_inner.popdown();
+                    crate::ui::collection::open_create_playlist_dialog(
+                        btn,
+                        Rc::clone(&state_new),
+                        None,
+                        vec![track_new.clone()],
+                    );
+                });
+            }
+            box_pl.append(&new_btn);
             pop.set_child(Some(&box_pl));
         });
     }
 
     let radio_btn = Button::builder()
         .icon_name("sound-wave-circle-regular")
-        .tooltip_text("Iniciar radio")
+        .tooltip_text(tr("Iniciar radio", "Start radio"))
         .valign(Align::Center)
         .css_classes(["flat", "circular"])
         .build();
@@ -1213,9 +1243,10 @@ pub fn start_track_radio(state: Rc<RefCell<AppState>>, track: &Track) {
                     }
                     play_queue_index(Rc::clone(&state), 0);
                 }
-                Ok(_) => state
-                    .borrow()
-                    .show_toast("No se encontraron canciones para la radio."),
+                Ok(_) => state.borrow().show_toast(tr(
+                    "No se encontraron canciones para la radio.",
+                    "No songs found for radio.",
+                )),
                 Err(err) => state.borrow().show_toast(&err),
             }
         }

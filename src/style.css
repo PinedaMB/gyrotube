@@ -767,6 +767,67 @@ button.suggested-action spinner {
     background-color: alpha(@window_fg_color, 0.08);
 }
 
+/* Local Playlists */
+.playlist-card {
+    padding: 12px 14px;
+    border-radius: 14px;
+    background-color: alpha(@window_fg_color, 0.05);
+    border: 1px solid alpha(@window_fg_color, 0.08);
+    transition: background-color 150ms ease, border-color 150ms ease;
+}
+
+.playlist-card:hover {
+    background-color: alpha(@window_fg_color, 0.09);
+    border-color: alpha(@window_fg_color, 0.16);
+}
+
+.playlist-open-btn {
+    padding: 0;
+    background: transparent;
+}
+
+.playlist-open-btn:hover,
+.playlist-open-btn:active {
+    background: transparent;
+}
+
+.playlist-color-swatch {
+    min-width: 28px;
+    min-height: 28px;
+    padding: 0;
+    border-radius: 999px;
+    border: 2px solid transparent;
+    transition: transform 120ms ease, border-color 120ms ease;
+}
+
+.playlist-color-swatch:hover {
+    transform: scale(1.08);
+}
+
+.playlist-color-swatch.active {
+    border-color: #ffffff;
+    box-shadow: 0 0 0 2px @accent_bg_color;
+}
+
+.playlist-art-badge {
+    border-radius: 12px;
+    color: #ffffff;
+    box-shadow: 0 4px 12px alpha(#000000, 0.25);
+}
+
+.playlist-detail-hero {
+    padding: 18px 20px;
+    border-radius: 16px;
+    border: 1px solid alpha(@window_fg_color, 0.10);
+}
+
+.playlist-search-results {
+    padding: 8px 10px;
+    border-radius: 12px;
+    background-color: alpha(@window_fg_color, 0.04);
+    border: 1px solid alpha(@window_fg_color, 0.08);
+}
+
 .spin-host-pill {
     padding: 3px 9px;
     border-radius: 999px;
