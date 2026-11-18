@@ -21,10 +21,22 @@ use crate::models::{
     cache_dir, clean_track_title, color_to_hex, parse_lrc,
 };
 
+const MUSIC_PROOF_TTL: Duration = Duration::from_secs(15 * 60);
 const STREAM_CACHE_TTL: Duration = Duration::from_secs(15 * 60);
 const HOME_CACHE_TTL: Duration = Duration::from_secs(15 * 60);
 
 static RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
+
+pub(crate) fn audio_timings_enabled() -> bool {
+    static ENABLED: OnceLock<bool> = OnceLock::new();
+    *ENABLED.get_or_init(|| std::env::var("GYROTUBE_AUDIO_TIMINGS").as_deref() == Ok("1"))
+}
+
+pub(crate) fn log_audio_timing(id: &str, phase: &str, since: Instant) {
+    if audio_timings_enabled() {
+        eprintln!("[audio] id={id} etapa={phase} tiempo_ms={}", since.elapsed().as_millis());
+    }
+}
 
 pub fn runtime() -> &'static tokio::runtime::Runtime {
     RUNTIME.get_or_init(|| {
@@ -44,6 +56,7 @@ pub struct HomeFeed {
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 enum AudioWork {
+    Verify,
     Resolve,
     Download,
 }
@@ -58,6 +71,7 @@ pub struct Backend {
     home_cache: Arc<RwLock<Option<(Instant, HomeFeed)>>>,
     genres_cache: Arc<RwLock<Option<(Instant, Vec<Genre>)>>>,
     stream_cache: Arc<RwLock<HashMap<String, (Instant, StreamInfo)>>>,
+    music_proofs: Arc<RwLock<HashMap<String, (Instant, Track)>>>,
     audio_locks: Arc<AudioLocks>,
 }
 
@@ -85,6 +99,7 @@ impl Backend {
             )),
             genres_cache: Arc::new(RwLock::new(None)),
             stream_cache: Arc::new(RwLock::new(HashMap::new())),
+            music_proofs: Arc::default(),
             audio_locks: Arc::default(),
         }
     }
@@ -676,11 +691,11 @@ impl Backend {
     }
 
     pub fn cached_track_stream(&self, track: &Track) -> Option<StreamInfo> {
-        if !track.is_music {
-            return None;
-        }
         let video_id = &track.id;
         validate_video_id(video_id).ok()?;
+        if !track.is_music && self.cached_music_proof(video_id).is_none() {
+            return None;
+        }
         self.cached_url(video_id).or_else(|| self.cached_stream(video_id))
     }
 
@@ -711,15 +726,37 @@ impl Backend {
         });
     }
 
+    fn cached_music_proof(&self, video_id: &str) -> Option<Track> {
+        let proofs = self.music_proofs.read().ok()?;
+        let (checked, track) = proofs.get(video_id)?;
+        (checked.elapsed() < MUSIC_PROOF_TTL).then(|| track.clone())
+    }
+
     pub async fn verify_music_track(&self, video_id: &str) -> Result<Track, String> {
         validate_video_id(video_id)?;
-        let details = self
+        if let Some(track) = self.cached_music_proof(video_id) {
+            return Ok(track);
+        }
+        let lock = self.audio_lock(video_id, AudioWork::Verify)?;
+        let _guard = lock.lock().await;
+        if let Some(track) = self.cached_music_proof(video_id) {
+            return Ok(track);
+        }
+
+        let started = Instant::now();
+        let result = self
             .rp
             .query()
             .music_details(video_id)
-            .await
-            .map_err(|e| format!("No se pudo verificar la canción de YouTube Music: {e}"))?;
-        verified_music_track(video_id, &details.track)
+            .await;
+        log_audio_timing(video_id, "catalogo", started);
+        let details = result.map_err(|e| format!("No se pudo verificar la canción de YouTube Music: {e}"))?;
+        let track = verified_music_track(video_id, &details.track)?;
+        if let Ok(mut proofs) = self.music_proofs.write() {
+            proofs.retain(|_, (checked, _)| checked.elapsed() < MUSIC_PROOF_TTL);
+            proofs.insert(video_id.to_owned(), (Instant::now(), track.clone()));
+        }
+        Ok(track)
     }
 
     pub async fn resolve_track_stream(&self, track: &Track) -> Result<StreamInfo, String> {
@@ -764,8 +801,10 @@ impl Backend {
                 "--",
             ])
             .arg(format!("https://music.youtube.com/watch?v={video_id}"));
-        let output = tokio::time::timeout(Duration::from_secs(20), cmd.output())
-            .await
+        let started = Instant::now();
+        let result = tokio::time::timeout(Duration::from_secs(20), cmd.output()).await;
+        log_audio_timing(video_id, "extraccion-yt-dlp", started);
+        let output = result
             .map_err(|_| String::from("Tiempo de espera agotado en yt-dlp"))?
             .map_err(|e| format!("Error ejecutando yt-dlp (debe estar en PATH): {e}"))?;
         if !output.status.success() {
@@ -831,8 +870,10 @@ impl Backend {
             .arg(staging.path().join("audio.%(ext)s"))
             .arg("--")
             .arg(format!("https://music.youtube.com/watch?v={video_id}"));
-        let output = tokio::time::timeout(Duration::from_secs(90), command.output())
-            .await
+        let started = Instant::now();
+        let result = tokio::time::timeout(Duration::from_secs(90), command.output()).await;
+        log_audio_timing(video_id, "descarga-de-respaldo", started);
+        let output = result
             .map_err(|_| String::from("Tiempo de espera agotado en yt-dlp"))?
             .map_err(|e| format!("Error al ejecutar yt-dlp: {e}"))?;
 
@@ -1380,6 +1421,47 @@ mod tests {
         assert!(backend.cached_track_stream(&track).is_some());
     }
 
+    #[test]
+    fn cached_url_for_a_search_result_requires_a_fresh_exact_id_proof() {
+        let backend = Backend::new();
+        let track: Track = serde_json::from_value(serde_json::json!({
+            "id": "timingTest_", "title": "Song", "artist": "Artist"
+        })).unwrap();
+        let url = "https://example.com/audio";
+        backend.stream_cache.write().unwrap().insert(
+            track.id.clone(),
+            (Instant::now(), StreamInfo {
+                url: url.into(),
+                quality_label: "OPUS".into(),
+                user_agent: None,
+                headers: HashMap::new(),
+                local_audio: None,
+            }),
+        );
+        assert!(backend.cached_track_stream(&track).is_none());
+
+        let mut proof = track.clone();
+        proof.is_music = true;
+        let mut other = track.clone();
+        other.id = "anotherTest".into();
+        backend.music_proofs.write().unwrap().insert(
+            other.id.clone(),
+            (Instant::now(), other),
+        );
+        assert!(backend.cached_track_stream(&track).is_none());
+
+        backend.music_proofs.write().unwrap().insert(
+            track.id.clone(),
+            (Instant::now(), proof.clone()),
+        );
+        assert_eq!(backend.cached_track_stream(&track).unwrap().url, url);
+        backend.music_proofs.write().unwrap().insert(
+            track.id.clone(),
+            (Instant::now() - MUSIC_PROOF_TTL, proof),
+        );
+        assert!(backend.cached_track_stream(&track).is_none());
+    }
+
     #[tokio::test]
     async fn cached_audio_cannot_bypass_failed_catalog_verification() {
         let mut backend = Backend::new();
@@ -1662,9 +1744,9 @@ mod tests {
         let cold_start = Instant::now();
         let stream = backend.resolve_track_stream(track).await.unwrap();
         eprintln!("Resolución inicial de audio: {:?}", cold_start.elapsed());
-        let ready = crate::gst_deck::preroll_for_test(&stream);
+        let ready = crate::gst_deck::preroll_and_seek_for_test(&stream);
         eprintln!(
-            "Preparación en GStreamer: {ready:?}; total desde resolución: {:?}",
+            "Preparación y salto a 30 s en GStreamer: {ready:?}; duración del diagnóstico: {:?}",
             cold_start.elapsed()
         );
         let start = Instant::now();
@@ -1678,7 +1760,7 @@ mod tests {
             let start = Instant::now();
             let fallback = backend.download_with_ytdlp_fallback(&track.id).await.unwrap();
             eprintln!("Descarga de respaldo: {:?}", start.elapsed());
-            assert!(crate::gst_deck::preroll_for_test(&fallback).is_ok());
+            assert!(crate::gst_deck::preroll_and_seek_for_test(&fallback).is_ok());
         }
     }
 

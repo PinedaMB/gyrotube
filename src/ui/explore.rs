@@ -1,5 +1,8 @@
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
+use std::time::Duration;
+
+use tokio::sync::watch;
 
 use gtk4::gdk;
 use gtk4::glib;
@@ -110,6 +113,73 @@ fn build_search_filters(
         scroll.set_value(scroll.lower());
     };
     (filters, new_results)
+}
+
+const SEARCH_PRELOAD_DELAY: Duration = Duration::from_millis(220);
+
+async fn next_search_preload(intents: &mut watch::Receiver<Option<Track>>) -> Option<Track> {
+    while intents.changed().await.is_ok() {
+        while intents.borrow().is_some() {
+            tokio::select! {
+                biased;
+                change = intents.changed() => {
+                    change.ok()?;
+                }
+                _ = tokio::time::sleep(SEARCH_PRELOAD_DELAY) => {
+                    if let Some(track) = intents.borrow_and_update().clone() {
+                        return Some(track);
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+fn watch_track_intent(row: &gtk4::ListBoxRow, track: Track, intents: &watch::Sender<Option<Track>>) {
+    let motion = gtk4::EventControllerMotion::new();
+    let focus = gtk4::EventControllerFocus::new();
+    let hovered = Rc::new(Cell::new(false));
+    let focused = Rc::new(Cell::new(false));
+    let update = {
+        let intents = intents.clone();
+        let hovered = hovered.clone();
+        let focused = focused.clone();
+        move || {
+            intents.send_if_modified(|current| {
+                let is_current = current.as_ref().is_some_and(|entry| entry.id == track.id);
+                match (hovered.get() || focused.get(), is_current) {
+                    (true, false) => *current = Some(track.clone()),
+                    (false, true) => *current = None,
+                    _ => return false,
+                }
+                true
+            });
+        }
+    };
+    let enter = update.clone();
+    let entering = hovered.clone();
+    motion.connect_enter(move |_, _, _| {
+        entering.set(true);
+        enter();
+    });
+    let leave = update.clone();
+    motion.connect_leave(move |_| {
+        hovered.set(false);
+        leave();
+    });
+    let enter = update.clone();
+    let entering = focused.clone();
+    focus.connect_enter(move |_| {
+        entering.set(true);
+        enter();
+    });
+    focus.connect_leave(move |_| {
+        focused.set(false);
+        update();
+    });
+    row.add_controller(motion);
+    row.add_controller(focus);
 }
 
 pub fn build_explore_page(
@@ -724,6 +794,18 @@ pub fn build_explore_page(
         });
     }
 
+    let (hover_intents, mut queued_intents) = watch::channel(None);
+    let backend = state.borrow().backend.clone();
+    runtime().spawn(async move {
+        while let Some(track) = next_search_preload(&mut queued_intents).await {
+            let _ = backend.resolve_track_stream(&track).await;
+        }
+    });
+    let pending = hover_intents.clone();
+    results_list.connect_unmap(move |_| {
+        pending.send_replace(None);
+    });
+
     let run_search: Rc<dyn Fn(&str)> = {
         let state = Rc::clone(&state);
         let status_label = status_label.clone();
@@ -744,6 +826,7 @@ pub fn build_explore_page(
         let scroll = scrolled.vadjustment();
         let stack = content_stack.clone();
         Rc::new(move |raw_query: &str| {
+            hover_intents.send_replace(None);
             let query = raw_query.trim().to_string();
             if !query.is_empty() {
                 stack.set_visible_child_name("explore");
@@ -791,6 +874,7 @@ pub fn build_explore_page(
             let results_list = results_list.clone();
             let artist_widgets = artist_widgets.clone();
 
+            let hover_intents = hover_intents.clone();
             let show_new_results = show_new_results.clone();
             let has_search_results = has_search_results.clone();
             glib::spawn_future_local(async move {
@@ -850,6 +934,20 @@ pub fn build_explore_page(
                                 !res.playlists.is_empty(),
                             ]);
                             status_label.set_visible(false);
+                            for (index, track) in res.tracks.iter().enumerate() {
+                                if let Some(row) = results_list.row_at_index(index as i32) {
+                                    watch_track_intent(&row, track.clone(), &hover_intents);
+                                }
+                            }
+                            if let Some(first) = res.tracks.first().cloned() {
+                                hover_intents.send_if_modified(|current| {
+                                    if current.is_some() {
+                                        return false;
+                                    }
+                                    *current = Some(first);
+                                    true
+                                });
+                            }
                         }
                         Err(err) => {
                             status_label.set_label(&err);
@@ -1410,6 +1508,28 @@ fn build_genre_button(
 #[cfg(test)]
 mod filter_tests {
     use super::*;
+
+    #[tokio::test]
+    async fn speculative_preload_waits_for_the_latest_non_cancelled_row() {
+        let track = |id: &str| -> Track {
+            serde_json::from_value(serde_json::json!({"id":id,"title":"Song","artist":"Artist"})).unwrap()
+        };
+        let (tx, mut rx) = watch::channel(None);
+        let updates = tx.clone();
+        let sender = tokio::spawn(async move {
+            updates.send_replace(Some(track("abcdefghijk")));
+            tokio::time::sleep(Duration::from_millis(25)).await;
+            updates.send_replace(None);
+            tokio::time::sleep(Duration::from_millis(25)).await;
+            updates.send_replace(Some(track("bcdefghijkl")));
+        });
+        assert_eq!(next_search_preload(&mut rx).await.unwrap().id, "bcdefghijkl");
+        sender.await.unwrap();
+        tx.send_replace(Some(track("cdefghijklm")));
+        tx.send_replace(None);
+        drop(tx);
+        assert!(next_search_preload(&mut rx).await.is_none());
+    }
 
     #[test]
     #[ignore = "Requires a GTK display"]

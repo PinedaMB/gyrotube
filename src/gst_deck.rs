@@ -2,6 +2,7 @@ use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex, OnceLock};
+use std::time::Instant;
 
 use gstreamer as gst;
 use gstreamer::prelude::*;
@@ -9,6 +10,7 @@ use gtk4::gio;
 use gtk4::gio::prelude::FileExt;
 use gtk4::glib;
 
+use crate::backend::log_audio_timing;
 use crate::models::StreamInfo;
 
 static GST_INIT: OnceLock<Result<(), String>> = OnceLock::new();
@@ -19,6 +21,12 @@ fn ensure_gst_init() -> Result<(), String> {
         .clone()
 }
 
+#[derive(Clone)]
+pub(crate) struct AudioStartup {
+    pub id: String,
+    pub selected_at: Instant,
+}
+
 struct DeckInner {
     playbin: gst::Element,
     _bus_watch: RefCell<Option<gst::bus::BusWatchGuard>>,
@@ -26,6 +34,7 @@ struct DeckInner {
     pending_headers: Arc<Mutex<HashMap<String, String>>>,
     is_playing: Cell<bool>,
     is_prepared: Cell<bool>,
+    startup: RefCell<Option<(AudioStartup, Instant)>>,
     is_ended: Cell<bool>,
     has_stream: Cell<bool>,
     local_audio: RefCell<Option<Arc<crate::audio_cache::LocalAudio>>>,
@@ -109,6 +118,7 @@ impl GStreamerDeck {
             pending_headers,
             is_playing: Cell::new(false),
             is_prepared: Cell::new(false),
+            startup: RefCell::new(None),
             is_ended: Cell::new(false),
             has_stream: Cell::new(false),
             local_audio: RefCell::new(None),
@@ -136,6 +146,7 @@ impl GStreamerDeck {
                     gst::MessageView::AsyncDone(_) => {
                         if !strong.is_prepared.get() {
                             strong.is_prepared.set(true);
+                            deck.trace_prepared();
                             for cb in strong.on_prepared.borrow().iter() {
                                 cb(&deck);
                             }
@@ -163,9 +174,19 @@ impl GStreamerDeck {
                             && !strong.is_prepared.get()
                         {
                             strong.is_prepared.set(true);
+                            deck.trace_prepared();
                             for cb in strong.on_prepared.borrow().iter() {
                                 cb(&deck);
                             }
+                        }
+                        if playing_now
+                            && let Some((timing, _)) = strong.startup.borrow_mut().take()
+                        {
+                            log_audio_timing(
+                                &timing.id,
+                                "seleccion-a-gstreamer-playing",
+                                timing.selected_at,
+                            );
                         }
                     }
                     gst::MessageView::Eos(_) => {
@@ -223,6 +244,7 @@ impl GStreamerDeck {
     fn reset_for_new_source(&self) {
         let _ = self.inner.playbin.set_state(gst::State::Null);
         self.inner.local_audio.borrow_mut().take();
+        self.inner.startup.borrow_mut().take();
         self.inner.is_playing.set(false);
         self.inner.is_prepared.set(false);
         self.inner.is_ended.set(false);
@@ -238,8 +260,30 @@ impl GStreamerDeck {
         self.inner.is_remote.set(false);
     }
 
+    fn trace_prepared(&self) {
+        if let Some((timing, started)) = self.inner.startup.borrow().as_ref() {
+            log_audio_timing(&timing.id, "preparacion-gstreamer", *started);
+        }
+    }
+
+    pub(crate) fn startup_timing(&self) -> Option<AudioStartup> {
+        self.inner
+            .startup
+            .borrow()
+            .as_ref()
+            .map(|(timing, _)| timing.clone())
+    }
+
     pub fn set_stream(&self, stream: &StreamInfo) {
+        self.set_stream_for_startup(stream, None);
+    }
+
+    pub(crate) fn set_stream_for_startup(&self, stream: &StreamInfo, timing: Option<AudioStartup>) {
         self.reset_for_new_source();
+        if let Some(timing) = timing {
+            log_audio_timing(&timing.id, "seleccion-a-fuente", timing.selected_at);
+            *self.inner.startup.borrow_mut() = Some((timing, Instant::now()));
+        }
         *self.inner.local_audio.borrow_mut() = stream.local_audio.clone();
 
         if let Ok(mut ua) = self.inner.pending_user_agent.lock() {
@@ -391,20 +435,31 @@ impl GStreamerDeck {
 }
 
 #[cfg(test)]
-pub(crate) fn preroll_for_test(
+pub(crate) fn preroll_and_seek_for_test(
     stream: &StreamInfo,
-) -> Result<std::time::Duration, gst::StateChangeError> {
+) -> Result<(std::time::Duration, i64), gst::StateChangeError> {
     let deck = GStreamerDeck::new();
     let sink = gst::ElementFactory::make("fakesink").build().unwrap();
     deck.inner.playbin.set_property("audio-sink", &sink);
     let start = std::time::Instant::now();
     deck.set_stream(stream);
     let _ = deck.inner.playbin.state(gst::ClockTime::from_seconds(12));
-    let result = if deck.is_prerolled() {
-        Ok(start.elapsed())
-    } else {
-        Err(gst::StateChangeError)
-    };
+    let result = (|| {
+        if !deck.is_prerolled() {
+            return Err(gst::StateChangeError);
+        }
+        let prepared = start.elapsed();
+        let target = gst::ClockTime::from_seconds(30);
+        deck.inner.playbin.seek_simple(gst::SeekFlags::FLUSH | gst::SeekFlags::ACCURATE, target)
+            .map_err(|_| gst::StateChangeError)?;
+        let (state, _, _) = deck.inner.playbin.state(gst::ClockTime::from_seconds(12));
+        state?;
+        let position = deck.timestamp();
+        if (position - target.useconds() as i64).abs() > 1_000_000 {
+            return Err(gst::StateChangeError);
+        }
+        Ok((prepared, position))
+    })();
     deck.clear();
     result
 }
@@ -433,16 +488,29 @@ mod tests {
         wav.resize(wav.len() + 16_000, 0);
         std::fs::write(&path, wav).unwrap();
 
-        deck.set_stream(&StreamInfo {
+        let stream = StreamInfo {
             url: path.to_string_lossy().into_owned(),
             quality_label: "WAV".into(),
             user_agent: None,
             headers: HashMap::new(),
             local_audio: None,
-        });
+        };
+        deck.set_stream_for_startup(
+            &stream,
+            Some(AudioStartup { id: "local-test".into(), selected_at: Instant::now() }),
+        );
         let (result, _, _) = deck.inner.playbin.state(gst::ClockTime::from_seconds(3));
         assert_eq!(result, Ok(gst::StateChangeSuccess::Success));
         assert!(deck.is_prerolled());
+        deck.play();
+        assert!(deck.startup_timing().is_some());
+        let context = gst::glib::MainContext::default();
+        let deadline = Instant::now() + std::time::Duration::from_secs(3);
+        while deck.startup_timing().is_some() && Instant::now() < deadline {
+            context.iteration(false);
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        assert!(deck.startup_timing().is_none(), "GStreamer did not report Playing");
         deck.inner.is_remote.set(true);
         deck.clear();
         assert!(!deck.is_prerolled());

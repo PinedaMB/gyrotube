@@ -655,6 +655,7 @@ pub fn load_queue_index(
     autoplay: bool,
     position_secs: Option<f64>,
 ) {
+    let selected_at = Instant::now();
     let (track, backend, current_gen, decks, player_cover, player_fav_btn, is_fav, fast_stream) = {
         let mut s = state.borrow_mut();
         let Some(track) = s.queue.get(index).cloned() else {
@@ -721,6 +722,12 @@ pub fn load_queue_index(
         )
     };
 
+    let timing = (autoplay && crate::backend::audio_timings_enabled()).then(|| {
+        crate::gst_deck::AudioStartup {
+            id: track.id.clone(),
+            selected_at,
+        }
+    });
     decks[0].clear();
     decks[1].clear();
 
@@ -746,7 +753,7 @@ pub fn load_queue_index(
             }
             (s.active_media().clone(), next_id)
         };
-        media_file.set_stream(&stream);
+        media_file.set_stream_for_startup(&stream, timing);
         if media_file.is_prepared() && state.borrow().pending_autoplay {
             state.borrow_mut().pending_autoplay = false;
             media_file.play();
@@ -809,7 +816,7 @@ pub fn load_queue_index(
 
         if let Some((media_file, stream, backend, next_id)) = stream_to_play {
             media_file.pause();
-            media_file.set_stream(&stream);
+            media_file.set_stream_for_startup(&stream, timing);
             if media_file.is_prepared() && state.borrow().pending_autoplay {
                 state.borrow_mut().pending_autoplay = false;
                 media_file.play();
@@ -1337,6 +1344,7 @@ pub fn wire_media_signals(
                     };
 
                     if let Some((video_id, backend, load_gen)) = fallback_req {
+                        let timing = media.startup_timing();
                         let (tx, rx) = async_channel::bounded(1);
                         runtime().spawn(async move {
                             let res = backend.download_with_ytdlp_fallback(&video_id).await;
@@ -1370,7 +1378,7 @@ pub fn wire_media_signals(
                                 }
                             };
                             if let Some((m, stream)) = media_opt {
-                                m.set_stream(&stream);
+                                m.set_stream_for_startup(&stream, timing);
                             }
                         });
                     }

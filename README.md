@@ -35,6 +35,8 @@ cargo build --release
 ./target/release/gyrotube
 ```
 
+Para medir el arranque en la aplicación, ejecuta `GYROTUBE_AUDIO_TIMINGS=1 cargo run`. Las líneas `[audio]` en la terminal registran por ID la verificación del catálogo, la extracción, la descarga de respaldo cuando se usa, la preparación en GStreamer y el tiempo desde la selección hasta que GStreamer entra en reproducción. Las etapas ya resueltas por caché o precarga pueden no aparecer después del clic.
+
 ## Pruebas
 
 ```bash
