@@ -51,6 +51,7 @@ pub struct AppState {
     pub shuffle: bool,
     pub repeat: bool,
     pub language: crate::i18n::AppLanguage,
+    pub background_playback: bool,
     pub cover_cache: HashMap<String, gdk::Texture>,
     pub toast_overlay: adw::ToastOverlay,
     // Sidebar player widgets
@@ -144,6 +145,7 @@ impl AppState {
             position_secs: pos_secs,
             crossfade_secs: self.crossfade_secs,
             language: self.language,
+            background_playback: self.background_playback,
         }));
     }
     pub fn report_save_result(&self, result: std::io::Result<()>) {

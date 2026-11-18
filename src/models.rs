@@ -454,6 +454,10 @@ fn default_crossfade_secs() -> u32 {
     4
 }
 
+fn default_background_playback() -> bool {
+    true
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct SessionState {
     pub sidebar_collapsed: bool,
@@ -474,6 +478,8 @@ pub struct SessionState {
     pub crossfade_secs: u32,
     #[serde(default)]
     pub language: crate::i18n::AppLanguage,
+    #[serde(default = "default_background_playback")]
+    pub background_playback: bool,
 }
 
 pub fn load_session_state() -> SessionState {

@@ -88,6 +88,11 @@ pub fn run() -> glib::ExitCode {
 }
 
 pub fn build_ui(app: &adw::Application) {
+    if let Some(existing) = app.active_window().or_else(|| app.windows().into_iter().next()) {
+        existing.present();
+        app.withdraw_notification("background-playback");
+        return;
+    }
     load_css();
     relm4_icons::initialize_icons(
         crate::icon_names::GRESOURCE_BYTES,
@@ -231,6 +236,7 @@ pub fn build_ui(app: &adw::Application) {
         shuffle: saved_session.shuffle,
         repeat: saved_session.repeat,
         language: saved_session.language,
+        background_playback: saved_session.background_playback,
         cover_cache: HashMap::new(),
         toast_overlay: toast_overlay.clone(),
         player_source_label: sb.player_source_label.clone(),
@@ -590,13 +596,64 @@ pub fn build_ui(app: &adw::Application) {
         &allow_search_focus,
     );
 
-    wire_mpris(&state, &window);
+    let bg_hold: Rc<RefCell<Option<gtk4::gio::ApplicationHoldGuard>>> = Rc::new(RefCell::new(None));
+    wire_mpris(&state, &window, app, &bg_hold);
+
+    {
+        let state_quit = Rc::clone(&state);
+        let app_quit = app.clone();
+        let pop_quit = hdr.menu_popover.clone();
+        let bg_hold_quit = Rc::clone(&bg_hold);
+        hdr.quit_btn.connect_clicked(move |_| {
+            pop_quit.popdown();
+            state_quit.borrow().save_session();
+            let decks = state_quit.borrow().decks.clone();
+            decks[0].clear();
+            decks[1].clear();
+            bg_hold_quit.borrow_mut().take();
+            app_quit.withdraw_notification("background-playback");
+            app_quit.quit();
+        });
+    }
 
     {
         let state_close = Rc::clone(&state);
-        window.connect_close_request(move |_| {
-            state_close.borrow().save_session();
-            glib::Propagation::Proceed
+        let app_close = app.clone();
+        let bg_hold_close = Rc::clone(&bg_hold);
+        window.connect_close_request(move |win| {
+            let keep_in_bg = {
+                let s = state_close.borrow();
+                s.save_session();
+                s.background_playback
+                    && (s.active_media().is_playing()
+                        || s.jam.server.is_some()
+                        || !matches!(s.jam.remote_role, crate::spin_remote::RemoteRole::Idle))
+            };
+            if keep_in_bg {
+                if bg_hold_close.borrow().is_none() {
+                    *bg_hold_close.borrow_mut() = Some(app_close.hold());
+                }
+                win.set_visible(false);
+                let notif = gtk4::gio::Notification::new("GyroTube");
+                let track_body = state_close
+                    .borrow()
+                    .current_track()
+                    .map(|t| format!("{} — {}", t.title, t.artist))
+                    .unwrap_or_else(|| {
+                        tr(
+                            "Reproduciendo en segundo plano",
+                            "Playing in the background",
+                        )
+                        .to_string()
+                    });
+                notif.set_body(Some(&track_body));
+                app_close.send_notification(Some("background-playback"), &notif);
+                glib::Propagation::Stop
+            } else {
+                bg_hold_close.borrow_mut().take();
+                app_close.withdraw_notification("background-playback");
+                glib::Propagation::Proceed
+            }
         });
     }
 
@@ -896,9 +953,16 @@ fn wire_sleep_timer(state: &Rc<RefCell<AppState>>, btn: &gtk4::MenuButton) {
     }
 }
 
-fn wire_mpris(state: &Rc<RefCell<AppState>>, window: &adw::ApplicationWindow) {
+fn wire_mpris(
+    state: &Rc<RefCell<AppState>>,
+    window: &adw::ApplicationWindow,
+    app: &adw::Application,
+    bg_hold: &Rc<RefCell<Option<gtk4::gio::ApplicationHoldGuard>>>,
+) {
     let state_mpris = Rc::clone(state);
     let win_weak = window.downgrade();
+    let app_mpris = app.clone();
+    let bg_hold_mpris = Rc::clone(bg_hold);
     let mpris = MprisController::spawn(move |cmd| match cmd {
         MprisCommand::Play => state_mpris.borrow().active_media().play(),
         MprisCommand::Pause => state_mpris.borrow().active_media().pause(),
@@ -956,6 +1020,16 @@ fn wire_mpris(state: &Rc<RefCell<AppState>>, window: &adw::ApplicationWindow) {
             if let Some(w) = win_weak.upgrade() {
                 w.present();
             }
+            app_mpris.withdraw_notification("background-playback");
+        }
+        MprisCommand::Quit => {
+            state_mpris.borrow().save_session();
+            let decks = state_mpris.borrow().decks.clone();
+            decks[0].clear();
+            decks[1].clear();
+            bg_hold_mpris.borrow_mut().take();
+            app_mpris.withdraw_notification("background-playback");
+            app_mpris.quit();
         }
     });
     state.borrow_mut().mpris = Some(mpris);

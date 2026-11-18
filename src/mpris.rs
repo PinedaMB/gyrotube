@@ -17,6 +17,7 @@ pub enum MprisCommand {
     SeekOffsetUs(i64),
     SetPositionUs(i64),
     Raise,
+    Quit,
 }
 
 #[derive(Clone)]
@@ -43,6 +44,7 @@ impl MprisController {
                 .can_go_previous(true)
                 .can_seek(true)
                 .can_raise(true)
+                .can_quit(true)
                 .build()
                 .await
             else {
@@ -90,6 +92,10 @@ impl MprisController {
             {
                 let cb = Rc::clone(&on_cmd);
                 player.connect_raise(move |_| cb(MprisCommand::Raise));
+            }
+            {
+                let cb = Rc::clone(&on_cmd);
+                player.connect_quit(move |_| cb(MprisCommand::Quit));
             }
 
             *slot_clone.borrow_mut() = Some(Rc::clone(&player));

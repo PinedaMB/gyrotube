@@ -21,6 +21,7 @@ pub struct HeaderWidgets {
     pub brand_badge: Label,
     pub search_entry: SearchEntry,
     pub settings_btn: Button,
+    pub quit_btn: Button,
     pub menu_popover: Popover,
     pub party_btn: Button,
     pub jam_btn: Button,
@@ -96,8 +97,17 @@ pub fn build_header_bar(_content_view_stack: &adw::ViewStack) -> HeaderWidgets {
         .build();
     about_btn.set_cursor_from_name(Some("pointer"));
 
+    let quit_btn = Button::builder()
+        .label(tr("Salir", "Quit"))
+        .css_classes(["flat", "destructive-action"])
+        .halign(Align::Fill)
+        .build();
+    quit_btn.set_cursor_from_name(Some("pointer"));
+
     menu_box.append(&settings_btn);
     menu_box.append(&about_btn);
+    menu_box.append(&gtk4::Separator::new(Orientation::Horizontal));
+    menu_box.append(&quit_btn);
 
     let menu_popover = Popover::builder().child(&menu_box).build();
     let menu_btn = MenuButton::builder()
@@ -155,6 +165,7 @@ pub fn build_header_bar(_content_view_stack: &adw::ViewStack) -> HeaderWidgets {
         brand_badge,
         search_entry,
         settings_btn,
+        quit_btn,
         menu_popover,
         party_btn,
         jam_btn,
@@ -269,6 +280,24 @@ pub fn wire_settings_dialog(
         }
         cf_row.add_suffix(&cf_scale);
         playback_group.add(&cf_row);
+
+        let bg_row = adw::SwitchRow::builder()
+            .title(tr("Reproducción en segundo plano", "Background playback"))
+            .subtitle(tr(
+                "Seguir reproduciendo música al cerrar la ventana",
+                "Keep playing music when closing the window",
+            ))
+            .active(state.borrow().background_playback)
+            .build();
+        {
+            let state_bg = Rc::clone(&state);
+            bg_row.connect_active_notify(move |row| {
+                let mut s = state_bg.borrow_mut();
+                s.background_playback = row.is_active();
+                s.save_session();
+            });
+        }
+        playback_group.add(&bg_row);
         page.add(&playback_group);
 
         let storage_group = adw::PreferencesGroup::builder()
