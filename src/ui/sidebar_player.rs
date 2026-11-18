@@ -30,6 +30,7 @@ pub struct SidebarPlayerWidgets {
     pub time_label: Label,
     pub duration_label: Label,
     pub quality_label: Label,
+    pub playback_status: Label,
     pub play_pause_btn: Button,
     pub play_spinner: Spinner,
     pub prev_btn: Button,
@@ -201,9 +202,17 @@ pub fn build_sidebar_player() -> SidebarPlayerWidgets {
         .css_classes(["caption", "numeric", "dim-label"])
         .build();
 
+    let playback_status = Label::builder()
+        .accessible_role(gtk4::AccessibleRole::Status)
+        .ellipsize(gtk4::pango::EllipsizeMode::End)
+        .css_classes(["caption", "heading"])
+        .build();
+    let audio_info = playback_status_stack(&playback_status, &quality_label, false);
+    audio_info.set_hexpand(true);
+
     let time_row = GtkBox::new(Orientation::Horizontal, 8);
     time_row.append(&time_label);
-    time_row.append(&quality_label);
+    time_row.append(&audio_info);
     time_row.append(&duration_label);
 
     let shuffle_btn = ToggleButton::builder()
@@ -374,7 +383,11 @@ pub fn build_sidebar_player() -> SidebarPlayerWidgets {
     lyrics_np_text.set_hexpand(true);
     lyrics_np_text.set_valign(Align::Center);
     lyrics_np_text.append(&lyrics_np_title);
-    lyrics_np_text.append(&lyrics_np_artist);
+    lyrics_np_text.append(&playback_status_stack(
+        &playback_status,
+        &lyrics_np_artist,
+        true,
+    ));
 
     let lyrics_np_info_box = GtkBox::new(Orientation::Horizontal, 10);
     lyrics_np_info_box.append(&lyrics_np_cover_frame);
@@ -577,6 +590,7 @@ pub fn build_sidebar_player() -> SidebarPlayerWidgets {
         time_label,
         duration_label,
         quality_label,
+        playback_status,
         play_pause_btn,
         play_spinner,
         prev_btn,
@@ -601,6 +615,35 @@ pub fn build_sidebar_player() -> SidebarPlayerWidgets {
         queue_clear_btn,
         spin_participants_box,
     }
+}
+
+fn playback_status_stack(status: &Label, normal: &Label, compact: bool) -> gtk4::Stack {
+    let stack = gtk4::Stack::new();
+    let alternate = if compact {
+        let label = Label::builder()
+            .accessible_role(gtk4::AccessibleRole::Status)
+            .xalign(0.0)
+            .ellipsize(gtk4::pango::EllipsizeMode::End)
+            .css_classes(["caption", "heading"])
+            .build();
+        status
+            .bind_property("label", &label, "label")
+            .sync_create()
+            .build();
+        label
+    } else {
+        status.clone()
+    };
+    stack.add_named(normal, Some("normal"));
+    stack.add_named(&alternate, Some("status"));
+    status
+        .bind_property("label", &stack, "visible-child-name")
+        .transform_to(|_, text: String| {
+            Some(if text.is_empty() { "normal" } else { "status" }.to_value())
+        })
+        .sync_create()
+        .build();
+    stack
 }
 
 pub fn build_mini_bar(
@@ -684,7 +727,11 @@ pub fn build_mini_bar(
     text_col.set_hexpand(true);
     text_col.set_valign(Align::Center);
     text_col.append(&title);
-    text_col.append(&artist);
+    text_col.append(&playback_status_stack(
+        &state.borrow().playback_status,
+        &artist,
+        true,
+    ));
 
     let open_box = GtkBox::new(Orientation::Horizontal, 10);
     open_box.append(&cover_frame);
@@ -767,4 +814,34 @@ fn make_sidebar_tab(icon_name: &str, label_text: &str, active: bool) -> ToggleBu
         .active(active)
         .css_classes(["flat"])
         .build()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[ignore = "Requires a GTK display"]
+    fn playback_phase_reaches_main_and_compact_player_without_losing_metadata() {
+        adw::init().unwrap();
+        let status = Label::new(None);
+        let quality = Label::new(Some("OPUS"));
+        let artist = Label::new(Some("Chéjere"));
+        let main = playback_status_stack(&status, &quality, false);
+        let compact = playback_status_stack(&status, &artist, true);
+        assert_eq!(main.visible_child_name().as_deref(), Some("normal"));
+        assert_eq!(compact.visible_child_name().as_deref(), Some("normal"));
+
+        for phase in ["Buscando audio…", "Preparando audio…", "No se pudo reproducir"] {
+            status.set_label(phase);
+            for view in [&main, &compact] {
+                let text = view.visible_child().and_downcast::<Label>().unwrap();
+                assert_eq!(text.label(), phase);
+            }
+        }
+
+        status.set_label("");
+        assert_eq!(main.visible_child().and_downcast::<Label>(), Some(quality));
+        assert_eq!(compact.visible_child().and_downcast::<Label>(), Some(artist));
+    }
 }

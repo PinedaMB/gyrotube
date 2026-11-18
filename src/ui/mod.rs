@@ -242,6 +242,8 @@ pub fn build_ui(app: &adw::Application) {
         player_fav_btn: sb.player_fav_btn.clone(),
         player_radio_btn: sb.player_radio_btn.clone(),
         quality_label: sb.quality_label.clone(),
+        playback_status: sb.playback_status.clone(),
+        playback_load: Default::default(),
         play_pause_btn: sb.play_pause_btn.clone(),
         play_spinner: sb.play_spinner.clone(),
         prev_btn: sb.prev_btn.clone(),

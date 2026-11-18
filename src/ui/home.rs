@@ -1014,9 +1014,8 @@ pub fn build_home_page(
                                 {
                                     let st = Rc::clone(&state);
                                     let id = featured.id.clone();
-                                    let title = featured.title.clone();
                                     hero_play_btn.connect_clicked(move |_| {
-                                        play_album_by_id(id.clone(), title.clone(), Rc::clone(&st));
+                                        play_album_by_id(id.clone(), Rc::clone(&st));
                                     });
                                 }
 

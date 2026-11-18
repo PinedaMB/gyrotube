@@ -552,14 +552,57 @@ fn update_synced_lyrics_position(s: &mut AppState, pos_secs_exact: f64) {
     }
 }
 
-pub fn show_player_loading(state: &Rc<RefCell<AppState>>, title: &str) {
-    let s = state.borrow();
-    s.player_title.set_label(title);
-    s.player_artist.set_text("Cargando...");
-    s.play_pause_btn.set_sensitive(false);
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum PlaybackLoad {
+    Queue,
+    Audio,
+    Preparing,
+    Download,
+}
+
+fn show_loading(s: &AppState, phase: PlaybackLoad) {
+    let text = match phase {
+        PlaybackLoad::Queue => tr("Cargando pistas…", "Loading tracks…"),
+        PlaybackLoad::Audio => tr("Buscando audio…", "Finding audio…"),
+        PlaybackLoad::Preparing => tr("Preparando audio…", "Preparing audio…"),
+        PlaybackLoad::Download => tr("Descargando audio…", "Downloading audio…"),
+    };
+    s.playback_load.set(Some(phase));
+    s.playback_status.set_label(text);
     s.play_spinner.set_spinning(true);
     s.play_pause_btn.set_child(Some(&s.play_spinner));
-    s.quality_label.set_label("...");
+    s.play_pause_btn.set_sensitive(false);
+    if phase != PlaybackLoad::Queue {
+        s.seek_scale.set_sensitive(false);
+    }
+}
+
+pub fn show_player_loading(state: &Rc<RefCell<AppState>>) {
+    show_loading(&state.borrow(), PlaybackLoad::Queue);
+}
+
+pub fn finish_player_loading(s: &AppState, message: &str) {
+    s.playback_load.set(None);
+    s.playback_status.set_label(message);
+    s.play_spinner.set_spinning(false);
+    let media = s.active_media();
+    s.play_pause_btn.set_icon_name(if media.is_playing() {
+        "pause-filled"
+    } else {
+        "play-filled"
+    });
+    s.play_pause_btn.set_sensitive(s.current_index.is_some());
+    s.seek_scale.set_sensitive(
+        s.current_index.is_some()
+            && media.has_stream()
+            && media.is_prepared()
+            && media.error().is_none(),
+    );
+}
+
+fn show_audio_failure(s: &AppState, detail: &str) {
+    finish_player_loading(s, tr("No se pudo reproducir", "Playback failed"));
+    s.show_toast(detail);
 }
 
 pub fn clear_playback(state: Rc<RefCell<AppState>>) {
@@ -572,10 +615,7 @@ pub fn clear_playback(state: Rc<RefCell<AppState>>) {
         s.crossfade_triggered_for = None;
         s.pending_autoplay = false;
         s.pending_restore_seek = None;
-        s.play_spinner.set_spinning(false);
-        s.play_pause_btn.set_icon_name("play-filled");
-        s.play_pause_btn.set_sensitive(false);
-        s.seek_scale.set_sensitive(false);
+        finish_player_loading(&s, "");
         s.seek_scale.set_value(0.0);
         s.player_fav_btn.set_sensitive(false);
         s.player_radio_btn.set_sensitive(false);
@@ -637,21 +677,13 @@ pub fn load_queue_index(
         );
         s.player_title.set_label(&track.title);
         crate::ui::widgets::set_album_link(&s.player_album_label, track.album.as_deref());
+        crate::ui::widgets::set_artist_links(&s.player_artist, &track.artist);
         if let Some(ref stream) = fast_stream {
-            crate::ui::widgets::set_artist_links(&s.player_artist, &track.artist);
-            s.play_spinner.set_spinning(false);
-            s.play_pause_btn.set_icon_name("play-filled");
-            s.play_pause_btn.set_sensitive(true);
-            s.seek_scale.set_sensitive(true);
             s.quality_label.set_label(&stream.quality_label);
+            show_loading(&s, PlaybackLoad::Preparing);
         } else {
-            s.player_artist
-                .set_text(&format!("{} • {}", tr("Cargando", "Loading"), track.artist));
-            s.play_pause_btn.set_sensitive(false);
-            s.play_spinner.set_spinning(true);
-            s.play_pause_btn.set_child(Some(&s.play_spinner));
-            s.seek_scale.set_sensitive(false);
-            s.quality_label.set_label("...");
+            s.quality_label.set_label("");
+            show_loading(&s, PlaybackLoad::Audio);
         }
         s.seek_scale.set_value(0.0);
         s.time_label.set_label("0:00");
@@ -740,31 +772,24 @@ pub fn load_queue_index(
             let mut s = state.borrow_mut();
             let Ok(result) = recv_res else {
                 if s.loading_generation == current_gen {
-                    s.play_spinner.set_spinning(false);
-                    s.play_pause_btn
-                        .set_icon_name("play-filled");
-                    crate::ui::widgets::set_artist_links(&s.player_artist, &track.artist);
-                    s.quality_label.set_label("ERR");
-                    s.show_toast("No se pudo resolver el flujo de audio.");
+                    show_audio_failure(&s, tr(
+                        "No se pudo obtener el audio.",
+                        "Audio could not be loaded.",
+                    ));
                 }
                 return;
             };
             if s.loading_generation != current_gen {
                 return;
             }
-            s.play_spinner.set_spinning(false);
             match result {
                 Ok(stream) => {
                     if let Some(index) = s.current_index {
                         s.queue[index].is_music = true;
                     }
                     s.save_session();
-                    crate::ui::widgets::set_artist_links(&s.player_artist, &track.artist);
                     s.quality_label.set_label(&stream.quality_label);
-                    s.play_pause_btn
-                        .set_icon_name("play-filled");
-                    s.play_pause_btn.set_sensitive(true);
-                    s.seek_scale.set_sensitive(true);
+                    show_loading(&s, PlaybackLoad::Preparing);
 
                     let next_id = next_queue_index(&s)
                         .and_then(|ni| s.queue.get(ni))
@@ -776,11 +801,7 @@ pub fn load_queue_index(
                     Some((s.active_media().clone(), stream, s.backend.clone(), next_id))
                 }
                 Err(err) => {
-                    s.play_pause_btn
-                        .set_icon_name("play-filled");
-                    crate::ui::widgets::set_artist_links(&s.player_artist, &track.artist);
-                    s.quality_label.set_label("ERR");
-                    s.show_toast(&err);
+                    show_audio_failure(&s, &err);
                     None
                 }
             }
@@ -1071,7 +1092,10 @@ pub fn wire_media_signals(
     {
         let state = Rc::clone(&state);
         let play_pause_btn = state.borrow().play_pause_btn.clone();
-        play_pause_btn.connect_clicked(move |_| {
+        play_pause_btn.connect_clicked(move |button| {
+            if !button.is_sensitive() {
+                return;
+            }
             if guest_control(&state.borrow(), "play_pause") {
                 return;
             }
@@ -1086,12 +1110,13 @@ pub fn wire_media_signals(
             if active.is_playing() {
                 active.pause();
                 standby.pause();
-            } else if !active.has_stream() {
+            } else if !active.has_stream() || active.error().is_some() {
                 if let Some(idx) = current_idx {
                     let saved_seek = state.borrow().pending_restore_seek;
                     load_queue_index(Rc::clone(&state), idx, true, saved_seek);
                 }
             } else {
+                state.borrow().playback_status.set_label("");
                 active.play();
             }
         });
@@ -1147,6 +1172,9 @@ pub fn wire_media_signals(
                             } else {
                                 false
                             };
+                            if s.playback_load.get() == Some(PlaybackLoad::Preparing) {
+                                finish_player_loading(&s, "");
+                            }
                             let local_restore = s.pending_restore_seek.take();
                             let remote_restore = if matches!(
                                 s.jam.remote_role,
@@ -1209,7 +1237,9 @@ pub fn wire_media_signals(
                 } else {
                     "play-filled"
                 };
-                s.play_pause_btn.set_icon_name(icon);
+                if s.playback_load.get().is_none() {
+                    s.play_pause_btn.set_icon_name(icon);
+                }
                 if let Some(mpris) = &s.mpris {
                     mpris.set_status(playing, s.current_index.is_none());
                 }
@@ -1287,10 +1317,7 @@ pub fn wire_media_signals(
                             && let Some(track) =
                                 s.current_index.and_then(|i| s.queue.get(i)).cloned()
                         {
-                            s.play_spinner.set_visible(true);
-                            s.play_spinner.set_spinning(true);
-                            s.play_pause_btn.set_child(Some(&s.play_spinner));
-                            s.play_pause_btn.set_sensitive(false);
+                            show_loading(&s, PlaybackLoad::Download);
                             s.pending_autoplay = if matches!(
                                 s.jam.remote_role,
                                 crate::spin_remote::RemoteRole::Guest(_)
@@ -1304,7 +1331,7 @@ pub fn wire_media_signals(
                             };
                             Some((track.id, s.backend.clone(), s.loading_generation))
                         } else {
-                            s.show_toast(&format!("Error de reproducción: {err}"));
+                            show_audio_failure(&s, &err);
                             None
                         }
                     };
@@ -1323,21 +1350,21 @@ pub fn wire_media_signals(
                                 if s.loading_generation != load_gen {
                                     return;
                                 }
-                                s.play_spinner.set_spinning(false);
-                                s.play_pause_btn
-                                    .set_icon_name("play-filled");
-                                s.play_pause_btn.set_sensitive(true);
                                 match recv {
                                     Ok(Ok(stream)) => {
                                         s.quality_label.set_label(&stream.quality_label);
+                                        show_loading(&s, PlaybackLoad::Preparing);
                                         Some((s.active_media().clone(), stream))
                                     }
                                     Ok(Err(e)) => {
-                                        s.show_toast(&e);
+                                        show_audio_failure(&s, &e);
                                         None
                                     }
                                     Err(_) => {
-                                        s.show_toast("Error al descargar el audio de respaldo.");
+                                        show_audio_failure(&s, tr(
+                                            "No se pudo descargar el audio.",
+                                            "Audio could not be downloaded.",
+                                        ));
                                         None
                                     }
                                 }

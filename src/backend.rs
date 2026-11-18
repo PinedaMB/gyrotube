@@ -15,6 +15,7 @@ use ytmapi_rs::parse::{
 };
 
 use crate::audio_cache;
+use crate::i18n::tr;
 use crate::models::{
     Album, Artist, ArtistDetails, Genre, LyricsData, Playlist, SearchResults, StreamInfo, Track,
     cache_dir, clean_track_title, color_to_hex, parse_lrc,
@@ -337,31 +338,63 @@ impl Backend {
         &self,
         playlist_id: &str,
     ) -> Result<(String, Vec<Track>), String> {
+        let mut had_entries = false;
         if let Ok(ytm) = self.primary().await {
             let pid = playlist_browse_id(playlist_id);
             let (details, items) = tokio::join!(
                 ytm.get_playlist_details(pid.clone()),
                 ytm.get_playlist_tracks(pid)
             );
-            if let (Ok(details), Ok(items)) = (details, items) {
+            if let Ok(items) = items {
+                had_entries = !items.is_empty();
                 let tracks = tracks_from_ytm_playlist(items);
-                return Ok((details.title, tracks));
+                if !tracks.is_empty() {
+                    let title = details.map_or_else(
+                        |_| String::from("Playlist"),
+                        |details| details.title,
+                    );
+                    return Ok((title, tracks));
+                }
             }
         }
-        let playlist = self
-            .rp
-            .query()
+
+        let query = self.rp.query();
+        let mut playlist = query
             .music_playlist(playlist_id.strip_prefix("VL").unwrap_or(playlist_id))
             .await
-            .map_err(|e| format!("Error cargando playlist: {e}"))?;
+            .map_err(|e| {
+                if had_entries {
+                    tr(
+                        "La playlist tiene entradas, pero no se pudo confirmar si contiene canciones reproducibles de YouTube Music.",
+                        "The playlist has entries, but playable YouTube Music songs could not be confirmed.",
+                    )
+                    .to_owned()
+                } else {
+                    format!("Error cargando playlist: {e}")
+                }
+            })?;
+
+        // shortcut: check up to three continuation pages for audio, extend further on demand if needed.
+        for _ in 0..3 {
+            if playlist.tracks.is_exhausted() || playlist.tracks.items.iter().any(is_playlist_audio) {
+                break;
+            }
+            if let Err(err) = playlist.tracks.extend(&query).await {
+                eprintln!("GyroTube: no se pudo consultar otra página de la playlist: {err}");
+                break;
+            }
+        }
+        had_entries |= !playlist.tracks.items.is_empty()
+            || playlist.track_count.is_some_and(|count| count > 0);
+        let complete = playlist.tracks.is_exhausted();
         let tracks = playlist
             .tracks
             .items
             .iter()
-            .filter(|t| t.track_type == TrackType::Track && !t.unavailable)
+            .filter(|t| is_playlist_audio(t))
             .map(Track::from)
             .collect();
-        Ok((playlist.name, tracks))
+        playlist_audio_result(playlist.name, tracks, had_entries, complete)
     }
 
     pub async fn fetch_radio_tracks(&self, video_id: &str) -> Result<Vec<Track>, String> {
@@ -1138,6 +1171,33 @@ fn parse_mood_playlists_json(json: &serde_json::Value) -> (String, Vec<Playlist>
     (name, playlists)
 }
 
+fn is_playlist_audio(track: &rustypipe::model::TrackItem) -> bool {
+    track.track_type == TrackType::Track && !track.unavailable
+}
+
+fn playlist_audio_result(
+    title: String,
+    tracks: Vec<Track>,
+    had_entries: bool,
+    complete: bool,
+) -> Result<(String, Vec<Track>), String> {
+    if !tracks.is_empty() || (!had_entries && complete) {
+        return Ok((title, tracks));
+    }
+    let message = if complete {
+        tr(
+            "La playlist no contiene canciones reproducibles de YouTube Music. Se omiten videos y pistas no disponibles.",
+            "This playlist has no playable YouTube Music songs. Videos and unavailable tracks are skipped.",
+        )
+    } else {
+        tr(
+            "No se encontraron canciones reproducibles de YouTube Music en las páginas consultadas.",
+            "No playable YouTube Music songs were found in the pages checked.",
+        )
+    };
+    Err(message.into())
+}
+
 fn playlist_browse_id(id: &str) -> PlaylistID<'static> {
     PlaylistID::from_raw(format!("VL{}", id.strip_prefix("VL").unwrap_or(id)))
 }
@@ -1409,6 +1469,36 @@ mod tests {
         assert_eq!(tracks[0].id, "audio123456");
         assert_eq!(tracks[0].duration_secs, Some(180));
         assert!(tracks[0].is_music);
+    }
+
+    #[test]
+    fn playlists_with_filtered_or_unchecked_entries_are_not_reported_as_empty() {
+        assert!(
+            playlist_audio_result("Lista".into(), vec![], false, true)
+                .unwrap()
+                .1
+                .is_empty()
+        );
+        let filtered = playlist_audio_result("Lista".into(), vec![], true, true).unwrap_err();
+        let incomplete = playlist_audio_result("Lista".into(), vec![], true, false).unwrap_err();
+        assert_ne!(filtered, incomplete);
+        assert!(playlist_audio_result("Lista".into(), vec![], false, false).is_err());
+
+        let mut item: rustypipe::model::TrackItem = serde_json::from_value(serde_json::json!({
+            "id":"audio123456", "name":"Song", "cover":[], "artists":[],
+            "track_type":"video", "by_va":false, "unavailable":false
+        })).unwrap();
+        assert!(!is_playlist_audio(&item));
+        item.track_type = TrackType::Track;
+        let tracks = [&item]
+            .into_iter()
+            .filter(|t| is_playlist_audio(t))
+            .map(Track::from)
+            .collect();
+        let (_, tracks) = playlist_audio_result("Lista".into(), tracks, true, false).unwrap();
+        assert_eq!(tracks[0].id, "audio123456");
+        item.unavailable = true;
+        assert!(!is_playlist_audio(&item));
     }
 
     #[tokio::test]

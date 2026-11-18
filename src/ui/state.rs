@@ -63,6 +63,8 @@ pub struct AppState {
     pub player_fav_btn: ToggleButton,
     pub player_radio_btn: Button,
     pub quality_label: Label,
+    pub playback_status: Label,
+    pub playback_load: Cell<Option<crate::ui::player::PlaybackLoad>>,
     pub play_pause_btn: Button,
     pub play_spinner: Spinner,
     pub prev_btn: Button,

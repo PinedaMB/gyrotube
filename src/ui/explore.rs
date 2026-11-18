@@ -7,7 +7,7 @@ use gtk4::prelude::*;
 use gtk4::{
     Align, Box as GtkBox, Button, ContentFit, CssProvider, FlowBox, Label, ListBox,
     Orientation, Overflow, Picture, PolicyType, ScrolledWindow, SearchEntry, SelectionMode,
-    Spinner,
+    Spinner, ToggleButton,
 };
 use libadwaita as adw;
 
@@ -28,6 +28,88 @@ pub struct ExploreActions {
     pub search: Rc<dyn Fn(&str)>,
     pub open_artist: Rc<dyn Fn(&str)>,
     pub open_album: Rc<dyn Fn(&str, &str)>,
+}
+
+fn build_search_filters(
+    sections: [GtkBox; 4],
+    scroll: gtk4::Adjustment,
+) -> (GtkBox, impl Fn([bool; 4]) + Clone) {
+    let row = FlowBox::builder()
+        .halign(Align::Start)
+        .selection_mode(SelectionMode::None)
+        .activate_on_single_click(false)
+        .column_spacing(6)
+        .row_spacing(6)
+        .min_children_per_line(1)
+        .max_children_per_line(5)
+        .build();
+    row.update_property(&[gtk4::accessible::Property::Label(tr(
+        "Filtrar resultados",
+        "Filter results",
+    ))]);
+
+    let empty = Label::builder()
+        .label(tr("No hay resultados de este tipo.", "No results of this type."))
+        .xalign(0.0)
+        .wrap(true)
+        .css_classes(["dim-label"])
+        .visible(false)
+        .build();
+    let available = Rc::new(Cell::new([false; 4]));
+    let apply = {
+        let available = available.clone();
+        let empty = empty.clone();
+        move |selected: usize| {
+            let mut shown = false;
+            for (index, (section, present)) in sections.iter().zip(available.get()).enumerate() {
+                let visible = present && (selected == 0 || selected == index + 1);
+                section.set_visible(visible);
+                shown |= visible;
+            }
+            empty.set_visible(!shown);
+        }
+    };
+
+    let labels = [
+        tr("Todo", "All"),
+        tr("Canciones", "Songs"),
+        tr("Álbumes", "Albums"),
+        tr("Artistas", "Artists"),
+        tr("Playlists", "Playlists"),
+    ];
+    let buttons = labels.map(|label| {
+        ToggleButton::builder()
+            .label(label)
+            .css_classes(["flat", "pill-switch"])
+            .build()
+    });
+    let all = buttons[0].clone();
+    for (index, button) in buttons.iter().enumerate() {
+        if index != 0 {
+            button.set_group(Some(&all));
+        }
+        let apply = apply.clone();
+        let scroll = scroll.clone();
+        button.connect_toggled(move |button| {
+            if button.is_active() {
+                apply(index);
+                scroll.set_value(scroll.lower());
+            }
+        });
+        let cell = gtk4::FlowBoxChild::builder().child(button).focusable(false).build();
+        row.insert(&cell, -1);
+    }
+
+    let filters = GtkBox::new(Orientation::Vertical, 12);
+    filters.append(&row);
+    filters.append(&empty);
+    let new_results = move |present| {
+        available.set(present);
+        all.set_active(true);
+        apply(0);
+        scroll.set_value(scroll.lower());
+    };
+    (filters, new_results)
 }
 
 pub fn build_explore_page(
@@ -73,30 +155,31 @@ pub fn build_explore_page(
         .css_classes(["dim-label"])
         .build();
 
-    let (search_artists_section, search_artists_cards, _) = build_carousel_section("Artistas");
-    let (search_albums_section, search_albums_cards, _) = build_carousel_section("Álbumes");
+    let (search_artists_section, search_artists_cards, _) = build_carousel_section(tr("Artistas", "Artists"));
+    let (search_albums_section, search_albums_cards, _) = build_carousel_section(tr("Álbumes", "Albums"));
     let (search_playlists_section, search_playlists_cards, _) = build_carousel_section("Playlists");
 
     let search_tracks_heading = Label::builder()
-        .label("Canciones")
+        .label(tr("Canciones", "Songs"))
         .xalign(0.0)
         .css_classes(["title-3"])
-        .visible(false)
         .build();
 
     let results_list = ListBox::builder()
         .selection_mode(SelectionMode::None)
         .css_classes(["boxed-list"])
-        .visible(false)
         .build();
+
+    let search_tracks_section = GtkBox::new(Orientation::Vertical, 10);
+    search_tracks_section.append(&search_tracks_heading);
+    search_tracks_section.append(&results_list);
 
     let search_results_section = GtkBox::new(Orientation::Vertical, 18);
     search_results_section.set_visible(false);
     search_results_section.append(&search_artists_section);
     search_results_section.append(&search_albums_section);
     search_results_section.append(&search_playlists_section);
-    search_results_section.append(&search_tracks_heading);
-    search_results_section.append(&results_list);
+    search_results_section.append(&search_tracks_section);
 
     // Artist details sub-view (Spotify-inspired hero + tracks + discography)
     let artist_back_btn = Button::builder()
@@ -504,6 +587,18 @@ pub fn build_explore_page(
         .child(&clamp)
         .build();
 
+    let (filters, show_new_results) = build_search_filters(
+        [
+            search_tracks_section,
+            search_albums_section,
+            search_artists_section,
+            search_playlists_section,
+        ],
+        scrolled.vadjustment(),
+    );
+    search_results_section.prepend(&filters);
+    let has_search_results = Rc::new(Cell::new(false));
+
     // Load genres on startup (cached)
     {
         let backend = state.borrow().backend.clone();
@@ -597,7 +692,7 @@ pub fn build_explore_page(
     };
 
     {
-        let top_search_entry = top_search_entry.clone();
+        let has_search_results = has_search_results.clone();
         let artist_section = artist_section.clone();
         let artist_skeleton_ref = artist_skeleton.clone();
         let search_skeleton_ref = search_skeleton.clone();
@@ -621,10 +716,10 @@ pub fn build_explore_page(
             artist_section.set_visible(false);
             artist_skeleton_ref.set_visible(false);
             search_skeleton_ref.set_visible(false);
-            if top_search_entry.text().trim().is_empty() {
-                genres_section.set_visible(true);
-            } else {
+            if has_search_results.get() {
                 search_results_section.set_visible(true);
+            } else {
+                genres_section.set_visible(true);
             }
         });
     }
@@ -634,13 +729,9 @@ pub fn build_explore_page(
         let status_label = status_label.clone();
         let search_skeleton_ref = search_skeleton.clone();
         let search_results_section = search_results_section.clone();
-        let search_artists_section = search_artists_section.clone();
         let search_artists_cards = search_artists_cards.clone();
-        let search_albums_section = search_albums_section.clone();
         let search_albums_cards = search_albums_cards.clone();
-        let search_playlists_section = search_playlists_section.clone();
         let search_playlists_cards = search_playlists_cards.clone();
-        let search_tracks_heading = search_tracks_heading.clone();
         let results_list = results_list.clone();
         let artist_section = artist_section.clone();
         let artist_skeleton_ref = artist_skeleton.clone();
@@ -649,6 +740,8 @@ pub fn build_explore_page(
         let genre_playlists_section = genre_playlists_section.clone();
         let artist_widgets = artist_widgets.clone();
 
+        let has_search_results = has_search_results.clone();
+        let scroll = scrolled.vadjustment();
         let stack = content_stack.clone();
         Rc::new(move |raw_query: &str| {
             let query = raw_query.trim().to_string();
@@ -656,6 +749,8 @@ pub fn build_explore_page(
                 stack.set_visible_child_name("explore");
             }
             let request = state.borrow().view_requests.begin();
+            has_search_results.set(false);
+            scroll.set_value(scroll.lower());
             if query.is_empty() {
                 search_results_section.set_visible(false);
                 search_skeleton_ref.set_visible(false);
@@ -690,16 +785,14 @@ pub fn build_explore_page(
             let search_skeleton_done = search_skeleton_ref.clone();
             let status_label = status_label.clone();
             let search_results_section = search_results_section.clone();
-            let search_artists_section = search_artists_section.clone();
             let search_artists_cards = search_artists_cards.clone();
-            let search_albums_section = search_albums_section.clone();
             let search_albums_cards = search_albums_cards.clone();
-            let search_playlists_section = search_playlists_section.clone();
             let search_playlists_cards = search_playlists_cards.clone();
-            let search_tracks_heading = search_tracks_heading.clone();
             let results_list = results_list.clone();
             let artist_widgets = artist_widgets.clone();
 
+            let show_new_results = show_new_results.clone();
+            let has_search_results = has_search_results.clone();
             glib::spawn_future_local(async move {
                 if let Ok(result) = rx.recv().await
                     && state.borrow().view_requests.is_current(request)
@@ -712,7 +805,10 @@ pub fn build_explore_page(
                                 && res.playlists.is_empty()
                                 && res.tracks.is_empty() =>
                         {
-                            status_label.set_label("No se encontraron resultados.");
+                            status_label.set_label(tr(
+                                "No se encontraron resultados.",
+                                "No results found.",
+                            ));
                             status_label.set_visible(true);
                             search_results_section.set_visible(false);
                         }
@@ -725,37 +821,34 @@ pub fn build_explore_page(
                                     artist_widgets.clone(),
                                 ));
                             }
-                            search_artists_section.set_visible(!res.artists.is_empty());
 
                             clear_box(&search_albums_cards);
                             for album in &res.albums {
                                 search_albums_cards
                                     .append(&build_album_card(album, Rc::clone(&state)));
                             }
-                            search_albums_section.set_visible(!res.albums.is_empty());
 
                             clear_box(&search_playlists_cards);
                             for playlist in &res.playlists {
                                 search_playlists_cards
                                     .append(&build_playlist_card(playlist, Rc::clone(&state)));
                             }
-                            search_playlists_section.set_visible(!res.playlists.is_empty());
 
-                            if res.tracks.is_empty() {
-                                search_tracks_heading.set_visible(false);
-                                results_list.set_visible(false);
-                            } else {
-                                populate_track_list(
-                                    &results_list,
-                                    &res.tracks,
-                                    &format!("Búsqueda: {query_for_source}"),
-                                    Rc::clone(&state),
-                                );
-                                search_tracks_heading.set_visible(true);
-                                results_list.set_visible(true);
-                            }
+                            populate_track_list(
+                                &results_list,
+                                &res.tracks,
+                                &format!("Búsqueda: {query_for_source}"),
+                                Rc::clone(&state),
+                            );
 
+                            has_search_results.set(true);
                             search_results_section.set_visible(true);
+                            show_new_results([
+                                !res.tracks.is_empty(),
+                                !res.albums.is_empty(),
+                                !res.artists.is_empty(),
+                                !res.playlists.is_empty(),
+                            ]);
                             status_label.set_visible(false);
                         }
                         Err(err) => {
@@ -779,9 +872,11 @@ pub fn build_explore_page(
         let search_skeleton = search_skeleton.clone();
         let requests = state.borrow().view_requests.clone();
         let stack = content_stack.clone();
+        let has_search_results = has_search_results.clone();
         top_search_entry.connect_changed(move |entry| {
             let exploring = stack.visible_child_name().as_deref() == Some("explore");
             if entry.text().trim().is_empty() || (exploring && search_skeleton.is_visible()) {
+                has_search_results.set(false);
                 if exploring {
                     requests.begin();
                 }
@@ -1310,4 +1405,68 @@ fn build_genre_button(
     });
 
     btn
+}
+
+#[cfg(test)]
+mod filter_tests {
+    use super::*;
+
+    #[test]
+    #[ignore = "Requires a GTK display"]
+    fn filters_switch_loaded_results_and_reset_for_a_new_search() {
+        adw::init().unwrap();
+        let provider = CssProvider::new();
+        provider.load_from_string(include_str!("../style.css"));
+        gtk4::style_context_add_provider_for_display(
+            &gdk::Display::default().unwrap(),
+            &provider,
+            gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION,
+        );
+
+        let scroll = gtk4::Adjustment::new(0.0, 0.0, 1500.0, 20.0, 100.0, 250.0);
+        let sections = std::array::from_fn(|_| GtkBox::new(Orientation::Vertical, 0));
+        let (filters, new_results) = build_search_filters(sections.clone(), scroll.clone());
+        let row = filters.first_child().and_downcast::<FlowBox>().unwrap();
+        let empty = filters.last_child().unwrap();
+        let button = |index| {
+            row.child_at_index(index)
+                .and_then(|cell| cell.child())
+                .and_downcast::<ToggleButton>()
+                .unwrap()
+        };
+
+        new_results([true, true, true, false]);
+        assert!(button(0).is_active());
+        assert_eq!(sections.each_ref().map(|s| s.is_visible()), [true, true, true, false]);
+
+        scroll.set_value(320.0);
+        button(1).emit_clicked();
+        assert!(button(1).is_active() && !button(0).is_active());
+        assert_eq!(sections.each_ref().map(|s| s.is_visible()), [true, false, false, false]);
+        assert_eq!(scroll.value(), 0.0);
+        assert!(!empty.is_visible());
+
+        button(4).emit_clicked();
+        assert!(empty.is_visible());
+        assert!(!sections.iter().any(WidgetExt::is_visible));
+
+        new_results([false, true, false, true]);
+        assert!(button(0).is_active() && !button(4).is_active());
+        assert_eq!(sections.each_ref().map(|s| s.is_visible()), [false, true, false, true]);
+
+        let window = gtk4::Window::builder().default_width(310).child(&filters).build();
+        window.present();
+        let context = glib::MainContext::default();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        while button(4).width() == 0 && std::time::Instant::now() < deadline {
+            context.iteration(false);
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        for index in 0..5 {
+            let bounds = button(index).compute_bounds(&filters).unwrap();
+            assert!(bounds.width() > 0.0);
+            assert!(bounds.x() + bounds.width() <= filters.width() as f32);
+        }
+        window.close();
+    }
 }
