@@ -1322,18 +1322,74 @@ pub fn wire_media_signals(
                 if !media.is_ended() {
                     return;
                 }
-                let target = {
-                    let s = state.borrow();
+                let action = {
+                    let mut s = state.borrow_mut();
                     if s.active_deck != deck_idx
                         || matches!(s.jam.remote_role, crate::spin_remote::RemoteRole::Guest(_))
                     {
                         None
                     } else {
-                        next_queue_index(&s)
+                        let pos_secs = (media.timestamp() as f64 / 1_000_000.0)
+                            .max(s.seek_scale.value());
+                        let expected_secs = s
+                            .current_track()
+                            .and_then(|t| t.duration_secs)
+                            .map(|d| d as f64)
+                            .unwrap_or_else(|| media.duration() as f64 / 1_000_000.0);
+
+                        // Guard against premature EOS if a progressive stream ever dropped early (< 85% of song duration)
+                        if media.is_remote_stream()
+                            && expected_secs > 25.0
+                            && pos_secs + 12.0 < expected_secs * 0.85
+                            && let Some(track) = s.current_track().cloned()
+                        {
+                            s.pending_restore_seek = Some(pos_secs.max(1.0));
+                            s.pending_autoplay = true;
+                            show_loading(&s, PlaybackLoad::Download);
+                            Some(Ok((track.id, s.backend.clone(), s.loading_generation)))
+                        } else {
+                            next_queue_index(&s).map(Err)
+                        }
                     }
                 };
-                if let Some(idx) = target {
-                    play_queue_index(Rc::clone(&state), idx);
+                match action {
+                    Some(Ok((video_id, backend, load_gen))) => {
+                        let timing = media.startup_timing();
+                        let (tx, rx) = async_channel::bounded(1);
+                        runtime().spawn(async move {
+                            let res = backend.download_with_ytdlp_fallback(&video_id).await;
+                            let _ = tx.send(res).await;
+                        });
+                        let state_cb = Rc::clone(&state);
+                        glib::spawn_future_local(async move {
+                            let recv = rx.recv().await;
+                            let media_opt = {
+                                let s = state_cb.borrow();
+                                if s.loading_generation != load_gen {
+                                    return;
+                                }
+                                match recv {
+                                    Ok(Ok(stream)) => {
+                                        s.quality_label.set_label(&stream.quality_label);
+                                        show_loading(&s, PlaybackLoad::Preparing);
+                                        Some((s.active_media().clone(), stream))
+                                    }
+                                    Ok(Err(e)) => {
+                                        show_audio_failure(&s, &e);
+                                        None
+                                    }
+                                    Err(_) => None,
+                                }
+                            };
+                            if let Some((m, stream)) = media_opt {
+                                m.set_stream_for_startup(&stream, timing);
+                            }
+                        });
+                    }
+                    Some(Err(idx)) => {
+                        play_queue_index(Rc::clone(&state), idx);
+                    }
+                    None => {}
                 }
             });
         }

@@ -8,14 +8,13 @@ use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncSeekExt, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::process::Command;
-use tokio::sync::{Semaphore, watch};
+use tokio::sync::watch;
 
 use crate::audio_cache;
 use crate::models::StreamInfo;
 
 const INITIAL_HTTP_BLOCK_BYTES: u64 = 256 * 1024;
 const SUBSEQUENT_HTTP_BLOCK_BYTES: u64 = 512 * 1024;
-const PARALLEL_BLOCK_WORKERS: usize = 4;
 const READY_THRESHOLD_BYTES: u64 = 32 * 1024;
 const FALLBACK_SEEKABLE_BYTES: u64 = 32 * 1024 * 1024;
 
@@ -204,83 +203,71 @@ impl AudioStreamer {
                 }
             }
 
-            // Fetch subsequent 512 KB blocks in parallel (up to 4 concurrent blocks) if the server
-            // honoured Range requests so the entire track buffers in <1 second and forward seeks never stall.
+            // Fetch subsequent 512 KB blocks sequentially
+            // so YouTube's CDN never rejects concurrent connections and if a block drops mid-stream,
+            // we seamlessly resume from `written` via yt-dlp or fresh retries without truncating!
             if fatal_err.is_none() && is_partial {
-                if let Some(total) = total_bytes.filter(|&t| t > written) {
-                    let mut ranges = Vec::new();
-                    let mut cur = written;
-                    while cur < total {
-                        let end = (cur + SUBSEQUENT_HTTP_BLOCK_BYTES - 1).min(total - 1);
-                        ranges.push((cur, end));
-                        cur = end + 1;
-                    }
-
-                    let sem = Arc::new(Semaphore::new(PARALLEL_BLOCK_WORKERS));
-                    let mut tasks = Vec::with_capacity(ranges.len());
-                    for (start, end) in ranges {
-                        let permit_sem = sem.clone();
-                        let c = client.clone();
-                        let rem = remote_clone.clone();
-                        tasks.push(tokio::spawn(async move {
-                            let _permit = permit_sem.acquire_owned().await.ok()?;
-                            fetch_range_block(&c, &rem, start, end).await.ok()
-                        }));
-                    }
-
-                    for task in tasks {
-                        match task.await {
-                            Ok(Some(bytes)) if !bytes.is_empty() => {
-                                if let Err(e) = file.write_all(&bytes).await {
-                                    fatal_err = Some(format!("Failed writing audio block: {e}"));
-                                    break;
-                                }
-                                written += bytes.len() as u64;
-                                let _ = progress_tx.send(ChunkProgress {
-                                    written,
-                                    total_bytes: Some(total),
-                                    done: false,
-                                    error: None,
-                                });
-                            }
-                            _ => {
-                                fatal_err = Some("Failed fetching parallel audio block".to_string());
-                                break;
-                            }
+                let mut known_total = total_bytes;
+                let mut active_url = remote_clone.url.clone();
+                loop {
+                    if let Some(total) = known_total {
+                        if written >= total {
+                            break;
                         }
                     }
-                } else {
-                    let known_total = total_bytes;
-                    loop {
-                        if let Some(total) = known_total {
-                            if written >= total {
+                    let start = written;
+                    let end = match known_total {
+                        Some(total) => (start + SUBSEQUENT_HTTP_BLOCK_BYTES - 1).min(total - 1),
+                        None => start + SUBSEQUENT_HTTP_BLOCK_BYTES - 1,
+                    };
+                    match fetch_range_block_url(&client, &active_url, &remote_clone, start, end).await {
+                        Ok((bytes, discovered_total)) => {
+                            if known_total.is_none() {
+                                known_total = discovered_total;
+                            }
+                            if bytes.is_empty() {
                                 break;
                             }
+                            if let Err(e) = file.write_all(&bytes).await {
+                                fatal_err = Some(format!("Failed writing audio block: {e}"));
+                                break;
+                            }
+                            written += bytes.len() as u64;
+                            let _ = progress_tx.send(ChunkProgress {
+                                written,
+                                total_bytes: known_total,
+                                done: false,
+                                error: None,
+                            });
                         }
-                        let start = written;
-                        let end = match known_total {
-                            Some(total) => (start + SUBSEQUENT_HTTP_BLOCK_BYTES - 1).min(total - 1),
-                            None => start + SUBSEQUENT_HTTP_BLOCK_BYTES - 1,
-                        };
-                        match fetch_range_block(&client, &remote_clone, start, end).await {
-                            Ok(bytes) if !bytes.is_empty() => {
-                                if let Err(e) = file.write_all(&bytes).await {
-                                    fatal_err = Some(format!("Failed writing audio block: {e}"));
-                                    break;
+                        Err(e) => {
+                            // If a range request dropped or returned 403 mid-song, refresh the URL via yt-dlp
+                            // and continue from `written` using the fresh URL for all remaining blocks!
+                            if let Some(fresh_url) = refresh_ytdlp_audio_url(&video_id_owned).await
+                                && let Ok((bytes, _)) = fetch_range_block_url(
+                                    &client,
+                                    &fresh_url,
+                                    &remote_clone,
+                                    start,
+                                    end,
+                                )
+                                .await
+                                && !bytes.is_empty()
+                            {
+                                active_url = fresh_url;
+                                if file.write_all(&bytes).await.is_ok() {
+                                    written += bytes.len() as u64;
+                                    let _ = progress_tx.send(ChunkProgress {
+                                        written,
+                                        total_bytes: known_total,
+                                        done: false,
+                                        error: None,
+                                    });
+                                    continue;
                                 }
-                                written += bytes.len() as u64;
-                                let _ = progress_tx.send(ChunkProgress {
-                                    written,
-                                    total_bytes: known_total,
-                                    done: false,
-                                    error: None,
-                                });
                             }
-                            Ok(_) => break,
-                            Err(e) => {
-                                fatal_err = Some(e);
-                                break;
-                            }
+                            fatal_err = Some(e);
+                            break;
                         }
                     }
                 }
@@ -293,9 +280,16 @@ impl AudioStreamer {
 
             let _ = progress_tx.send(ChunkProgress {
                 written,
-                total_bytes: Some(written),
+                total_bytes: total_bytes.or(Some(written)),
                 done: true,
-                error: fatal_err,
+                error: if completed_cleanly {
+                    None
+                } else {
+                    Some(
+                        fatal_err
+                            .unwrap_or_else(|| format!("Incomplete stream ({written} bytes)")),
+                    )
+                },
             });
 
             if completed_cleanly {
@@ -478,16 +472,17 @@ impl AudioStreamer {
     }
 }
 
-async fn fetch_range_block(
+async fn fetch_range_block_url(
     client: &reqwest::Client,
+    url: &str,
     remote: &StreamInfo,
     start: u64,
     end: u64,
-) -> Result<Vec<u8>, String> {
+) -> Result<(Vec<u8>, Option<u64>), String> {
     let mut last_err = String::new();
-    for attempt in 0..3 {
+    for attempt in 0..4 {
         let mut r = client
-            .get(&remote.url)
+            .get(url)
             .header(reqwest::header::RANGE, format!("bytes={start}-{end}"));
         if let Some(ua) = &remote.user_agent {
             r = r.header(reqwest::header::USER_AGENT, ua);
@@ -499,13 +494,17 @@ async fn fetch_range_block(
         }
         match r.send().await {
             Ok(resp) if resp.status().is_success() => {
+                let total = parse_total_bytes_from_headers(
+                    resp.headers(),
+                    resp.status() == reqwest::StatusCode::PARTIAL_CONTENT,
+                );
                 match resp.bytes().await {
-                    Ok(b) => return Ok(b.to_vec()),
+                    Ok(b) => return Ok((b.to_vec(), total)),
                     Err(e) => last_err = format!("Error reading block {start}-{end}: {e}"),
                 }
             }
             Ok(resp) if resp.status() == reqwest::StatusCode::RANGE_NOT_SATISFIABLE => {
-                return Ok(Vec::new());
+                return Ok((Vec::new(), None));
             }
             Ok(resp) => {
                 last_err = format!("Block {start}-{end} HTTP {}", resp.status());
@@ -514,11 +513,52 @@ async fn fetch_range_block(
                 last_err = format!("Block {start}-{end} failed: {e}");
             }
         }
-        if attempt < 2 {
-            tokio::time::sleep(Duration::from_millis(100 * (attempt as u64 + 1))).await;
+        if attempt < 3 {
+            tokio::time::sleep(Duration::from_millis(120 * (attempt as u64 + 1))).await;
         }
     }
     Err(last_err)
+}
+
+async fn refresh_ytdlp_audio_url(video_id: &str) -> Option<String> {
+    let watch_url = format!("https://music.youtube.com/watch?v={video_id}");
+    let out = tokio::time::timeout(
+        Duration::from_secs(10),
+        Command::new("yt-dlp")
+            .kill_on_drop(true)
+            .args([
+                "--ignore-config",
+                "--no-playlist",
+                "--no-warnings",
+                "--socket-timeout",
+                "5",
+                "--retries",
+                "1",
+                "--js-runtimes",
+                "node",
+                "--remote-components",
+                "ejs:github",
+                "-f",
+                "251/140/bestaudio",
+                "-g",
+                "--",
+                &watch_url,
+            ])
+            .output(),
+    )
+    .await
+    .ok()?
+    .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    String::from_utf8(out.stdout)
+        .ok()?
+        .lines()
+        .next()
+        .map(str::trim)
+        .filter(|s| s.starts_with("http"))
+        .map(ToString::to_string)
 }
 
 async fn wait_until_initial_chunk_ready(
