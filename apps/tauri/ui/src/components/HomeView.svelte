@@ -2,6 +2,7 @@
   import { Compass, Disc3, Heart, Play, Plus, RefreshCw, TrendingUp, Volume2 } from "lucide-svelte";
   import { player } from "../lib/stores/player.svelte";
   import { formatDuration } from "../lib/types";
+  import Carousel from "./Carousel.svelte";
   import CoverImage from "./CoverImage.svelte";
 
   let chartTab = $state<"trending" | "top">("trending");
@@ -47,7 +48,13 @@
       <span class="q-badge"><TrendingUp size={18} /></span>
       <span class="q-text"><strong>Top charts</strong><small class="muted">Trending &amp; Top Music</small></span>
     </button>
-    <button class="quick-card q3" onclick={() => player.navigateTab("explore")}>
+    <button
+      class="quick-card q3"
+      onclick={() => {
+        player.clearSearch();
+        player.navigateTab("explore");
+      }}
+    >
       <span class="q-badge"><Compass size={18} /></span>
       <span class="q-text"><strong>Moods</strong><small class="muted">Explore genres &amp; vibes</small></span>
     </button>
@@ -115,9 +122,8 @@
   {/if}
 
   {#if releaseAlbums.length > 0}
-    <section class="section" id="new-releases">
-      <h2 class="section-title">New releases</h2>
-      <div class="rail-scroll">
+    <div class="section">
+      <Carousel title="New releases" id="new-releases">
         {#each releaseAlbums as album (album.id)}
           <button
             class="media-card"
@@ -133,8 +139,8 @@
             <span class="media-sub muted">{album.artist}</span>
           </button>
         {/each}
-      </div>
-    </section>
+      </Carousel>
+    </div>
   {/if}
 
   {#if chartTracks.length > 0}

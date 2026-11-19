@@ -2,6 +2,7 @@
   import { api, isTauriRuntime } from "../lib/api";
   import { player } from "../lib/stores/player.svelte";
   import { formatDuration, formatSubscribers, type ArtistDetails } from "../lib/types";
+  import Carousel from "./Carousel.svelte";
   import CoverImage from "./CoverImage.svelte";
 
   let { artistId, artistName }: { artistId: string; artistName: string } = $props();
@@ -119,9 +120,8 @@
     {/if}
 
     {#if details.albums.length > 0}
-      <section class="section">
-        <h2 class="section-title">Albums</h2>
-        <div class="rail-scroll">
+      <div class="section">
+        <Carousel title="Albums">
           {#each details.albums as album (album.id)}
             <button
               class="media-card"
@@ -132,8 +132,27 @@
               <span class="media-sub muted">{album.year ?? album.artist}</span>
             </button>
           {/each}
-        </div>
-      </section>
+        </Carousel>
+      </div>
+    {/if}
+
+    {#if details.similar_artists.length > 0}
+      <div class="section">
+        <Carousel title="Fans might also like" minCardWidth={144}>
+          {#each details.similar_artists as sim (sim.id)}
+            <button
+              class="w-[148px] shrink-0 p-2.5 rounded-2xl flex flex-col items-center gap-1.5 text-center hover:bg-[var(--surface)] transition-colors"
+              onclick={() => player.openArtist(sim.id, sim.name)}
+            >
+              <CoverImage class="artist-avatar" src={sim.avatar_url} alt={sim.name} fallbackIcon="👤" />
+              <strong class="text-[13px] truncate w-full">{sim.name}</strong>
+              {#if sim.subscriber_count}
+                <span class="muted text-[11.5px]">{formatSubscribers(sim.subscriber_count)}</span>
+              {/if}
+            </button>
+          {/each}
+        </Carousel>
+      </div>
     {/if}
 
     {#if details.description}

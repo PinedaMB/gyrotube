@@ -1,6 +1,7 @@
 <script lang="ts">
   import { player } from "../lib/stores/player.svelte";
   import { formatDuration, formatSubscribers } from "../lib/types";
+  import Carousel from "./Carousel.svelte";
   import CoverImage from "./CoverImage.svelte";
 
   type FilterTab = "all" | "songs" | "albums" | "artists" | "playlists";
@@ -61,6 +62,9 @@
 <div class="page-clamp">
   {#if results}
     <div class="filters">
+      <button class="back-explore" onclick={() => player.clearSearch()} title="Back to Explore">
+        ← Explore
+      </button>
       <button class:active={filter === "all"} onclick={() => (filter = "all")}>All</button>
       <button class:active={filter === "songs"} onclick={() => (filter = "songs")}>
         Songs{#if results.tracks.length}&nbsp;· {results.tracks.length}{/if}
@@ -171,9 +175,8 @@
     {/if}
 
     {#if (filter === "all" || filter === "artists") && results.artists.length > 0 && !hideDuplicateArtists}
-      <section class="section">
-        <h2 class="section-title">Artists</h2>
-        <div class="rail-scroll">
+      <div class="section">
+        <Carousel title="Artists" minCardWidth={144}>
           {#each results.artists as artist (artist.id)}
             <button class="artist-card" onclick={() => player.openArtist(artist.id, artist.name)}>
               <CoverImage class="artist-avatar" src={artist.avatar_url} alt={artist.name} fallbackIcon="👤" />
@@ -183,14 +186,13 @@
               {/if}
             </button>
           {/each}
-        </div>
-      </section>
+        </Carousel>
+      </div>
     {/if}
 
     {#if (filter === "all" || filter === "albums") && results.albums.length > 0}
-      <section class="section">
-        <h2 class="section-title">Albums</h2>
-        <div class="rail-scroll">
+      <div class="section">
+        <Carousel title="Albums">
           {#each results.albums as album (album.id)}
             <button
               class="media-card"
@@ -201,14 +203,13 @@
               <span class="media-sub muted">{album.artist}</span>
             </button>
           {/each}
-        </div>
-      </section>
+        </Carousel>
+      </div>
     {/if}
 
     {#if (filter === "all" || filter === "playlists") && results.playlists.length > 0}
-      <section class="section">
-        <h2 class="section-title">Playlists</h2>
-        <div class="rail-scroll">
+      <div class="section">
+        <Carousel title="Playlists">
           {#each results.playlists as pl (pl.id)}
             <button
               class="media-card"
@@ -219,8 +220,8 @@
               <span class="media-sub muted">{pl.subtitle}</span>
             </button>
           {/each}
-        </div>
-      </section>
+        </Carousel>
+      </div>
     {/if}
 
     {#if filter === "songs" && results.tracks.length > 0}

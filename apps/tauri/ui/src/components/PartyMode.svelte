@@ -1,6 +1,7 @@
 <script lang="ts">
   import {
     Heart,
+    LocateFixed,
     Music,
     PartyPopper,
     Pause,
@@ -11,11 +12,15 @@
     SkipForward,
     X,
   } from "lucide-svelte";
+  import { cubicOut } from "svelte/easing";
+  import { scale } from "svelte/transition";
   import { player } from "../lib/stores/player.svelte";
   import { formatDuration } from "../lib/types";
   import CoverImage from "./CoverImage.svelte";
 
   let lineRefs = $state<Record<number, HTMLButtonElement>>({});
+  let autoScrollPaused = $state(false);
+  let lastTrackId = $state<string | null>(null);
 
   let isFav = $derived(player.currentTrack ? player.isFavorite(player.currentTrack.id) : false);
   let progressPct = $derived(
@@ -25,11 +30,31 @@
   );
 
   $effect(() => {
+    const tid = player.currentTrack?.id ?? null;
+    if (tid !== lastTrackId) {
+      lastTrackId = tid;
+      autoScrollPaused = false;
+    }
+  });
+
+  $effect(() => {
     const idx = player.activeLyricIndex;
-    if (idx != null && player.partyMode) {
+    if (idx != null && player.partyMode && !autoScrollPaused) {
       lineRefs[idx]?.scrollIntoView({ behavior: "smooth", block: "center" });
     }
   });
+
+  function markUserScroll() {
+    autoScrollPaused = true;
+  }
+
+  function resumeSync() {
+    autoScrollPaused = false;
+    const idx = player.activeLyricIndex;
+    if (idx != null) {
+      lineRefs[idx]?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }
 
   function lineOpacity(idx: number): number {
     if (player.activeLyricIndex == null) return 0.6;
@@ -84,12 +109,16 @@
   <div class="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-[440px_minmax(0,1fr)] gap-10 px-10 pb-8 max-w-[1440px] w-full mx-auto">
     <!-- Left column: Art + Info + Controls + Up Next -->
     <div class="flex flex-col items-center justify-center gap-5">
-      <CoverImage
-        class="party-cover !w-[292px] !h-[292px] !rounded-[22px] border border-white/12 shadow-[0_26px_64px_rgba(0,0,0,0.58)]"
-        src={player.currentTrack?.cover_large_url}
-        fallbackSrc={player.currentTrack?.cover_url}
-        alt={player.currentTrack?.title ?? ""}
-      />
+      {#key player.currentTrack?.id ?? "none"}
+        <div in:scale={{ start: 0.94, duration: 280, easing: cubicOut }}>
+          <CoverImage
+            class="party-cover !w-[292px] !h-[292px] !rounded-[22px] border border-white/12 shadow-[0_26px_64px_rgba(0,0,0,0.58)]"
+            src={player.currentTrack?.cover_large_url}
+            fallbackSrc={player.currentTrack?.cover_url}
+            alt={player.currentTrack?.title ?? ""}
+          />
+        </div>
+      {/key}
 
       <div class="w-[340px] text-center space-y-1">
         <h1 class="text-[28px] font-black tracking-[-0.03em] leading-tight line-clamp-2">
@@ -237,20 +266,42 @@
       </div>
 
       {#if player.lyrics.type === "Synced"}
-        <div class="party-lyrics-scroll flex-1 min-h-0 overflow-y-auto py-[36vh] pr-8 pl-4 flex flex-col gap-8">
-          {#each player.lyrics.lines as line, i}
-            {@const active = player.activeLyricIndex === i}
-            {@const prevLine = i > 0 ? player.lyrics.lines[i - 1] : null}
-            {@const stanzaBreak = prevLine != null && line.time_secs - prevLine.time_secs >= 5.5}
+        <div class="relative flex-1 min-h-0 flex flex-col">
+          <div
+            role="region"
+            aria-label="Lyrics"
+            class="party-lyrics-scroll flex-1 min-h-0 overflow-y-auto py-[36vh] pr-8 pl-4 flex flex-col gap-8"
+            onwheel={markUserScroll}
+            ontouchmove={markUserScroll}
+          >
+            {#each player.lyrics.lines as line, i}
+              {@const active = player.activeLyricIndex === i}
+              {@const prevLine = i > 0 ? player.lyrics.lines[i - 1] : null}
+              {@const stanzaBreak = prevLine != null && line.time_secs - prevLine.time_secs >= 5.5}
+              <button
+                bind:this={lineRefs[i]}
+                class="party-line text-left origin-left {active ? 'active-line' : ''} {isFarLine(i) ? 'far-line' : ''} {stanzaBreak ? 'mt-5' : ''}"
+                style="opacity: {lineOpacity(i)};"
+                onclick={() => {
+                  autoScrollPaused = false;
+                  player.seek(line.time_secs);
+                }}
+              >
+                {line.text}
+              </button>
+            {/each}
+          </div>
+
+          {#if autoScrollPaused && player.activeLyricIndex != null}
             <button
-              bind:this={lineRefs[i]}
-              class="party-line text-left origin-left {active ? 'active-line' : ''} {isFarLine(i) ? 'far-line' : ''} {stanzaBreak ? 'mt-5' : ''}"
-              style="opacity: {lineOpacity(i)};"
-              onclick={() => player.seek(line.time_secs)}
+              transition:scale={{ start: 0.88, duration: 180, easing: cubicOut }}
+              class="absolute bottom-6 left-1/2 -translate-x-1/2 inline-flex items-center gap-2 px-4 py-2 rounded-full text-[13px] font-bold bg-[var(--accent)] hover:bg-[var(--accent-bright)] text-white shadow-[0_10px_28px_rgba(0,0,0,0.5)] transition-all active:scale-95"
+              onclick={resumeSync}
             >
-              {line.text}
+              <LocateFixed size={15} />
+              Sync
             </button>
-          {/each}
+          {/if}
         </div>
       {:else if player.lyrics.type === "Plain"}
         <div class="party-lyrics-scroll flex-1 min-h-0 overflow-y-auto py-12 pr-6">

@@ -437,3 +437,20 @@ dialog.gt-dialog::backdrop {
   background: rgba(0, 0, 0, 0.56);
   backdrop-filter: blur(4px);
 }
+
+.icon-btn:active,
+.pill-btn:active,
+.play-circle:active {
+  transform: scale(0.94);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

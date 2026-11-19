@@ -306,8 +306,17 @@ class PlayerStore {
   }
 
   public navigateTab(tab: MainTab): void {
+    if (tab === "explore" && this.activeTab === "explore" && this.activeView.kind === "explore") {
+      this.clearSearch();
+    }
     this.activeTab = tab;
     this.activeView = { kind: tab };
+  }
+
+  public clearSearch(): void {
+    this.searchQuery = "";
+    this.searchResults = null;
+    this.searchLoading = false;
   }
 
   public openArtist(artistId: string, artistName: string): void {

@@ -1,6 +1,8 @@
 <script lang="ts">
   import { Compass, Heart, Home, Library, Pause, Play, SkipBack, SkipForward } from "lucide-svelte";
   import { onMount } from "svelte";
+  import { cubicOut } from "svelte/easing";
+  import { fade, fly } from "svelte/transition";
   import AlbumView from "./components/AlbumView.svelte";
   import ArtistView from "./components/ArtistView.svelte";
   import CollectionView from "./components/CollectionView.svelte";
@@ -18,6 +20,14 @@
     void player.bootstrap();
   });
 
+  let viewKey = $derived(
+    player.activeView.kind === "artist"
+      ? `artist:${player.activeView.artistId}`
+      : player.activeView.kind === "album"
+        ? `album:${player.activeView.id}`
+        : player.activeView.kind,
+  );
+
   $effect(() => {
     const rgb = player.ambientRgb;
     document.documentElement.style.setProperty(
@@ -32,13 +42,15 @@
 
   <div class="flex-1 min-h-0 flex overflow-hidden relative">
     {#if player.sidebarOpen}
-      <SidebarPlayer />
+      <div class="h-full shrink-0" transition:fly={{ x: -24, duration: 220, easing: cubicOut }}>
+        <SidebarPlayer />
+      </div>
     {/if}
 
     <main class="flex-1 min-w-0 h-full overflow-y-auto ambient-surface scroll-y">
       <nav class="flex items-center justify-center gap-2 pt-3.5 pb-1 px-4">
         <button
-          class="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full text-[13px] font-semibold transition-colors {player.activeTab === 'home'
+          class="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full text-[13px] font-semibold transition-all duration-200 active:scale-95 {player.activeTab === 'home'
             ? 'bg-[var(--surface-hover)] text-[var(--text)] shadow-sm'
             : 'text-[var(--text-muted)] hover:bg-[var(--surface)] hover:text-[var(--text)]'}"
           onclick={() => player.navigateTab("home")}
@@ -47,7 +59,7 @@
           Home
         </button>
         <button
-          class="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full text-[13px] font-semibold transition-colors {player.activeTab === 'explore'
+          class="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full text-[13px] font-semibold transition-all duration-200 active:scale-95 {player.activeTab === 'explore'
             ? 'bg-[var(--surface-hover)] text-[var(--text)] shadow-sm'
             : 'text-[var(--text-muted)] hover:bg-[var(--surface)] hover:text-[var(--text)]'}"
           onclick={() => player.navigateTab("explore")}
@@ -56,7 +68,7 @@
           Explore
         </button>
         <button
-          class="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full text-[13px] font-semibold transition-colors {player.activeTab === 'collection'
+          class="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full text-[13px] font-semibold transition-all duration-200 active:scale-95 {player.activeTab === 'collection'
             ? 'bg-[var(--surface-hover)] text-[var(--text)] shadow-sm'
             : 'text-[var(--text-muted)] hover:bg-[var(--surface)] hover:text-[var(--text)]'}"
           onclick={() => player.navigateTab("collection")}
@@ -66,35 +78,42 @@
         </button>
       </nav>
 
-      {#if player.activeView.kind === "home"}
-        <HomeView />
-      {:else if player.activeView.kind === "explore"}
-        <ExploreView />
-      {:else if player.activeView.kind === "collection"}
-        <CollectionView />
-      {:else if player.activeView.kind === "artist"}
-        <ArtistView
-          artistId={player.activeView.artistId}
-          artistName={player.activeView.artistName}
-        />
-      {:else if player.activeView.kind === "album"}
-        <AlbumView
-          id={player.activeView.id}
-          title={player.activeView.title}
-          coverUrl={player.activeView.coverUrl}
-          isPlaylist={player.activeView.isPlaylist}
-        />
-      {/if}
+      {#key viewKey}
+        <div in:fly={{ y: 10, duration: 220, easing: cubicOut }}>
+          {#if player.activeView.kind === "home"}
+            <HomeView />
+          {:else if player.activeView.kind === "explore"}
+            <ExploreView />
+          {:else if player.activeView.kind === "collection"}
+            <CollectionView />
+          {:else if player.activeView.kind === "artist"}
+            <ArtistView
+              artistId={player.activeView.artistId}
+              artistName={player.activeView.artistName}
+            />
+          {:else if player.activeView.kind === "album"}
+            <AlbumView
+              id={player.activeView.id}
+              title={player.activeView.title}
+              coverUrl={player.activeView.coverUrl}
+              isPlaylist={player.activeView.isPlaylist}
+            />
+          {/if}
+        </div>
+      {/key}
     </main>
 
     {#if player.spinOpen}
-      <SpinSidebar />
+      <div class="h-full shrink-0" transition:fly={{ x: 24, duration: 220, easing: cubicOut }}>
+        <SpinSidebar />
+      </div>
     {/if}
   </div>
 
   {#if !player.sidebarOpen && player.currentTrack}
     <div
-      class="fixed bottom-5 left-1/2 -translate-x-1/2 z-40 w-[min(560px,calc(100vw-32px))] flex items-center gap-2.5 px-3.5 py-2 rounded-full bg-[var(--bg-elevated)] border border-[var(--border-strong)] shadow-2xl"
+      transition:fly={{ y: 24, duration: 240, easing: cubicOut }}
+      class="fixed bottom-5 left-1/2 -translate-x-1/2 z-40 w-[min(560px,calc(100vw-32px))] flex items-center gap-2.5 px-3.5 py-2 rounded-full bg-[var(--bg-elevated)]/95 backdrop-blur-xl border border-[var(--border-strong)] shadow-2xl"
     >
       <button
         class="flex-1 min-w-0 flex items-center gap-2.5 text-left"
@@ -142,7 +161,9 @@
   {/if}
 
   {#if player.partyMode}
-    <PartyMode />
+    <div transition:fade={{ duration: 220 }}>
+      <PartyMode />
+    </div>
   {/if}
 
   <SettingsModal />
@@ -154,7 +175,8 @@
     >
       {#each player.toasts as toast (toast.id)}
         <div
-          class="px-4 py-2 rounded-full text-[13px] font-medium bg-[var(--bg-elevated)] border border-[var(--border-strong)] shadow-xl"
+          transition:fly={{ y: 14, duration: 200, easing: cubicOut }}
+          class="px-4 py-2 rounded-full text-[13px] font-medium bg-[var(--bg-elevated)]/95 backdrop-blur-md border border-[var(--border-strong)] shadow-xl"
         >
           {toast.message}
         </div>

@@ -4,6 +4,7 @@
     GripVertical,
     Heart,
     ListMusic,
+    LocateFixed,
     MessageSquareQuote,
     Music,
     PartyPopper,
@@ -21,6 +22,8 @@
     VolumeX,
     X,
   } from "lucide-svelte";
+  import { cubicOut } from "svelte/easing";
+  import { fade, fly, scale } from "svelte/transition";
   import { player } from "../lib/stores/player.svelte";
   import { formatDuration } from "../lib/types";
   import CoverImage from "./CoverImage.svelte";
@@ -38,6 +41,8 @@
 
   let sleepRemainingSecs = $state<number | null>(null);
   let sleepInterval: number | undefined;
+  let autoScrollPaused = $state(false);
+  let lastTrackId = $state<string | null>(null);
 
   let displayPos = $derived(seeking ? seekDraft : player.positionSecs);
   let progressPct = $derived(
@@ -49,12 +54,32 @@
   let isFav = $derived(player.currentTrack ? player.isFavorite(player.currentTrack.id) : false);
 
   $effect(() => {
+    const tid = player.currentTrack?.id ?? null;
+    if (tid !== lastTrackId) {
+      lastTrackId = tid;
+      autoScrollPaused = false;
+    }
+  });
+
+  $effect(() => {
     const idx = player.activeLyricIndex;
-    if (idx != null && player.sidebarTab === "lyrics") {
+    if (idx != null && player.sidebarTab === "lyrics" && !autoScrollPaused) {
       const el = lyricRefs[idx];
       el?.scrollIntoView({ behavior: "smooth", block: "center" });
     }
   });
+
+  function markUserScroll() {
+    autoScrollPaused = true;
+  }
+
+  function resumeSync() {
+    autoScrollPaused = false;
+    const idx = player.activeLyricIndex;
+    if (idx != null) {
+      lyricRefs[idx]?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }
 
   function togglePopover(kind: Exclude<ActionPopover, null>) {
     openPopover = openPopover === kind ? null : kind;
@@ -131,17 +156,25 @@
   </div>
 
   <!-- Main scrollable area -->
-  <div class="flex-1 min-h-0 overflow-y-auto scroll-y px-7 pb-4 flex flex-col">
+  <div
+    class="flex-1 min-h-0 px-7 pb-4 flex flex-col {player.sidebarTab === 'lyrics'
+      ? 'overflow-hidden'
+      : 'overflow-y-auto scroll-y'}"
+  >
     {#if player.sidebarTab === "player"}
-      <div class="flex-1 flex flex-col items-center justify-between py-4 gap-5">
+      <div in:fade={{ duration: 180 }} class="flex-1 flex flex-col items-center justify-between py-4 gap-5">
         <!-- Centered large cover art -->
         <div class="flex-1 flex items-center justify-center w-full py-2">
-          <CoverImage
-            class="cover-large !w-[264px] !h-[264px] !rounded-2xl border border-white/10 shadow-[0_22px_50px_rgba(0,0,0,0.48)]"
-            src={player.currentTrack?.cover_large_url}
-            fallbackSrc={player.currentTrack?.cover_url}
-            alt={player.currentTrack?.title ?? ""}
-          />
+          {#key player.currentTrack?.id ?? "none"}
+            <div in:scale={{ start: 0.94, duration: 260, easing: cubicOut }}>
+              <CoverImage
+                class="cover-large !w-[264px] !h-[264px] !rounded-2xl border border-white/10 shadow-[0_22px_50px_rgba(0,0,0,0.48)] transition-transform duration-300 hover:scale-[1.015]"
+                src={player.currentTrack?.cover_large_url}
+                fallbackSrc={player.currentTrack?.cover_url}
+                alt={player.currentTrack?.title ?? ""}
+              />
+            </div>
+          {/key}
         </div>
 
         <!-- Lower controls stack -->
@@ -252,6 +285,7 @@
 
             {#if openPopover === "volume"}
               <div
+                transition:fly={{ y: 8, duration: 170, easing: cubicOut }}
                 class="absolute bottom-12 left-1/2 -translate-x-1/2 w-[272px] p-3.5 rounded-2xl bg-[var(--bg-elevated)]/95 backdrop-blur-md border border-[var(--border-strong)] shadow-[0_16px_40px_rgba(0,0,0,0.5)] z-30 space-y-2.5"
               >
                 <div class="flex items-center justify-between text-[12px]">
@@ -289,6 +323,7 @@
               </div>
             {:else if openPopover === "timer"}
               <div
+                transition:fly={{ y: 8, duration: 170, easing: cubicOut }}
                 class="absolute bottom-12 left-1/2 -translate-x-1/2 w-[272px] p-3.5 rounded-2xl bg-[var(--bg-elevated)]/95 backdrop-blur-md border border-[var(--border-strong)] shadow-[0_16px_40px_rgba(0,0,0,0.5)] z-30 space-y-2.5"
               >
                 <div class="flex items-center justify-between text-[12px]">
@@ -437,23 +472,47 @@
         </div>
 
         {#if player.lyrics.type === "Synced"}
-          <div class="lyrics-fade flex-1 min-h-0 overflow-y-auto pt-28 pb-36 flex flex-col gap-4">
-            {#each player.lyrics.lines as line, i}
-              {@const active = player.activeLyricIndex === i}
-              {@const prevLine = i > 0 ? player.lyrics.lines[i - 1] : null}
-              {@const stanzaBreak = prevLine != null && line.time_secs - prevLine.time_secs >= 5.5}
+          <div class="relative flex-1 min-h-0 flex flex-col">
+            <div
+              role="region"
+              aria-label="Lyrics"
+              class="lyrics-fade flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-2 pt-28 pb-36 flex flex-col gap-4"
+              onwheel={markUserScroll}
+              ontouchmove={markUserScroll}
+            >
+              {#each player.lyrics.lines as line, i}
+                {@const active = player.activeLyricIndex === i}
+                {@const prevLine = i > 0 ? player.lyrics.lines[i - 1] : null}
+                {@const stanzaBreak = prevLine != null && line.time_secs - prevLine.time_secs >= 5.5}
+                <button
+                  bind:this={lyricRefs[i]}
+                  class="sb-lyric-line text-left origin-left {active ? 'active-line' : ''} {isFarLyric(i) ? 'far-line' : ''} {stanzaBreak ? 'mt-3' : ''}"
+                  style="opacity: {lyricOpacity(i)};"
+                  onclick={() => {
+                    autoScrollPaused = false;
+                    player.seek(line.time_secs);
+                  }}
+                >
+                  {line.text}
+                </button>
+              {/each}
+            </div>
+
+            {#if autoScrollPaused && player.activeLyricIndex != null}
               <button
-                bind:this={lyricRefs[i]}
-                class="sb-lyric-line text-left origin-left {active ? 'active-line' : ''} {isFarLyric(i) ? 'far-line' : ''} {stanzaBreak ? 'mt-3' : ''}"
-                style="opacity: {lyricOpacity(i)};"
-                onclick={() => player.seek(line.time_secs)}
+                transition:scale={{ start: 0.88, duration: 170, easing: cubicOut }}
+                class="absolute bottom-3 left-1/2 -translate-x-1/2 inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[12px] font-bold bg-[var(--accent)] hover:bg-[var(--accent-bright)] text-white shadow-[0_8px_24px_rgba(0,0,0,0.45)] transition-all active:scale-95"
+                onclick={resumeSync}
               >
-                {line.text}
+                <LocateFixed size={14} />
+                Sync
               </button>
-            {/each}
+            {/if}
           </div>
         {:else if player.lyrics.type === "Plain"}
-          <pre class="whitespace-pre-wrap font-sans text-[14px] leading-relaxed text-[var(--text)]/85 py-2">{player.lyrics.text}</pre>
+          <div class="lyrics-fade flex-1 min-h-0 overflow-y-auto py-8">
+            <pre class="whitespace-pre-wrap font-sans text-[14.5px] leading-relaxed text-[var(--text)]/85">{player.lyrics.text}</pre>
+          </div>
         {:else}
           <div class="flex-1 flex flex-col items-center justify-center text-center gap-2 py-12 text-[var(--text-muted)]">
             <Music size={28} class="opacity-40" />
@@ -669,10 +728,9 @@
     line-height: 1.42;
     letter-spacing: -0.015em;
     color: var(--text);
-    padding: 2px 0;
+    padding: 2px 4px;
     transition:
       opacity 360ms cubic-bezier(0.22, 1, 0.36, 1),
-      transform 360ms cubic-bezier(0.22, 1, 0.36, 1),
       font-size 360ms cubic-bezier(0.22, 1, 0.36, 1),
       color 360ms cubic-bezier(0.22, 1, 0.36, 1),
       filter 360ms cubic-bezier(0.22, 1, 0.36, 1),
@@ -689,12 +747,11 @@
   }
 
   .sb-lyric-line.active-line {
-    font-size: 20.5px;
+    font-size: 20px;
     font-weight: 850;
     line-height: 1.3;
     letter-spacing: -0.02em;
     color: #ffffff;
-    transform: translateX(4px);
     filter: none;
     text-shadow:
       0 0 24px rgba(var(--ambient-rgb), 0.65),
