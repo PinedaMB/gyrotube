@@ -24,7 +24,8 @@ use crate::ui::widgets::{
     build_skeleton_box, cancel_collection_loading, clear_box,
     highlight_active_track_in_list, load_cover_into_picture,
     load_cover_into_picture_with_focal_if,
-    open_collection_page, populate_track_list, rail_art, spawn_bg, start_track_radio,
+    open_collection_page, populate_single_track_list, populate_track_list, rail_art, spawn_bg,
+    start_track_radio,
 };
 
 #[derive(Clone)]
@@ -919,10 +920,10 @@ pub fn build_explore_page(
                                     .append(&build_playlist_card(playlist, Rc::clone(&state)));
                             }
 
-                            populate_track_list(
+                            populate_single_track_list(
                                 &results_list,
                                 &res.tracks,
-                                &format!("Búsqueda: {query_for_source}"),
+                                &format!("{}: {query_for_source}", tr("Búsqueda", "Search")),
                                 Rc::clone(&state),
                             );
 

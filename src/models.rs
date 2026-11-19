@@ -503,6 +503,10 @@ fn default_background_playback() -> bool {
     true
 }
 
+fn default_autoplay_related() -> bool {
+    true
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct SessionState {
     pub sidebar_collapsed: bool,
@@ -525,6 +529,8 @@ pub struct SessionState {
     pub language: crate::i18n::AppLanguage,
     #[serde(default = "default_background_playback")]
     pub background_playback: bool,
+    #[serde(default = "default_autoplay_related")]
+    pub autoplay_related: bool,
 }
 
 pub fn load_session_state() -> SessionState {

@@ -237,6 +237,10 @@ pub fn build_ui(app: &adw::Application) {
         repeat: saved_session.repeat,
         language: saved_session.language,
         background_playback: saved_session.background_playback,
+        autoplay_related: saved_session.autoplay_related,
+        related_tracks: Vec::new(),
+        related_for_id: None,
+        related_generation: 0,
         cover_cache: HashMap::new(),
         toast_overlay: toast_overlay.clone(),
         player_source_label: sb.player_source_label.clone(),
@@ -281,6 +285,8 @@ pub fn build_ui(app: &adw::Application) {
         queue_list: sb.queue_list.clone(),
         queue_empty_label: sb.queue_empty_label.clone(),
         queue_title_label: sb.queue_title_label.clone(),
+        queue_suggestions_box: sb.queue_suggestions_box.clone(),
+        queue_suggestions_list: sb.queue_suggestions_list.clone(),
         favorites_list,
         favorites_empty_label,
         recent_list,
@@ -558,14 +564,28 @@ pub fn build_ui(app: &adw::Application) {
         });
     }
     {
+        let fs_btn = party.fullscreen_btn.clone();
+        let win_controls = party.window_controls.clone();
+        window.connect_fullscreened_notify(move |win| {
+            let is_fs = win.is_fullscreen();
+            fs_btn.set_icon_name(if is_fs {
+                "full-screen-minimize-regular"
+            } else {
+                "full-screen-maximize-regular"
+            });
+            win_controls.set_visible(!is_fs);
+        });
+    }
+    {
         let win = window.clone();
-        party.fullscreen_btn.connect_clicked(move |btn| {
+        party.fullscreen_btn.connect_clicked(move |_| {
             if win.is_fullscreen() {
                 win.unfullscreen();
-                btn.set_icon_name("full-screen-maximize-regular");
+                if win.is_maximized() {
+                    win.unmaximize();
+                }
             } else {
                 win.fullscreen();
-                btn.set_icon_name("full-screen-minimize-regular");
             }
         });
     }
@@ -660,10 +680,10 @@ pub fn build_ui(app: &adw::Application) {
     let on_toggle_party: Rc<dyn Fn()> = {
         let state = Rc::clone(&state);
         let ep = Rc::clone(&enter_party);
-        let ex = Rc::clone(&exit_party);
+        let fs_btn = party.fullscreen_btn.clone();
         Rc::new(move || {
             if state.borrow().party_active {
-                ex();
+                fs_btn.emit_clicked();
             } else {
                 ep();
             }
@@ -688,6 +708,37 @@ pub fn build_ui(app: &adw::Application) {
 }
 
 fn wire_sidebar_actions(state: &Rc<RefCell<AppState>>, sb: &sidebar_player::SidebarPlayerWidgets) {
+    sb.queue_autoplay_switch
+        .set_active(state.borrow().autoplay_related);
+    {
+        let state = Rc::clone(state);
+        sb.queue_autoplay_switch.connect_state_set(move |_, active| {
+            {
+                let mut s = state.borrow_mut();
+                s.autoplay_related = active;
+                s.save_session();
+            }
+            if active {
+                player::enqueue_related_if_single(Rc::clone(&state));
+            }
+            glib::Propagation::Proceed
+        });
+    }
+    {
+        let state = Rc::clone(state);
+        sb.queue_suggestions_refresh_btn.connect_clicked(move |_| {
+            player::fetch_related_for_current(Rc::clone(&state), true, false);
+        });
+    }
+    {
+        let state = Rc::clone(state);
+        sb.queue_suggestions_list.connect_row_activated(move |_, row| {
+            let idx = row.index();
+            if idx >= 0 {
+                player::play_suggested_index(Rc::clone(&state), idx as usize);
+            }
+        });
+    }
     {
         let state = Rc::clone(state);
         sb.queue_list.connect_row_activated(move |_, row| {

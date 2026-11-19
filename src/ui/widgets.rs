@@ -900,6 +900,20 @@ pub fn populate_track_list(
     }
 }
 
+pub fn populate_single_track_list(
+    list: &ListBox,
+    tracks: &[Track],
+    source_name: &str,
+    state: Rc<RefCell<AppState>>,
+) {
+    clear_list_box(list);
+    for track in tracks {
+        let single = [track.clone()];
+        let row = build_track_row(track, &single, 0, source_name, Rc::clone(&state));
+        list.append(&row);
+    }
+}
+
 pub fn build_track_row(
     track: &Track,
     section_tracks: &[Track],

@@ -249,6 +249,243 @@ pub fn refresh_queue_ui(state: Rc<RefCell<AppState>>) {
     crate::ui::jam_dialog::sync_jam_snapshot(&state.borrow());
 }
 
+pub fn refresh_suggestions_ui(state: Rc<RefCell<AppState>>) {
+    let (suggestions_box, suggestions_list, related) = {
+        let s = state.borrow();
+        (
+            s.queue_suggestions_box.clone(),
+            s.queue_suggestions_list.clone(),
+            s.related_tracks.clone(),
+        )
+    };
+
+    clear_list_box(&suggestions_list);
+    if related.is_empty() {
+        suggestions_box.set_visible(false);
+        return;
+    }
+
+    for (idx, track) in related.iter().enumerate() {
+        let row_box = GtkBox::new(Orientation::Horizontal, 8);
+        row_box.add_css_class("track-row");
+
+        let (cover_frame, cover) = clamped_cover(36, 36, "cover-art");
+        if let Some(url) = &track.cover_url {
+            load_cover_into_picture(&cover, url, Rc::clone(&state));
+        }
+
+        let title_label = Label::builder()
+            .label(&track.title)
+            .xalign(0.0)
+            .ellipsize(gtk4::pango::EllipsizeMode::End)
+            .css_classes(["heading"])
+            .build();
+        let artist_label = Label::builder()
+            .label(&track.artist)
+            .xalign(0.0)
+            .ellipsize(gtk4::pango::EllipsizeMode::End)
+            .css_classes(["dim-label", "caption"])
+            .build();
+        let text_box = GtkBox::new(Orientation::Vertical, 2);
+        text_box.set_hexpand(true);
+        text_box.set_valign(Align::Center);
+        text_box.append(&title_label);
+        text_box.append(&artist_label);
+
+        let duration_str = track
+            .duration_secs
+            .map(format_duration)
+            .unwrap_or_else(|| String::from("--:--"));
+        let duration_label = Label::builder()
+            .label(&duration_str)
+            .valign(Align::Center)
+            .css_classes(["dim-label", "caption", "numeric"])
+            .build();
+
+        let add_btn = Button::builder()
+            .icon_name("add-regular")
+            .tooltip_text(tr("Agregar a la cola", "Add to queue"))
+            .valign(Align::Center)
+            .css_classes(["flat", "circular"])
+            .build();
+        add_btn.set_cursor_from_name(Some("pointer"));
+        {
+            let state = Rc::clone(&state);
+            let track_id = track.id.clone();
+            add_btn.connect_clicked(move |_| {
+                let added = {
+                    let mut s = state.borrow_mut();
+                    if let Some(pos) = s.related_tracks.iter().position(|t| t.id == track_id) {
+                        let t = s.related_tracks.remove(pos);
+                        if !s.queue.iter().any(|q| q.id == t.id) {
+                            s.queue.push(t);
+                            s.update_nav_buttons();
+                            s.save_session();
+                        }
+                        true
+                    } else {
+                        false
+                    }
+                };
+                if added {
+                    refresh_queue_ui(Rc::clone(&state));
+                    refresh_suggestions_ui(Rc::clone(&state));
+                }
+            });
+        }
+
+        row_box.append(&cover_frame);
+        row_box.append(&text_box);
+        row_box.append(&duration_label);
+        row_box.append(&add_btn);
+
+        let row = ListBoxRow::builder()
+            .child(&row_box)
+            .activatable(true)
+            .build();
+        row.set_cursor_from_name(Some("pointer"));
+        let _ = idx;
+        suggestions_list.append(&row);
+    }
+
+    suggestions_box.set_visible(true);
+}
+
+pub fn play_suggested_index(state: Rc<RefCell<AppState>>, sug_idx: usize) {
+    let target_queue_idx = {
+        let mut s = state.borrow_mut();
+        if sug_idx >= s.related_tracks.len() {
+            return;
+        }
+        let track = s.related_tracks.remove(sug_idx);
+        if let Some(existing) = s.queue.iter().position(|q| q.id == track.id) {
+            existing
+        } else {
+            let insert_at = s
+                .current_index
+                .map(|c| (c + 1).min(s.queue.len()))
+                .unwrap_or(s.queue.len());
+            s.queue.insert(insert_at, track);
+            s.update_nav_buttons();
+            s.save_session();
+            insert_at
+        }
+    };
+    refresh_suggestions_ui(Rc::clone(&state));
+    play_queue_index(state, target_queue_idx);
+}
+
+pub fn enqueue_related_if_single(state: Rc<RefCell<AppState>>) {
+    let changed = {
+        let mut s = state.borrow_mut();
+        if s.autoplay_related
+            && s.queue.len() == 1
+            && s.current_index == Some(0)
+            && !s.related_tracks.is_empty()
+            && !matches!(s.jam.remote_role, crate::spin_remote::RemoteRole::Guest(_))
+        {
+            let take = s.related_tracks.len().min(10);
+            let batch: Vec<_> = s.related_tracks.drain(..take).collect();
+            let mut added = false;
+            for track in batch {
+                if !s.queue.iter().any(|q| q.id == track.id) {
+                    s.queue.push(track);
+                    added = true;
+                }
+            }
+            if added {
+                s.update_nav_buttons();
+                s.save_session();
+            }
+            added
+        } else {
+            false
+        }
+    };
+    if changed {
+        refresh_queue_ui(Rc::clone(&state));
+        refresh_suggestions_ui(state);
+    }
+}
+
+pub fn fetch_related_for_current(
+    state: Rc<RefCell<AppState>>,
+    force: bool,
+    auto_fill_single: bool,
+) {
+    let req = {
+        let mut s = state.borrow_mut();
+        let Some(track) = s.current_track().cloned() else {
+            s.related_tracks.clear();
+            s.related_for_id = None;
+            return;
+        };
+        if !force
+            && s.related_for_id.as_deref() == Some(track.id.as_str())
+            && !s.related_tracks.is_empty()
+        {
+            None
+        } else {
+            s.related_generation = s.related_generation.wrapping_add(1);
+            s.related_for_id = Some(track.id.clone());
+            Some((track.id, s.backend.clone(), s.related_generation))
+        }
+    };
+
+    let Some((video_id, backend, rel_gen)) = req else {
+        if auto_fill_single {
+            enqueue_related_if_single(Rc::clone(&state));
+        }
+        refresh_suggestions_ui(state);
+        return;
+    };
+
+    let (tx, rx) = async_channel::bounded(1);
+    runtime().spawn(async move {
+        let res = backend.fetch_radio_tracks(&video_id).await;
+        let _ = tx.send(res).await;
+    });
+
+    glib::spawn_future_local(async move {
+        let Ok(Ok(tracks)) = rx.recv().await else {
+            return;
+        };
+        let queue_changed = {
+            let mut s = state.borrow_mut();
+            if s.related_generation != rel_gen {
+                return;
+            }
+            let mut fresh: Vec<crate::models::Track> = tracks
+                .into_iter()
+                .filter(|t| !s.queue.iter().any(|q| q.id == t.id))
+                .collect();
+
+            let mut appended = false;
+            if auto_fill_single
+                && s.autoplay_related
+                && s.queue.len() == 1
+                && s.current_index == Some(0)
+                && !matches!(s.jam.remote_role, crate::spin_remote::RemoteRole::Guest(_))
+                && !fresh.is_empty()
+            {
+                let take = fresh.len().min(10);
+                s.queue.extend(fresh.drain(..take));
+                s.update_nav_buttons();
+                s.save_session();
+                appended = true;
+            }
+            fresh.truncate(12);
+            s.related_tracks = fresh;
+            appended
+        };
+
+        if queue_changed {
+            refresh_queue_ui(Rc::clone(&state));
+        }
+        refresh_suggestions_ui(state);
+    });
+}
+
 fn make_lyric_line_button(
     text: &str,
     time_secs: f64,
@@ -644,6 +881,11 @@ pub fn clear_playback(state: Rc<RefCell<AppState>>) {
         s.crossfade_triggered_for = None;
         s.pending_autoplay = false;
         s.pending_restore_seek = None;
+        s.related_generation = s.related_generation.wrapping_add(1);
+        s.related_tracks.clear();
+        s.related_for_id = None;
+        s.queue_suggestions_box.set_visible(false);
+        clear_list_box(&s.queue_suggestions_list);
         finish_player_loading(&s, "");
         s.seek_scale.set_value(0.0);
         s.player_fav_btn.set_sensitive(false);
@@ -772,6 +1014,7 @@ pub fn load_queue_index(
     refresh_queue_ui(Rc::clone(&state));
     record_recent_track(Rc::clone(&state), &track);
     notify_track_changed(Rc::clone(&state));
+    fetch_related_for_current(Rc::clone(&state), false, autoplay);
 
     if let Some(stream) = fast_stream {
         let (media_file, next_id) = {
@@ -1040,6 +1283,7 @@ fn start_crossfade_to(state: Rc<RefCell<AppState>>, next_index: usize) {
         refresh_queue_ui(Rc::clone(&state));
         record_recent_track(Rc::clone(&state), &track);
         notify_track_changed(Rc::clone(&state));
+        fetch_related_for_current(Rc::clone(&state), false, false);
 
         standby.play();
         run_crossfade_ramp(Rc::clone(&state), cf_gen, old_deck, new_deck, fade_duration);
@@ -1353,6 +1597,20 @@ pub fn wire_media_signals(
                 if !media.is_ended() {
                     return;
                 }
+                enum EosAction {
+                    RecoverStream {
+                        video_id: String,
+                        backend: crate::backend::Backend,
+                        load_gen: u64,
+                    },
+                    PlayIndex(usize),
+                    FetchAutoplay {
+                        video_id: String,
+                        backend: crate::backend::Backend,
+                        load_gen: u64,
+                    },
+                }
+
                 let action = {
                     let mut s = state.borrow_mut();
                     if s.active_deck != deck_idx
@@ -1377,14 +1635,58 @@ pub fn wire_media_signals(
                             s.pending_restore_seek = Some(pos_secs.max(1.0));
                             s.pending_autoplay = true;
                             show_loading(&s, PlaybackLoad::Download);
-                            Some(Ok((track.id, s.backend.clone(), s.loading_generation)))
+                            Some(EosAction::RecoverStream {
+                                video_id: track.id,
+                                backend: s.backend.clone(),
+                                load_gen: s.loading_generation,
+                            })
+                        } else if let Some(next_idx) = next_queue_index(&s) {
+                            Some(EosAction::PlayIndex(next_idx))
+                        } else if s.autoplay_related {
+                            if !s.related_tracks.is_empty() {
+                                let next_idx = s.queue.len();
+                                let take = s.related_tracks.len().min(10);
+                                let batch: Vec<_> = s.related_tracks.drain(..take).collect();
+                                let mut added = 0usize;
+                                for track in batch {
+                                    if !s.queue.iter().any(|q| q.id == track.id) {
+                                        s.queue.push(track);
+                                        added += 1;
+                                    }
+                                }
+                                if added > 0 {
+                                    s.update_nav_buttons();
+                                    s.save_session();
+                                    Some(EosAction::PlayIndex(next_idx))
+                                } else {
+                                    s.current_track().cloned().map(|track| {
+                                        EosAction::FetchAutoplay {
+                                            video_id: track.id,
+                                            backend: s.backend.clone(),
+                                            load_gen: s.loading_generation,
+                                        }
+                                    })
+                                }
+                            } else {
+                                s.current_track().cloned().map(|track| {
+                                    EosAction::FetchAutoplay {
+                                        video_id: track.id,
+                                        backend: s.backend.clone(),
+                                        load_gen: s.loading_generation,
+                                    }
+                                })
+                            }
                         } else {
-                            next_queue_index(&s).map(Err)
+                            None
                         }
                     }
                 };
                 match action {
-                    Some(Ok((video_id, backend, load_gen))) => {
+                    Some(EosAction::RecoverStream {
+                        video_id,
+                        backend,
+                        load_gen,
+                    }) => {
                         let timing = media.startup_timing();
                         let (tx, rx) = async_channel::bounded(1);
                         runtime().spawn(async move {
@@ -1417,8 +1719,49 @@ pub fn wire_media_signals(
                             }
                         });
                     }
-                    Some(Err(idx)) => {
+                    Some(EosAction::PlayIndex(idx)) => {
+                        refresh_suggestions_ui(Rc::clone(&state));
                         play_queue_index(Rc::clone(&state), idx);
+                    }
+                    Some(EosAction::FetchAutoplay {
+                        video_id,
+                        backend,
+                        load_gen,
+                    }) => {
+                        let (tx, rx) = async_channel::bounded(1);
+                        runtime().spawn(async move {
+                            let res = backend.fetch_radio_tracks(&video_id).await;
+                            let _ = tx.send(res).await;
+                        });
+                        let state_cb = Rc::clone(&state);
+                        glib::spawn_future_local(async move {
+                            let Ok(Ok(tracks)) = rx.recv().await else {
+                                return;
+                            };
+                            let next_idx = {
+                                let mut s = state_cb.borrow_mut();
+                                if s.loading_generation != load_gen || !s.autoplay_related {
+                                    return;
+                                }
+                                let mut fresh: Vec<crate::models::Track> = tracks
+                                    .into_iter()
+                                    .filter(|t| !s.queue.iter().any(|q| q.id == t.id))
+                                    .collect();
+                                if fresh.is_empty() {
+                                    return;
+                                }
+                                let start_idx = s.queue.len();
+                                let take = fresh.len().min(10);
+                                s.queue.extend(fresh.drain(..take));
+                                fresh.truncate(12);
+                                s.related_tracks = fresh;
+                                s.update_nav_buttons();
+                                s.save_session();
+                                start_idx
+                            };
+                            refresh_suggestions_ui(Rc::clone(&state_cb));
+                            play_queue_index(state_cb, next_idx);
+                        });
                     }
                     None => {}
                 }
@@ -1692,5 +2035,6 @@ pub fn restore_last_track(state: Rc<RefCell<AppState>>, position_secs: f64) {
         });
     }
     refresh_queue_ui(Rc::clone(&state));
+    fetch_related_for_current(Rc::clone(&state), false, false);
     load_current_lyrics(state);
 }

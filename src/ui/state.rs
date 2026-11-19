@@ -52,6 +52,10 @@ pub struct AppState {
     pub repeat: bool,
     pub language: crate::i18n::AppLanguage,
     pub background_playback: bool,
+    pub autoplay_related: bool,
+    pub related_tracks: Vec<Track>,
+    pub related_for_id: Option<String>,
+    pub related_generation: u64,
     pub cover_cache: HashMap<String, gdk::Texture>,
     pub toast_overlay: adw::ToastOverlay,
     // Sidebar player widgets
@@ -99,6 +103,8 @@ pub struct AppState {
     pub queue_list: ListBox,
     pub queue_empty_label: Label,
     pub queue_title_label: Label,
+    pub queue_suggestions_box: GtkBox,
+    pub queue_suggestions_list: ListBox,
     // Collection (favorites, recent, custom playlists) widgets
     pub favorites_list: ListBox,
     pub favorites_empty_label: GtkBox,
@@ -146,6 +152,7 @@ impl AppState {
             crossfade_secs: self.crossfade_secs,
             language: self.language,
             background_playback: self.background_playback,
+            autoplay_related: self.autoplay_related,
         }));
     }
     pub fn report_save_result(&self, result: std::io::Result<()>) {

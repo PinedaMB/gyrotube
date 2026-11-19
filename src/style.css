@@ -850,3 +850,11 @@ button.suggested-action spinner {
 .queue-drop-below {
     box-shadow: inset 0 -2px 0 0 @accent_color;
 }
+
+.queue-autoplay-row {
+    margin-top: 4px;
+    padding: 10px 12px;
+    border-radius: 12px;
+    background-color: alpha(@window_fg_color, 0.04);
+    border: 1px solid alpha(@window_fg_color, 0.07);
+}

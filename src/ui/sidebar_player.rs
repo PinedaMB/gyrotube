@@ -53,6 +53,10 @@ pub struct SidebarPlayerWidgets {
     pub queue_title_label: Label,
     pub queue_save_btn: Button,
     pub queue_clear_btn: Button,
+    pub queue_autoplay_switch: gtk4::Switch,
+    pub queue_suggestions_box: GtkBox,
+    pub queue_suggestions_list: ListBox,
+    pub queue_suggestions_refresh_btn: Button,
     pub spin_participants_box: GtkBox,
 }
 
@@ -515,10 +519,68 @@ pub fn build_sidebar_player() -> SidebarPlayerWidgets {
     spin_participants_box.add_css_class("spin-participants-card");
     spin_participants_box.set_visible(false);
 
+    let queue_autoplay_title = Label::builder()
+        .label(tr("Reproducción automática", "Autoplay"))
+        .xalign(0.0)
+        .css_classes(["heading", "caption"])
+        .build();
+    let queue_autoplay_sub = Label::builder()
+        .label(tr(
+            "Añadir canciones similares al elegir una suelta o al terminar",
+            "Queue similar songs for single tracks or when queue ends",
+        ))
+        .xalign(0.0)
+        .wrap(true)
+        .css_classes(["dim-label", "caption"])
+        .build();
+    let queue_autoplay_text = GtkBox::new(Orientation::Vertical, 2);
+    queue_autoplay_text.set_hexpand(true);
+    queue_autoplay_text.append(&queue_autoplay_title);
+    queue_autoplay_text.append(&queue_autoplay_sub);
+
+    let queue_autoplay_switch = gtk4::Switch::builder()
+        .valign(Align::Center)
+        .build();
+    let queue_autoplay_row = GtkBox::new(Orientation::Horizontal, 10);
+    queue_autoplay_row.add_css_class("queue-autoplay-row");
+    queue_autoplay_row.append(&queue_autoplay_text);
+    queue_autoplay_row.append(&queue_autoplay_switch);
+
+    let queue_suggestions_title = Label::builder()
+        .label(tr("Sugeridas", "Suggested"))
+        .xalign(0.0)
+        .hexpand(true)
+        .css_classes(["title-4"])
+        .build();
+    let queue_suggestions_refresh_btn = Button::builder()
+        .icon_name("view-refresh-symbolic")
+        .tooltip_text(tr("Actualizar sugerencias", "Refresh suggestions"))
+        .valign(Align::Center)
+        .css_classes(["flat", "circular"])
+        .build();
+    queue_suggestions_refresh_btn.set_cursor_from_name(Some("pointer"));
+    let queue_suggestions_header = GtkBox::new(Orientation::Horizontal, 6);
+    queue_suggestions_header.append(&queue_suggestions_title);
+    queue_suggestions_header.append(&queue_suggestions_refresh_btn);
+
+    let queue_suggestions_list = ListBox::builder()
+        .selection_mode(SelectionMode::None)
+        .activate_on_single_click(true)
+        .css_classes(["boxed-list"])
+        .build();
+
+    let queue_suggestions_box = GtkBox::new(Orientation::Vertical, 8);
+    queue_suggestions_box.set_margin_top(6);
+    queue_suggestions_box.set_visible(false);
+    queue_suggestions_box.append(&queue_suggestions_header);
+    queue_suggestions_box.append(&queue_suggestions_list);
+
     queue_box.append(&queue_header);
     queue_box.append(&spin_participants_box);
     queue_box.append(&queue_empty_label);
     queue_box.append(&queue_list);
+    queue_box.append(&queue_autoplay_row);
+    queue_box.append(&queue_suggestions_box);
 
     let queue_scroll = ScrolledWindow::builder()
         .hscrollbar_policy(PolicyType::Never)
@@ -615,6 +677,10 @@ pub fn build_sidebar_player() -> SidebarPlayerWidgets {
         queue_title_label,
         queue_save_btn,
         queue_clear_btn,
+        queue_autoplay_switch,
+        queue_suggestions_box,
+        queue_suggestions_list,
+        queue_suggestions_refresh_btn,
         spin_participants_box,
     }
 }

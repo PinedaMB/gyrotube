@@ -413,13 +413,21 @@ impl Backend {
     }
 
     pub async fn fetch_radio_tracks(&self, video_id: &str) -> Result<Vec<Track>, String> {
-        if let Ok(radio) = self.rp.query().music_radio(video_id).await {
-            let tracks: Vec<Track> = radio
+        if let Ok(radio) = self.rp.query().music_radio_track(video_id).await {
+            let mut tracks: Vec<Track> = radio
                 .items
                 .iter()
                 .filter(|t| t.track_type == TrackType::Track && !t.unavailable)
                 .map(Track::from)
                 .collect();
+            if tracks.is_empty() {
+                tracks = radio
+                    .items
+                    .iter()
+                    .filter(|t| !t.unavailable)
+                    .map(Track::from)
+                    .collect();
+            }
             if !tracks.is_empty() {
                 return Ok(tracks);
             }

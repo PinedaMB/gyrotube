@@ -25,6 +25,7 @@ pub struct PartyWidgets {
     pub next_artist: Label,
     pub exit_btn: Button,
     pub fullscreen_btn: Button,
+    pub window_controls: gtk4::WindowControls,
 }
 
 pub fn build_party_mode(
@@ -76,6 +77,11 @@ pub fn build_party_mode(
         .build();
     exit_btn.set_cursor_from_name(Some("pointer"));
 
+    let window_controls = gtk4::WindowControls::builder()
+        .side(gtk4::PackType::End)
+        .visible(false)
+        .build();
+
     let top_bar = GtkBox::new(Orientation::Horizontal, 8);
     top_bar.set_margin_top(16);
     top_bar.set_margin_start(24);
@@ -83,6 +89,10 @@ pub fn build_party_mode(
     top_bar.append(&top_left);
     top_bar.append(&fullscreen_btn);
     top_bar.append(&exit_btn);
+    top_bar.append(&window_controls);
+
+    let top_handle = gtk4::WindowHandle::new();
+    top_handle.set_child(Some(&top_bar));
 
     // Left column: Big cover + track info + progress + controls + next up
     let (cover_frame, cover_pic) = clamped_cover(300, 300, "cover-art-large");
@@ -367,7 +377,7 @@ pub fn build_party_mode(
     root.add_css_class("party-mode-bg");
     root.add_css_class("ambient-player");
     root.set_vexpand(true);
-    root.append(&top_bar);
+    root.append(&top_handle);
     root.append(&content_split);
 
     PartyWidgets {
@@ -381,6 +391,7 @@ pub fn build_party_mode(
         next_artist,
         exit_btn,
         fullscreen_btn,
+        window_controls,
     }
 }
 
