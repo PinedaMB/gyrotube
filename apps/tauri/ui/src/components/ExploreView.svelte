@@ -1,6 +1,7 @@
 <script lang="ts">
   import { player } from "../lib/stores/player.svelte";
   import { formatDuration, formatSubscribers } from "../lib/types";
+  import CoverImage from "./CoverImage.svelte";
 
   type FilterTab = "all" | "songs" | "albums" | "artists" | "playlists";
   let filter = $state<FilterTab>("all");
@@ -62,16 +63,16 @@
     <div class="filters">
       <button class:active={filter === "all"} onclick={() => (filter = "all")}>All</button>
       <button class:active={filter === "songs"} onclick={() => (filter = "songs")}>
-        Songs{#if results.tracks.length} · {results.tracks.length}{/if}
+        Songs{#if results.tracks.length}&nbsp;· {results.tracks.length}{/if}
       </button>
       <button class:active={filter === "albums"} onclick={() => (filter = "albums")}>
-        Albums{#if results.albums.length} · {results.albums.length}{/if}
+        Albums{#if results.albums.length}&nbsp;· {results.albums.length}{/if}
       </button>
       <button class:active={filter === "artists"} onclick={() => (filter = "artists")}>
-        Artists{#if results.artists.length} · {results.artists.length}{/if}
+        Artists{#if results.artists.length}&nbsp;· {results.artists.length}{/if}
       </button>
       <button class:active={filter === "playlists"} onclick={() => (filter = "playlists")}>
-        Playlists{#if results.playlists.length} · {results.playlists.length}{/if}
+        Playlists{#if results.playlists.length}&nbsp;· {results.playlists.length}{/if}
       </button>
     </div>
 
@@ -87,9 +88,7 @@
               onclick={() => player.openArtist(topArtist.id, topArtist.name)}
               onkeydown={(e) => e.key === "Enter" && player.openArtist(topArtist.id, topArtist.name)}
             >
-              {#if topArtist.avatar_url}
-                <img class="top-avatar" src={topArtist.avatar_url} alt={topArtist.name} />
-              {/if}
+              <CoverImage class="top-avatar" src={topArtist.avatar_url} alt={topArtist.name} fallbackIcon="👤" />
               <h2 class="top-name">{topArtist.name}</h2>
               <div class="top-bottom">
                 <div class="top-meta">
@@ -136,9 +135,7 @@
                     e.key === "Enter" &&
                     player.replaceQueueAndPlay([track], 0, `Search: ${player.searchQuery}`)}
                 >
-                  {#if track.cover_url}
-                    <img class="track-cover" src={track.cover_url} alt="" />
-                  {/if}
+                  <CoverImage class="track-cover" src={track.cover_url} alt="" />
                   <div class="track-meta">
                     <span class="track-title">{track.title}</span>
                     <span class="track-sub">{track.artist}{track.album ? ` • ${track.album}` : ""}</span>
@@ -179,9 +176,7 @@
         <div class="rail-scroll">
           {#each results.artists as artist (artist.id)}
             <button class="artist-card" onclick={() => player.openArtist(artist.id, artist.name)}>
-              {#if artist.avatar_url}
-                <img class="artist-avatar" src={artist.avatar_url} alt={artist.name} />
-              {/if}
+              <CoverImage class="artist-avatar" src={artist.avatar_url} alt={artist.name} fallbackIcon="👤" />
               <strong>{artist.name}</strong>
               {#if artist.subscriber_count}
                 <span class="muted small">{formatSubscribers(artist.subscriber_count)}</span>
@@ -201,9 +196,7 @@
               class="media-card"
               onclick={() => player.openAlbum(album.id, album.title, album.cover_url)}
             >
-              {#if album.cover_url}
-                <img class="media-cover" src={album.cover_url} alt={album.title} />
-              {/if}
+              <CoverImage class="media-cover" src={album.cover_url} alt={album.title} />
               <strong class="media-title">{album.title}</strong>
               <span class="media-sub muted">{album.artist}</span>
             </button>
@@ -221,9 +214,7 @@
               class="media-card"
               onclick={() => player.openAlbum(pl.id, pl.name, pl.cover_url, true)}
             >
-              {#if pl.cover_url}
-                <img class="media-cover" src={pl.cover_url} alt={pl.name} />
-              {/if}
+              <CoverImage class="media-cover" src={pl.cover_url} alt={pl.name} />
               <strong class="media-title">{pl.name}</strong>
               <span class="media-sub muted">{pl.subtitle}</span>
             </button>
@@ -248,9 +239,7 @@
                 e.key === "Enter" &&
                 player.replaceQueueAndPlay([track], 0, `Search: ${player.searchQuery}`)}
             >
-              {#if track.cover_url}
-                <img class="track-cover" src={track.cover_url} alt="" />
-              {/if}
+              <CoverImage class="track-cover" src={track.cover_url} alt="" />
               <div class="track-meta">
                 <span class="track-title">{track.title}</span>
                 <span class="track-sub">{track.artist}{track.album ? ` • ${track.album}` : ""}</span>
@@ -411,13 +400,6 @@
     box-shadow: 0 10px 26px rgba(0, 0, 0, 0.28);
   }
 
-  .top-avatar {
-    width: 88px;
-    height: 88px;
-    border-radius: 999px;
-    object-fit: cover;
-  }
-
   .top-name {
     margin: 0;
     font-size: 22px;
@@ -474,13 +456,6 @@
     background: var(--surface);
   }
 
-  .artist-avatar {
-    width: 120px;
-    height: 120px;
-    border-radius: 999px;
-    object-fit: cover;
-  }
-
   .small {
     font-size: 11.5px;
   }
@@ -496,13 +471,6 @@
     display: flex;
     flex-direction: column;
     gap: 6px;
-  }
-
-  .media-cover {
-    width: 156px;
-    height: 156px;
-    border-radius: 10px;
-    object-fit: cover;
   }
 
   .media-title,

@@ -273,11 +273,24 @@ pub async fn resolve_audio_stream(
     track: Track,
 ) -> Result<StreamPayload, String> {
     let info = state.backend.resolve_track_stream(&track).await?;
+    let stream_url = if info.url.starts_with("http://") || info.url.starts_with("https://") {
+        info.url
+    } else if info.url.starts_with("file://") {
+        let streamer = gyrotube_core::audio_streamer::AudioStreamer::global().await?;
+        streamer.serve_file_url(&track.id, &info.url)?
+    } else {
+        let streamer = gyrotube_core::audio_streamer::AudioStreamer::global().await?;
+        streamer.serve_local_file(&track.id, std::path::PathBuf::from(&info.url))?
+    };
+    eprintln!(
+        "[gyrotube-tauri] audio stream resolved: id={} quality={} url={}",
+        track.id, info.quality_label, stream_url
+    );
     if let Ok(mut lease) = state.active_audio_lease.lock() {
         *lease = info.local_audio;
     }
     Ok(StreamPayload {
-        url: info.url,
+        url: stream_url,
         quality_label: info.quality_label,
     })
 }

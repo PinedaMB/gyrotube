@@ -1,6 +1,7 @@
 <script lang="ts">
   import { player } from "../lib/stores/player.svelte";
   import { formatDuration } from "../lib/types";
+  import CoverImage from "./CoverImage.svelte";
 
   let chartTab = $state<"trending" | "top">("trending");
 
@@ -64,9 +65,7 @@
             class:playing={active}
             onclick={() => player.replaceQueueAndPlay(listenAgain, i, "Listen again")}
           >
-            {#if track.cover_url}
-              <img class="tile-cover" src={track.cover_url} alt="" />
-            {/if}
+            <CoverImage class="tile-cover" src={track.cover_url} alt="" />
             <div class="track-meta">
               <span class="track-title">{track.title}</span>
               <span class="track-sub">{track.artist}</span>
@@ -81,9 +80,7 @@
   {#if featuredAlbum}
     <section class="section">
       <div class="hero-card">
-        {#if featuredAlbum.cover_url}
-          <img class="hero-cover" src={featuredAlbum.cover_url} alt={featuredAlbum.title} />
-        {/if}
+        <CoverImage class="hero-cover" src={featuredAlbum.cover_url} alt={featuredAlbum.title} />
         <div class="hero-info">
           <span class="hero-badge">FEATURED</span>
           <h2 class="hero-title">{featuredAlbum.title}</h2>
@@ -117,9 +114,7 @@
             onclick={() => player.openAlbum(album.id, album.title, album.cover_url)}
           >
             <div class="media-cover-wrap">
-              {#if album.cover_url}
-                <img class="media-cover" src={album.cover_url} alt={album.title} />
-              {/if}
+              <CoverImage class="media-cover" src={album.cover_url} alt={album.title} />
               {#if album.year}
                 <span class="year-badge numeric">{album.year}</span>
               {/if}
@@ -154,9 +149,7 @@
             onkeydown={(e) => e.key === "Enter" && player.replaceQueueAndPlay(chartTracks, i, "Trending hits")}
           >
             <span class="rank numeric">{active ? "🔊" : String(i + 1).padStart(2, "0")}</span>
-            {#if track.cover_url}
-              <img class="track-cover" src={track.cover_url} alt="" />
-            {/if}
+            <CoverImage class="track-cover" src={track.cover_url} alt="" />
             <div class="track-meta">
               <span class="track-title">{track.title}</span>
               <span class="track-sub">{track.artist}</span>
@@ -321,14 +314,6 @@
     color: var(--accent-bright);
   }
 
-  .tile-cover {
-    width: 46px;
-    height: 46px;
-    border-radius: 8px;
-    object-fit: cover;
-    flex-shrink: 0;
-  }
-
   .play-badge {
     width: 30px;
     height: 30px;
@@ -362,15 +347,6 @@
     background: linear-gradient(135deg, rgba(var(--ambient-rgb), 0.24), var(--surface) 65%);
     border: 1px solid var(--border);
     box-shadow: 0 12px 32px rgba(0, 0, 0, 0.28);
-  }
-
-  .hero-cover {
-    width: 148px;
-    height: 148px;
-    border-radius: 14px;
-    object-fit: cover;
-    box-shadow: 0 14px 36px rgba(0, 0, 0, 0.45);
-    flex-shrink: 0;
   }
 
   .hero-info {
@@ -424,14 +400,6 @@
 
   .media-cover-wrap {
     position: relative;
-  }
-
-  .media-cover {
-    width: 156px;
-    height: 156px;
-    border-radius: 10px;
-    object-fit: cover;
-    display: block;
   }
 
   .year-badge {

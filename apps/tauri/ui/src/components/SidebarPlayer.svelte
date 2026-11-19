@@ -1,6 +1,7 @@
 <script lang="ts">
   import { player } from "../lib/stores/player.svelte";
   import { formatDuration } from "../lib/types";
+  import CoverImage from "./CoverImage.svelte";
 
   let lyricRefs = $state<Record<number, HTMLButtonElement>>({});
   let dragFrom = $state<number | null>(null);
@@ -38,15 +39,12 @@
     {#if player.sidebarTab === "player"}
       <div class="player-pane">
         <div class="cover-wrap">
-          {#if player.currentTrack?.cover_large_url || player.currentTrack?.cover_url}
-            <img
-              class="cover-large"
-              src={player.currentTrack.cover_large_url || player.currentTrack.cover_url || ""}
-              alt={player.currentTrack.title}
-            />
-          {:else}
-            <div class="cover-large placeholder">♪</div>
-          {/if}
+          <CoverImage
+            class="cover-large"
+            src={player.currentTrack?.cover_large_url}
+            fallbackSrc={player.currentTrack?.cover_url}
+            alt={player.currentTrack?.title ?? ""}
+          />
         </div>
 
         <div class="track-info">
@@ -319,24 +317,6 @@
     align-items: center;
     gap: 16px;
     padding-top: 12px;
-  }
-
-  .cover-large {
-    width: 224px;
-    height: 224px;
-    border-radius: 16px;
-    object-fit: cover;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    box-shadow: 0 14px 36px rgba(0, 0, 0, 0.44);
-    background: var(--surface);
-  }
-
-  .cover-large.placeholder {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 48px;
-    color: var(--text-muted);
   }
 
   .track-info {

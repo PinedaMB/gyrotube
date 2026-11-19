@@ -158,6 +158,21 @@ class PlayerStore {
       this.engine.setVolume(this.volume);
       this.engine.setCrossfadeSecs(this.crossfadeSecs);
       this.applyTheme(this.themeMode);
+
+      // Restore metadata, ambient color, and lyrics for the saved track (without auto-playing)
+      const restored = this.currentTrack;
+      if (restored) {
+        this.durationSecs = restored.duration_secs ?? 0;
+        const cover = restored.cover_large_url || restored.cover_url;
+        if (cover) {
+          void extractDominantRgb(cover).then((rgb) => {
+            if (this.currentTrack?.id === restored.id) this.ambientRgb = rgb;
+          });
+        }
+        void api.getLyrics(restored.title, restored.artist, restored.duration_secs).then((data) => {
+          if (this.currentTrack?.id === restored.id) this.lyrics = data;
+        });
+      }
     } catch (err) {
       this.showToast(String(err));
     }
@@ -414,7 +429,11 @@ class PlayerStore {
   }
 
   public async togglePlay(): Promise<void> {
-    if (!this.currentTrack) return;
+    if (!this.currentTrack || this.currentIndex == null) return;
+    if (!this.engine.activeDeck.src) {
+      await this.playIndex(this.currentIndex);
+      return;
+    }
     await this.engine.togglePlay();
   }
 

@@ -9,17 +9,20 @@ export interface AudioCallbacks {
 }
 
 /**
- * Dual-deck HTML5 Audio + Web Audio API engine supporting smooth crossfading
- * directly from gyrotube-core's local HTTP Range streamer (`127.0.0.1`).
+ * Dual-deck HTML5 Audio engine supporting smooth crossfading via requestAnimationFrame
+ * volume ramping directly from gyrotube-core's local HTTP Range streamer (`127.0.0.1`).
+ *
+ * Avoids Web Audio API `createMediaElementSource` because WebKitGTK / WKWebView have
+ * CORS and background-suspension issues with media element audio graphs.
  */
 export class DualDeckAudioEngine {
   private decks: [HTMLAudioElement, HTMLAudioElement];
   private activeIndex: 0 | 1 = 0;
-  private ctx: AudioContext | null = null;
-  private gains: [GainNode, GainNode] | null = null;
   private volume = 1.0;
   private crossfadeSecs = 0;
   private crossfadeFired = false;
+  private fadeRaf: number | null = null;
+  private loading = false;
   private callbacks: AudioCallbacks;
 
   constructor(callbacks: AudioCallbacks) {
@@ -28,9 +31,8 @@ export class DualDeckAudioEngine {
   }
 
   private createDeck(index: 0 | 1): HTMLAudioElement {
-    const audio = new Audio();
+    const audio = document.createElement("audio");
     audio.preload = "auto";
-    audio.crossOrigin = "anonymous";
 
     audio.addEventListener("timeupdate", () => {
       if (index !== this.activeIndex) return;
@@ -59,36 +61,28 @@ export class DualDeckAudioEngine {
       if (index === this.activeIndex) this.callbacks.onEnded();
     });
     audio.addEventListener("error", () => {
-      if (index === this.activeIndex && audio.src) {
-        this.callbacks.onError("Audio playback error");
+      if (index === this.activeIndex && audio.src && !this.loading) {
+        const code = audio.error?.code;
+        const detail =
+          audio.error?.message ||
+          (code ? `Audio error (code ${code})` : "Audio playback error");
+        console.error("[GyroTube audio error]", {
+          src: audio.src,
+          code,
+          message: audio.error?.message,
+          networkState: audio.networkState,
+          readyState: audio.readyState,
+        });
+        this.callbacks.onError(detail);
       }
     });
     return audio;
   }
 
-  private ensureWebAudio(): void {
-    if (this.ctx) {
-      if (this.ctx.state === "suspended") void this.ctx.resume();
-      return;
-    }
-    try {
-      const ctx = new AudioContext();
-      const g0 = ctx.createGain();
-      const g1 = ctx.createGain();
-      g0.gain.value = this.activeIndex === 0 ? this.volume : 0;
-      g1.gain.value = this.activeIndex === 1 ? this.volume : 0;
-
-      const s0 = ctx.createMediaElementSource(this.decks[0]);
-      const s1 = ctx.createMediaElementSource(this.decks[1]);
-      s0.connect(g0).connect(ctx.destination);
-      s1.connect(g1).connect(ctx.destination);
-
-      this.ctx = ctx;
-      this.gains = [g0, g1];
-    } catch {
-      // Fallback gracefully to direct HTMLAudioElement.volume if Web Audio is unavailable.
-      this.decks[0].volume = this.volume;
-      this.decks[1].volume = this.volume;
+  private cancelFade(): void {
+    if (this.fadeRaf !== null) {
+      cancelAnimationFrame(this.fadeRaf);
+      this.fadeRaf = null;
     }
   }
 
@@ -98,11 +92,7 @@ export class DualDeckAudioEngine {
 
   public setVolume(v: number): void {
     this.volume = Math.max(0, Math.min(1, v));
-    if (this.gains && this.ctx) {
-      this.gains[this.activeIndex].gain.setValueAtTime(this.volume, this.ctx.currentTime);
-    } else {
-      this.activeDeck.volume = this.volume;
-    }
+    this.activeDeck.volume = this.volume;
   }
 
   public setCrossfadeSecs(secs: number): void {
@@ -110,8 +100,9 @@ export class DualDeckAudioEngine {
   }
 
   public async loadAndPlay(url: string, startPositionSecs = 0, useCrossfade = false): Promise<void> {
-    this.ensureWebAudio();
+    this.cancelFade();
     this.crossfadeFired = false;
+    this.loading = true;
 
     const outgoingIndex = this.activeIndex;
     const incomingIndex: 0 | 1 = useCrossfade ? (outgoingIndex === 0 ? 1 : 0) : outgoingIndex;
@@ -120,49 +111,70 @@ export class DualDeckAudioEngine {
 
     this.activeIndex = incomingIndex;
     incoming.src = url;
-    incoming.currentTime = Math.max(0, startPositionSecs);
+    incoming.load();
 
-    if (useCrossfade && this.gains && this.ctx && this.crossfadeSecs > 0) {
-      const now = this.ctx.currentTime;
-      const dur = this.crossfadeSecs;
-      const gOut = this.gains[outgoingIndex].gain;
-      const gIn = this.gains[incomingIndex].gain;
+    if (startPositionSecs > 0) {
+      const targetPos = startPositionSecs;
+      incoming.addEventListener(
+        "loadedmetadata",
+        () => {
+          if (incoming.src === url && Number.isFinite(targetPos)) {
+            incoming.currentTime = targetPos;
+          }
+        },
+        { once: true },
+      );
+    }
 
-      gOut.cancelScheduledValues(now);
-      gOut.setValueAtTime(gOut.value, now);
-      gOut.linearRampToValueAtTime(0, now + dur);
+    try {
+      if (useCrossfade && this.crossfadeSecs > 0 && outgoingIndex !== incomingIndex) {
+        const startVolOut = outgoing.volume;
+        incoming.volume = 0.01;
+        await incoming.play();
 
-      gIn.cancelScheduledValues(now);
-      gIn.setValueAtTime(0.001, now);
-      gIn.linearRampToValueAtTime(this.volume, now + dur);
-
-      await incoming.play();
-      window.setTimeout(() => {
-        if (this.activeIndex !== outgoingIndex) {
+        const durationMs = this.crossfadeSecs * 1000;
+        const startedAt = performance.now();
+        const step = (now: number) => {
+          const t = Math.min(1, (now - startedAt) / durationMs);
+          outgoing.volume = Math.max(0, startVolOut * (1 - t));
+          incoming.volume = Math.min(1, this.volume * t);
+          if (t < 1 && this.activeIndex === incomingIndex) {
+            this.fadeRaf = requestAnimationFrame(step);
+          } else {
+            this.fadeRaf = null;
+            if (this.activeIndex !== outgoingIndex) {
+              outgoing.pause();
+              outgoing.removeAttribute("src");
+              outgoing.load();
+            }
+          }
+        };
+        this.fadeRaf = requestAnimationFrame(step);
+      } else {
+        if (outgoingIndex !== incomingIndex) {
           outgoing.pause();
           outgoing.removeAttribute("src");
           outgoing.load();
         }
-      }, dur * 1000 + 120);
-    } else {
-      if (outgoingIndex !== incomingIndex) {
-        outgoing.pause();
-        outgoing.removeAttribute("src");
-        outgoing.load();
-      }
-      if (this.gains && this.ctx) {
-        const now = this.ctx.currentTime;
-        this.gains[incomingIndex].gain.cancelScheduledValues(now);
-        this.gains[incomingIndex].gain.setValueAtTime(this.volume, now);
-      } else {
         incoming.volume = this.volume;
+        await incoming.play();
       }
-      await incoming.play();
+    } catch (err) {
+      console.error("[GyroTube play() failed]", {
+        url,
+        err,
+        canPlayWebm: incoming.canPlayType("audio/webm"),
+        canPlayMp4: incoming.canPlayType("audio/mp4"),
+        errorCode: incoming.error?.code,
+        errorMessage: incoming.error?.message,
+      });
+      throw err;
+    } finally {
+      this.loading = false;
     }
   }
 
   public async togglePlay(): Promise<void> {
-    this.ensureWebAudio();
     const deck = this.activeDeck;
     if (!deck.src) return;
     if (deck.paused) {
@@ -179,6 +191,7 @@ export class DualDeckAudioEngine {
   }
 
   public stop(): void {
+    this.cancelFade();
     for (const d of this.decks) {
       d.pause();
       d.removeAttribute("src");
@@ -227,6 +240,7 @@ export async function extractDominantRgb(url: string): Promise<[number, number, 
   return new Promise((resolve) => {
     const img = new Image();
     img.crossOrigin = "anonymous";
+    img.referrerPolicy = "no-referrer";
     img.onload = () => {
       try {
         const canvas = document.createElement("canvas");

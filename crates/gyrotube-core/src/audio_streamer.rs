@@ -131,6 +131,57 @@ impl AudioStreamer {
         format!("http://127.0.0.1:{}/stream/{session_key}.{ext}", self.port)
     }
 
+    /// Registers an already-downloaded local audio file on disk so WebViews
+    /// (which block `file://` URLs) can stream it over `http://127.0.0.1` with
+    /// full HTTP Range and CORS support.
+    pub fn serve_local_file(&self, video_id: &str, file_path: PathBuf) -> Result<String, String> {
+        let meta = std::fs::metadata(&file_path)
+            .map_err(|e| format!("Failed to read cached audio file metadata: {e}"))?;
+        let total = meta.len();
+        let ext = file_path
+            .extension()
+            .and_then(|s| s.to_str())
+            .map(normalize_ext)
+            .unwrap_or_else(|| "webm".to_string());
+
+        let (_tx, progress_rx) = watch::channel(ChunkProgress {
+            written: total,
+            total_bytes: Some(total),
+            done: true,
+            error: None,
+        });
+        let session_key = self.allocate_session_key(video_id);
+        let session = Arc::new(StreamSession {
+            file_path,
+            mime_type: mime_for_ext(&ext).to_string(),
+            progress_rx,
+        });
+        if let Ok(mut map) = self.sessions.write() {
+            map.insert(session_key.clone(), session);
+        }
+
+        let sessions_map = self.sessions.clone();
+        let cleanup_key = session_key.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_secs(1800)).await;
+            if let Ok(mut map) = sessions_map.write() {
+                map.remove(&cleanup_key);
+            }
+        });
+
+        Ok(self.local_url(&session_key, &ext))
+    }
+
+    /// Converts a `file://...` URL returned by the disk cache into a loopback HTTP stream URL.
+    pub fn serve_file_url(&self, video_id: &str, file_url: &str) -> Result<String, String> {
+        let parsed = reqwest::Url::parse(file_url)
+            .map_err(|e| format!("Invalid cached file URL: {e}"))?;
+        let path = parsed
+            .to_file_path()
+            .map_err(|()| format!("Cached URL is not a local file path: {file_url}"))?;
+        self.serve_local_file(video_id, path)
+    }
+
     pub async fn start_chunked_http_stream(
         &self,
         video_id: &str,
@@ -765,6 +816,16 @@ async fn handle_client(
         }
     }
 
+    const CORS_HEADERS: &str = "Access-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET, HEAD, OPTIONS\r\nAccess-Control-Allow-Headers: Range\r\nAccess-Control-Expose-Headers: Content-Range, Content-Length, Accept-Ranges\r\n";
+
+    if method.eq_ignore_ascii_case("OPTIONS") {
+        let hdr = format!(
+            "HTTP/1.1 204 No Content\r\n{CORS_HEADERS}Content-Length: 0\r\nConnection: close\r\n\r\n"
+        );
+        write_half.write_all(hdr.as_bytes()).await?;
+        return Ok(());
+    }
+
     let raw_key = path
         .strip_prefix("/stream/")
         .unwrap_or("")
@@ -782,9 +843,10 @@ async fn handle_client(
     };
 
     let Some(session) = session else {
-        write_half
-            .write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
-            .await?;
+        let hdr = format!(
+            "HTTP/1.1 404 Not Found\r\n{CORS_HEADERS}Content-Length: 0\r\nConnection: close\r\n\r\n"
+        );
+        write_half.write_all(hdr.as_bytes()).await?;
         return Ok(());
     };
 
@@ -800,7 +862,7 @@ async fn handle_client(
         (Some((start, end_opt)), Some(total)) if total > 0 => {
             if start >= total {
                 let hdr = format!(
-                    "HTTP/1.1 416 Range Not Satisfiable\r\nContent-Range: bytes */{total}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                    "HTTP/1.1 416 Range Not Satisfiable\r\n{CORS_HEADERS}Content-Range: bytes */{total}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
                 );
                 write_half.write_all(hdr.as_bytes()).await?;
                 return Ok(());
@@ -808,7 +870,7 @@ async fn handle_client(
             let end = end_opt.map(|e| e.min(total - 1)).unwrap_or(total - 1);
             let len = end - start + 1;
             let hdr = format!(
-                "HTTP/1.1 206 Partial Content\r\nContent-Type: {}\r\nAccept-Ranges: bytes\r\nContent-Range: bytes {start}-{end}/{total}\r\nContent-Length: {len}\r\nConnection: close\r\n\r\n",
+                "HTTP/1.1 206 Partial Content\r\n{CORS_HEADERS}Content-Type: {}\r\nAccept-Ranges: bytes\r\nContent-Range: bytes {start}-{end}/{total}\r\nContent-Length: {len}\r\nConnection: close\r\n\r\n",
                 session.mime_type
             );
             ("206", start, Some(end), hdr)
@@ -821,14 +883,14 @@ async fn handle_client(
             let end = end_opt.map(|e| e.min(synth_total - 1)).unwrap_or(synth_total - 1);
             let len = end - start + 1;
             let hdr = format!(
-                "HTTP/1.1 206 Partial Content\r\nContent-Type: {}\r\nAccept-Ranges: bytes\r\nContent-Range: bytes {start}-{end}/{synth_total}\r\nContent-Length: {len}\r\nConnection: close\r\n\r\n",
+                "HTTP/1.1 206 Partial Content\r\n{CORS_HEADERS}Content-Type: {}\r\nAccept-Ranges: bytes\r\nContent-Range: bytes {start}-{end}/{synth_total}\r\nContent-Length: {len}\r\nConnection: close\r\n\r\n",
                 session.mime_type
             );
             ("206", start, end_opt, hdr)
         }
         (None, Some(total)) if total > 0 => {
             let hdr = format!(
-                "HTTP/1.1 200 OK\r\nContent-Type: {}\r\nAccept-Ranges: bytes\r\nContent-Length: {total}\r\nConnection: close\r\n\r\n",
+                "HTTP/1.1 200 OK\r\n{CORS_HEADERS}Content-Type: {}\r\nAccept-Ranges: bytes\r\nContent-Length: {total}\r\nConnection: close\r\n\r\n",
                 session.mime_type
             );
             ("200", 0, Some(total - 1), hdr)
@@ -837,12 +899,12 @@ async fn handle_client(
             let hdr = if is_done {
                 let total = known_total.unwrap_or(0);
                 format!(
-                    "HTTP/1.1 200 OK\r\nContent-Type: {}\r\nAccept-Ranges: bytes\r\nContent-Length: {total}\r\nConnection: close\r\n\r\n",
+                    "HTTP/1.1 200 OK\r\n{CORS_HEADERS}Content-Type: {}\r\nAccept-Ranges: bytes\r\nContent-Length: {total}\r\nConnection: close\r\n\r\n",
                     session.mime_type
                 )
             } else {
                 format!(
-                    "HTTP/1.1 200 OK\r\nContent-Type: {}\r\nAccept-Ranges: bytes\r\nConnection: close\r\n\r\n",
+                    "HTTP/1.1 200 OK\r\n{CORS_HEADERS}Content-Type: {}\r\nAccept-Ranges: bytes\r\nConnection: close\r\n\r\n",
                     session.mime_type
                 )
             };
