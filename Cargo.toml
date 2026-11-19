@@ -3,6 +3,7 @@ resolver = "3"
 members = [
     "crates/gyrotube-core",
     "apps/gtk",
+    "apps/tauri/src-tauri",
 ]
 default-members = ["apps/gtk"]
 

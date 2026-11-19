@@ -27,14 +27,14 @@ pub struct Album {
     pub cover_url: Option<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Genre {
     pub id: String,
     pub name: String,
     pub color_hex: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Playlist {
     pub id: String,
     pub name: String,
@@ -42,7 +42,7 @@ pub struct Playlist {
     pub cover_url: Option<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Artist {
     pub id: String,
     pub name: String,
@@ -50,7 +50,7 @@ pub struct Artist {
     pub subscriber_count: Option<u64>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ArtistDetails {
     pub name: String,
     pub header_url: Option<String>,
@@ -62,7 +62,7 @@ pub struct ArtistDetails {
     pub similar_artists: Vec<Artist>,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct SearchResults {
     pub artists: Vec<Artist>,
     pub albums: Vec<Album>,
@@ -571,7 +571,7 @@ pub fn save_session_state(state: &SessionState) -> std::io::Result<()> {
     save_json_file("session.json", state)
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SyncedLyricLine {
     pub time_secs: f64,
     pub text: String,
