@@ -742,22 +742,27 @@ pub fn build_mini_bar(
         artist_builder.build()
     };
 
+    let mini_fav_btn = Button::builder()
+        .icon_name("heart-regular")
+        .tooltip_text(tr("Agregar a favoritos", "Add to favorites"))
+        .css_classes(["circular", "flat", "mini-fav-btn"])
+        .build();
     let mini_prev_btn = Button::builder()
         .icon_name("previous-filled")
-        .tooltip_text("Anterior")
+        .tooltip_text(tr("Anterior", "Previous"))
         .css_classes(["circular", "flat"])
         .build();
     let mini_play_btn = Button::builder()
         .icon_name("play-filled")
-        .tooltip_text("Reproducir / Pausar")
+        .tooltip_text(tr("Reproducir / Pausar", "Play / Pause"))
         .css_classes(["circular", "suggested-action"])
         .build();
     let mini_next_btn = Button::builder()
         .icon_name("next-filled")
-        .tooltip_text("Siguiente")
+        .tooltip_text(tr("Siguiente", "Next"))
         .css_classes(["circular", "flat"])
         .build();
-    let prev_btn_ref = {
+    let (prev_btn_ref, fav_btn_ref) = {
         let s = state.borrow();
         attach_mirrored_play_stack(&mini_play_btn, &s.play_pause_btn, &s.play_spinner, 16);
         s.player_cover
@@ -775,6 +780,27 @@ pub fn build_mini_bar(
             })
             .sync_create()
             .build();
+        s.player_fav_btn
+            .bind_property("icon-name", &mini_fav_btn, "icon-name")
+            .sync_create()
+            .build();
+        s.player_fav_btn
+            .bind_property("sensitive", &mini_fav_btn, "sensitive")
+            .sync_create()
+            .build();
+        if s.player_fav_btn.is_active() {
+            mini_fav_btn.add_css_class("is-favorite");
+        }
+        {
+            let fav_mirror = mini_fav_btn.clone();
+            s.player_fav_btn.connect_active_notify(move |btn| {
+                if btn.is_active() {
+                    fav_mirror.add_css_class("is-favorite");
+                } else {
+                    fav_mirror.remove_css_class("is-favorite");
+                }
+            });
+        }
         s.prev_btn
             .bind_property("sensitive", &mini_prev_btn, "sensitive")
             .sync_create()
@@ -787,7 +813,7 @@ pub fn build_mini_bar(
             .bind_property("sensitive", &mini_next_btn, "sensitive")
             .sync_create()
             .build();
-        s.prev_btn.clone()
+        (s.prev_btn.clone(), s.player_fav_btn.clone())
     };
 
     let text_col = GtkBox::new(Orientation::Vertical, 1);
@@ -806,10 +832,11 @@ pub fn build_mini_bar(
     let open_btn = Button::builder()
         .child(&open_box)
         .hexpand(true)
-        .tooltip_text("Abrir reproductor")
+        .tooltip_text(tr("Abrir reproductor", "Open player"))
         .css_classes(["flat"])
         .build();
 
+    mini_fav_btn.connect_clicked(move |_| fav_btn_ref.set_active(!fav_btn_ref.is_active()));
     mini_prev_btn.connect_clicked(move |_| prev_btn_ref.emit_clicked());
     {
         let play_btn = play_pause_btn.clone();
@@ -824,6 +851,9 @@ pub fn build_mini_bar(
 
     let controls_box = GtkBox::new(Orientation::Horizontal, 4);
     controls_box.set_valign(Align::Center);
+    if compact {
+        controls_box.append(&mini_fav_btn);
+    }
     controls_box.append(&mini_prev_btn);
     controls_box.append(&mini_play_btn);
     controls_box.append(&mini_next_btn);

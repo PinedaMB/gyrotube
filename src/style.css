@@ -208,15 +208,25 @@ button.suggested-action spinner {
 }
 
 .floating-mini-player {
-    padding: 8px 12px 8px 10px;
-    border-radius: 18px;
-    border: 1px solid alpha(@window_fg_color, 0.16);
-    background-color: alpha(@headerbar_bg_color, 0.96);
-    box-shadow: 0 10px 30px alpha(black, 0.50);
+    padding: 9px 12px 8px 10px;
+    border-radius: 20px;
+    border: 1px solid alpha(@window_fg_color, 0.14);
+    background-color: alpha(@headerbar_bg_color, 0.94);
+    box-shadow: 0 12px 32px alpha(black, 0.52), 0 0 0 1px alpha(#ffffff, 0.04) inset;
+    transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.floating-mini-player:hover {
+    border-color: alpha(@accent_bg_color, 0.36);
+    box-shadow: 0 14px 36px alpha(black, 0.58), 0 0 0 1px alpha(@accent_bg_color, 0.14) inset;
 }
 
 .floating-mini-player .mini-progress {
-    margin: 0 6px 2px 6px;
+    margin: 2px 6px 2px 6px;
+}
+
+.mini-fav-btn.is-favorite {
+    color: #ff5b7f;
 }
 
 .mobile-mini-player {
@@ -296,38 +306,55 @@ button.suggested-action spinner {
 }
 
 .quick-card {
-    padding: 18px 20px;
+    padding: 12px 14px;
     border-radius: 14px;
-    background-color: alpha(@window_fg_color, 0.05);
+    background-color: alpha(@window_fg_color, 0.045);
     border: 1px solid alpha(@window_fg_color, 0.08);
-    transition: background 180ms ease, border-color 180ms ease;
+    transition: background 180ms ease, border-color 180ms ease, transform 160ms ease;
+}
+
+.quick-card-1 {
+    background-image: linear-gradient(120deg, alpha(#e01b24, 0.11) 0%, alpha(@window_fg_color, 0.03) 65%);
+}
+
+.quick-card-2 {
+    background-image: linear-gradient(120deg, alpha(#3584e4, 0.11) 0%, alpha(@window_fg_color, 0.03) 65%);
+}
+
+.quick-card-3 {
+    background-image: linear-gradient(120deg, alpha(#c061cb, 0.11) 0%, alpha(@window_fg_color, 0.03) 65%);
+}
+
+.quick-card-4 {
+    background-image: linear-gradient(120deg, alpha(#2ec27e, 0.11) 0%, alpha(@window_fg_color, 0.03) 65%);
 }
 
 .quick-card-1:hover {
-    background-image: linear-gradient(135deg, alpha(@window_fg_color, 0.06) 35%, alpha(#e01b24, 0.16));
-    border-color: alpha(#e01b24, 0.35);
+    background-image: linear-gradient(120deg, alpha(#e01b24, 0.22) 0%, alpha(@window_fg_color, 0.06) 72%);
+    border-color: alpha(#e01b24, 0.42);
 }
 
 .quick-card-2:hover {
-    background-image: linear-gradient(135deg, alpha(@window_fg_color, 0.06) 35%, alpha(#3584e4, 0.16));
-    border-color: alpha(#3584e4, 0.35);
+    background-image: linear-gradient(120deg, alpha(#3584e4, 0.22) 0%, alpha(@window_fg_color, 0.06) 72%);
+    border-color: alpha(#3584e4, 0.42);
 }
 
 .quick-card-3:hover {
-    background-image: linear-gradient(135deg, alpha(@window_fg_color, 0.06) 35%, alpha(#c061cb, 0.16));
-    border-color: alpha(#c061cb, 0.35);
+    background-image: linear-gradient(120deg, alpha(#c061cb, 0.22) 0%, alpha(@window_fg_color, 0.06) 72%);
+    border-color: alpha(#c061cb, 0.42);
 }
 
 .quick-card-4:hover {
-    background-image: linear-gradient(135deg, alpha(@window_fg_color, 0.06) 35%, alpha(#2ec27e, 0.16));
-    border-color: alpha(#2ec27e, 0.35);
+    background-image: linear-gradient(120deg, alpha(#2ec27e, 0.22) 0%, alpha(@window_fg_color, 0.06) 72%);
+    border-color: alpha(#2ec27e, 0.42);
 }
 
 .quick-icon-badge {
-    min-width: 38px;
-    min-height: 38px;
+    min-width: 36px;
+    min-height: 36px;
     border-radius: 10px;
     color: #ffffff;
+    box-shadow: 0 3px 10px alpha(#000000, 0.25);
 }
 
 .quick-badge-1 {
@@ -344,12 +371,6 @@ button.suggested-action spinner {
 
 .quick-badge-4 {
     background-color: #2ec27e;
-}
-
-.quick-num {
-    font-size: 0.9em;
-    font-weight: 600;
-    opacity: 0.45;
 }
 
 .pill-switch-group {
@@ -691,18 +712,29 @@ button.suggested-action spinner {
 
 .home-hero-card {
     border-radius: 18px;
-    padding: 20px 24px;
-    border: 1px solid alpha(@window_fg_color, 0.10);
+    padding: 22px 26px;
+    border: 1px solid alpha(@window_fg_color, 0.12);
     background-image: linear-gradient(
-        135deg,
-        alpha(@accent_bg_color, 0.26) 0%,
+        125deg,
+        alpha(@accent_bg_color, 0.28) 0%,
         alpha(@window_fg_color, 0.04) 72%
+    );
+    box-shadow: 0 12px 32px alpha(#000000, 0.28);
+    transition: background-image 320ms ease, border-color 320ms ease;
+}
+
+.home-ambient-bg {
+    background-image: radial-gradient(
+        ellipse at 50% 0%,
+        alpha(@accent_bg_color, 0.09) 0%,
+        alpha(@accent_bg_color, 0.03) 36%,
+        transparent 64%
     );
 }
 
 .home-hero-cover {
-    box-shadow: 0 10px 28px alpha(#000000, 0.45);
-    border-radius: 12px;
+    box-shadow: 0 14px 36px alpha(#000000, 0.52);
+    border-radius: 14px;
 }
 
 .home-hero-badge {
@@ -726,6 +758,45 @@ button.suggested-action spinner {
 .listen-again-tile:hover {
     background-color: alpha(@window_fg_color, 0.10);
     border-color: alpha(@window_fg_color, 0.14);
+}
+
+.listen-again-tile.is-playing {
+    background-color: alpha(@accent_bg_color, 0.14);
+    border-color: alpha(@accent_bg_color, 0.45);
+}
+
+.listen-again-tile.is-playing:hover {
+    background-color: alpha(@accent_bg_color, 0.20);
+    border-color: alpha(@accent_bg_color, 0.60);
+}
+
+.listen-again-play-badge {
+    min-width: 30px;
+    min-height: 30px;
+    border-radius: 999px;
+    background-color: transparent;
+    color: alpha(@window_fg_color, 0.45);
+    opacity: 0.72;
+    transition: background-color 140ms ease, color 140ms ease, opacity 140ms ease, box-shadow 140ms ease;
+}
+
+.listen-again-tile:hover .listen-again-play-badge {
+    background-color: @accent_bg_color;
+    color: #ffffff;
+    opacity: 1;
+    box-shadow: 0 4px 12px alpha(@accent_bg_color, 0.42);
+}
+
+.listen-again-tile.is-playing .listen-again-play-badge {
+    background-color: alpha(@accent_bg_color, 0.22);
+    color: @accent_color;
+    opacity: 1;
+}
+
+.listen-again-tile.is-playing:hover .listen-again-play-badge {
+    background-color: @accent_bg_color;
+    color: #ffffff;
+    box-shadow: 0 4px 12px alpha(@accent_bg_color, 0.42);
 }
 
 .spin-qr-card {

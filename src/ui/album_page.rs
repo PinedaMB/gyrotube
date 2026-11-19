@@ -259,7 +259,7 @@ pub fn build_album_page(
 
     let container = GtkBox::new(Orientation::Vertical, 12);
     container.set_margin_top(14);
-    container.set_margin_bottom(88);
+    container.set_margin_bottom(112);
     container.set_margin_start(16);
     container.set_margin_end(16);
     container.append(&hero_overlay);

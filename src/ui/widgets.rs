@@ -606,7 +606,10 @@ pub fn set_artist_links(label: &Label, artists: &str) {
 pub fn set_album_link(label: &Label, album: Option<&str>) {
     if let Some(name) = album.map(str::trim).filter(|s| !s.is_empty()) {
         let esc = glib::markup_escape_text(name);
-        label.set_markup(&format!("Álbum: <a href=\"{esc}\">{esc}</a>"));
+        label.set_markup(&format!(
+            "{}: <a href=\"{esc}\">{esc}</a>",
+            tr("Álbum", "Album")
+        ));
         label.set_visible(true);
     } else {
         label.set_text("");
@@ -1504,7 +1507,8 @@ pub fn update_ambient_color(texture: Option<&gdk::Texture>) {
     let provider = AMBIENT_PROVIDER.with(ensure_display_provider);
     if let Some((r, g, b)) = texture.and_then(extract_dominant_rgb) {
         provider.load_from_string(&format!(
-            ".ambient-player {{ background-image: radial-gradient(circle at 50% 28%, rgba({r}, {g}, {b}, 0.24), transparent 72%); }}"
+            ".ambient-player {{ background-image: radial-gradient(circle at 50% 28%, rgba({r}, {g}, {b}, 0.24), transparent 72%); }}\n\
+             .home-ambient-bg {{ background-image: radial-gradient(ellipse at 50% 0%, rgba({r}, {g}, {b}, 0.17) 0%, rgba({r}, {g}, {b}, 0.05) 38%, transparent 68%); }}"
         ));
     } else {
         provider.load_from_string("");

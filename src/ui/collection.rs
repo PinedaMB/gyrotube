@@ -144,7 +144,7 @@ fn build_playlist_art(
 pub fn build_collection_page(state: Rc<RefCell<AppState>>) -> ScrolledWindow {
     let container = GtkBox::new(Orientation::Vertical, 22);
     container.set_margin_top(18);
-    container.set_margin_bottom(88);
+    container.set_margin_bottom(112);
     container.set_margin_start(20);
     container.set_margin_end(20);
 
@@ -274,7 +274,8 @@ pub fn build_collection_page(state: Rc<RefCell<AppState>>) -> ScrolledWindow {
     container.append(&recent_list);
 
     let clamp = adw::Clamp::builder()
-        .maximum_size(1040)
+        .maximum_size(1200)
+        .tightening_threshold(900)
         .child(&container)
         .build();
 

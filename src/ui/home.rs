@@ -17,12 +17,12 @@ use crate::models::{Track, format_duration};
 use crate::ui::player::{play_queue_index, refresh_queue_ui};
 use crate::ui::state::AppState;
 use crate::ui::widgets::{
-    build_album_card, build_playlist_card, build_skeleton_box, clamped_cover, clear_list_box,
-    load_cover_into_picture, open_album_by_id, play_album_by_id, set_track_favorite,
+    build_album_card, build_carousel_section, build_playlist_card, build_skeleton_box,
+    clamped_cover, clear_list_box, load_cover_into_picture, open_album_by_id, play_album_by_id,
+    set_track_favorite,
 };
 
 fn build_quick_card(
-    num: &str,
     title: &str,
     subtitle: &str,
     icon_name: &str,
@@ -30,7 +30,7 @@ fn build_quick_card(
 ) -> Button {
     let icon = Image::builder()
         .icon_name(icon_name)
-        .pixel_size(18)
+        .pixel_size(17)
         .halign(Align::Center)
         .valign(Align::Center)
         .hexpand(true)
@@ -39,28 +39,16 @@ fn build_quick_card(
     let icon_badge = GtkBox::builder()
         .halign(Align::Start)
         .valign(Align::Center)
-        .width_request(38)
-        .height_request(38)
+        .width_request(36)
+        .height_request(36)
         .css_classes(["quick-icon-badge", &badge_class])
         .build();
     icon_badge.append(&icon);
 
-    let num_label = Label::builder()
-        .label(num)
-        .xalign(1.0)
-        .hexpand(true)
-        .valign(Align::Start)
-        .css_classes(["quick-num", "numeric"])
-        .build();
-
-    let top_row = GtkBox::new(Orientation::Horizontal, 8);
-    top_row.append(&icon_badge);
-    top_row.append(&num_label);
-
     let title_label = Label::builder()
         .label(title)
         .xalign(0.0)
-        .max_width_chars(20)
+        .max_width_chars(18)
         .ellipsize(gtk4::pango::EllipsizeMode::End)
         .css_classes(["heading"])
         .build();
@@ -73,11 +61,15 @@ fn build_quick_card(
         .css_classes(["dim-label", "caption"])
         .build();
 
-    let card_box = GtkBox::new(Orientation::Vertical, 12);
-    card_box.append(&top_row);
-    let text_box = GtkBox::new(Orientation::Vertical, 3);
+    let text_box = GtkBox::new(Orientation::Vertical, 2);
+    text_box.set_hexpand(true);
+    text_box.set_valign(Align::Center);
     text_box.append(&title_label);
     text_box.append(&sub_label);
+
+    let card_box = GtkBox::new(Orientation::Horizontal, 12);
+    card_box.set_valign(Align::Center);
+    card_box.append(&icon_badge);
     card_box.append(&text_box);
 
     let card_class = format!("quick-card-{variant}");
@@ -154,7 +146,7 @@ fn build_chart_track_row(
         .album
         .as_deref()
         .filter(|a| !a.is_empty())
-        .unwrap_or("Sencillo");
+        .unwrap_or_else(|| tr("Sencillo", "Single"));
     let album_label = Label::builder()
         .label(album_text)
         .xalign(0.0)
@@ -216,7 +208,11 @@ fn build_chart_track_row(
                 let mut s = state.borrow_mut();
                 s.queue.push(track.clone());
                 s.update_nav_buttons();
-                s.show_toast(&format!("Agregado a la cola: {}", track.title));
+                s.show_toast(&format!(
+                    "{}: {}",
+                    tr("Agregado a la cola", "Added to queue"),
+                    track.title
+                ));
                 s.current_index.is_none()
             };
             refresh_queue_ui(Rc::clone(&state));
@@ -435,7 +431,7 @@ pub fn build_home_page(
 ) -> (ScrolledWindow, FlowBox) {
     let container = GtkBox::new(Orientation::Vertical, 24);
     container.set_margin_top(16);
-    container.set_margin_bottom(88);
+    container.set_margin_bottom(112);
     container.set_margin_start(20);
     container.set_margin_end(20);
 
@@ -491,28 +487,24 @@ pub fn build_home_page(
         .selection_mode(SelectionMode::None)
         .build();
     let card_new = build_quick_card(
-        "01",
         tr("Nuevos lanzamientos", "New releases"),
         tr("Álbumes y sencillos recientes", "Recent albums & singles"),
         "media-optical-symbolic",
         1,
     );
     let card_charts = build_quick_card(
-        "02",
         tr("Listas de éxitos", "Top charts"),
         tr("Tendencias y Top Música", "Trending & Top Music"),
         "view-list-ordered-symbolic",
         2,
     );
     let card_moods = build_quick_card(
-        "03",
         tr("Estados de ánimo", "Moods"),
         tr("Explorar géneros y ritmos", "Explore genres & vibes"),
         "search-regular",
         3,
     );
     let card_collection = build_quick_card(
-        "04",
         tr("Colección", "Collection"),
         tr("Tus canciones favoritas", "Your favorite songs"),
         "heart-filled",
@@ -554,9 +546,16 @@ pub fn build_home_page(
             while let Some(child) = listen_again_grid.first_child() {
                 listen_again_grid.remove(&child);
             }
-            let recents: Vec<Track> = state.borrow().recent_tracks.iter().take(6).cloned().collect();
+            let (recents, current_id): (Vec<Track>, Option<String>) = {
+                let s = state.borrow();
+                (
+                    s.recent_tracks.iter().take(6).cloned().collect(),
+                    s.current_track().map(|t| t.id.clone()),
+                )
+            };
             listen_again_section.set_visible(!recents.is_empty());
             for (idx, track) in recents.iter().enumerate() {
+                let is_playing = current_id.as_deref() == Some(track.id.as_str());
                 let (cover_frame, cover_pic) = clamped_cover(46, 46, "cover-art");
                 if let Some(url) = &track.cover_url {
                     load_cover_into_picture(&cover_pic, url, Rc::clone(&state));
@@ -568,32 +567,60 @@ pub fn build_home_page(
                     &Label::builder()
                         .label(&track.title)
                         .xalign(0.0)
+                        .width_chars(8)
+                        .max_width_chars(18)
                         .ellipsize(gtk4::pango::EllipsizeMode::End)
-                        .css_classes(["heading"])
+                        .css_classes(if is_playing {
+                            vec!["heading", "playing-title"]
+                        } else {
+                            vec!["heading"]
+                        })
                         .build(),
                 );
                 text_col.append(
                     &Label::builder()
                         .label(&track.artist)
                         .xalign(0.0)
+                        .width_chars(8)
+                        .max_width_chars(18)
                         .ellipsize(gtk4::pango::EllipsizeMode::End)
                         .css_classes(["caption", "dim-label"])
+                        .build(),
+                );
+                let play_badge = GtkBox::builder()
+                    .halign(Align::End)
+                    .valign(Align::Center)
+                    .hexpand(false)
+                    .vexpand(false)
+                    .width_request(30)
+                    .height_request(30)
+                    .css_classes(["listen-again-play-badge"])
+                    .build();
+                play_badge.append(
+                    &Image::builder()
+                        .icon_name(if is_playing {
+                            "speaker-2-regular"
+                        } else {
+                            "play-filled"
+                        })
+                        .pixel_size(if is_playing { 14 } else { 12 })
+                        .halign(Align::Center)
+                        .valign(Align::Center)
+                        .hexpand(true)
+                        .vexpand(true)
                         .build(),
                 );
                 let row_box = GtkBox::new(Orientation::Horizontal, 10);
                 row_box.append(&cover_frame);
                 row_box.append(&text_col);
-                row_box.append(
-                    &Image::builder()
-                        .icon_name("play-filled")
-                        .pixel_size(14)
-                        .valign(Align::Center)
-                        .css_classes(["dim-label"])
-                        .build(),
-                );
+                row_box.append(&play_badge);
                 let tile_btn = Button::builder()
                     .child(&row_box)
-                    .css_classes(["flat", "listen-again-tile"])
+                    .css_classes(if is_playing {
+                        vec!["flat", "listen-again-tile", "is-playing"]
+                    } else {
+                        vec!["flat", "listen-again-tile"]
+                    })
                     .build();
                 tile_btn.set_cursor_from_name(Some("pointer"));
                 let state_click = Rc::clone(&state);
@@ -676,6 +703,7 @@ pub fn build_home_page(
             .width_chars(8)
             .build(),
     );
+    chart_cols.append(&GtkBox::builder().width_request(112).build());
 
     let chart_list = ListBox::builder()
         .selection_mode(SelectionMode::None)
@@ -692,84 +720,15 @@ pub fn build_home_page(
     chart_section.append(&chart_header);
     chart_section.append(&chart_card);
 
-    // 3. "Nuevos lanzamientos" adw::Carousel
-    let albums_header_text = GtkBox::new(Orientation::Vertical, 2);
-    albums_header_text.set_hexpand(true);
-    albums_header_text.append(
-        &Label::builder()
-            .label(tr("Nuevos lanzamientos", "New releases"))
-            .xalign(0.0)
-            .css_classes(["title-2"])
-            .build(),
-    );
-    albums_header_text.append(
-        &Label::builder()
-            .label(tr(
-                "Álbumes y sencillos recién publicados",
-                "Recently released albums & singles",
-            ))
-            .xalign(0.0)
-            .css_classes(["dim-label", "caption"])
-            .build(),
-    );
-
-    let albums_prev_btn = Button::builder()
-        .icon_name("go-previous-symbolic")
-        .tooltip_text(tr("Página anterior", "Previous page"))
-        .valign(Align::Center)
-        .css_classes(["circular", "flat"])
-        .build();
-    let albums_next_btn = Button::builder()
-        .icon_name("go-next-symbolic")
-        .tooltip_text(tr("Página siguiente", "Next page"))
-        .valign(Align::Center)
-        .css_classes(["circular", "flat"])
-        .build();
-
-    let albums_header = GtkBox::new(Orientation::Horizontal, 8);
-    albums_header.append(&albums_header_text);
-    albums_header.append(&albums_prev_btn);
-    albums_header.append(&albums_next_btn);
-
-    let albums_carousel = adw::Carousel::builder()
-        .spacing(12)
-        .allow_mouse_drag(true)
-        .allow_scroll_wheel(false)
-        .build();
-    let albums_dots = adw::CarouselIndicatorDots::builder()
-        .carousel(&albums_carousel)
-        .build();
-
+    // 3. "Nuevos lanzamientos" responsive horizontal rail
+    let (albums_section, albums_rail, albums_scroller) =
+        build_carousel_section(tr("Nuevos lanzamientos", "New releases"));
+    if let Some(header_box) = albums_section.first_child().and_downcast::<GtkBox>()
+        && let Some(title_lbl) = header_box.first_child().and_downcast::<Label>()
     {
-        let carousel = albums_carousel.clone();
-        albums_prev_btn.connect_clicked(move |_| {
-            let n = carousel.n_pages();
-            if n == 0 {
-                return;
-            }
-            let pos = (carousel.position().round() as u32).saturating_sub(1);
-            let page = carousel.nth_page(pos);
-            carousel.scroll_to(&page, true);
-        });
+        title_lbl.remove_css_class("title-3");
+        title_lbl.add_css_class("title-2");
     }
-    {
-        let carousel = albums_carousel.clone();
-        albums_next_btn.connect_clicked(move |_| {
-            let n = carousel.n_pages();
-            if n == 0 {
-                return;
-            }
-            let pos = ((carousel.position().round() as u32) + 1).min(n - 1);
-            let page = carousel.nth_page(pos);
-            carousel.scroll_to(&page, true);
-        });
-    }
-
-    let albums_section = GtkBox::new(Orientation::Vertical, 10);
-    albums_section.set_visible(false);
-    albums_section.append(&albums_header);
-    albums_section.append(&albums_carousel);
-    albums_section.append(&albums_dots);
 
     // 4. "Estaciones y géneros" adaptive bento grid (4 -> 2 -> 1 columns)
     let stations_header = Label::builder()
@@ -801,12 +760,14 @@ pub fn build_home_page(
     container.append(&stations_section);
 
     let clamp = adw::Clamp::builder()
-        .maximum_size(1100)
+        .maximum_size(1280)
+        .tightening_threshold(960)
         .child(&container)
         .build();
 
     let scrolled = ScrolledWindow::builder()
         .hscrollbar_policy(PolicyType::Never)
+        .css_classes(["home-ambient-bg"])
         .child(&clamp)
         .build();
 
@@ -918,7 +879,8 @@ pub fn build_home_page(
         let hero_section = hero_section.clone();
         let chart_section = chart_section.clone();
         let albums_section = albums_section.clone();
-        let albums_carousel = albums_carousel.clone();
+        let albums_rail = albums_rail.clone();
+        let albums_scroller = albums_scroller.clone();
         let stations_section = stations_section.clone();
         let stations_grid = stations_grid.clone();
         let cached_trending = Rc::clone(&cached_trending);
@@ -949,7 +911,8 @@ pub fn build_home_page(
             let hero_section = hero_section.clone();
             let chart_section = chart_section.clone();
             let albums_section = albums_section.clone();
-            let albums_carousel = albums_carousel.clone();
+            let albums_rail = albums_rail.clone();
+            let albums_scroller = albums_scroller.clone();
             let stations_section = stations_section.clone();
             let stations_grid = stations_grid.clone();
             let cached_trending = Rc::clone(&cached_trending);
@@ -975,11 +938,8 @@ pub fn build_home_page(
                             }
                             if let Some(featured) = feed.new_albums.first() {
                                 let (cover_frame, cover_pic) =
-                                    clamped_cover(128, 128, "cover-art-large");
+                                    clamped_cover(148, 148, "cover-art-large");
                                 cover_frame.add_css_class("home-hero-cover");
-                                if let Some(url) = &featured.cover_url {
-                                    load_cover_into_picture(&cover_pic, url, Rc::clone(&state));
-                                }
                                 let badge = Label::builder()
                                     .label(tr("DESTACADO", "FEATURED"))
                                     .halign(Align::Start)
@@ -1052,39 +1012,62 @@ pub fn build_home_page(
                                 info_col.append(&sub_lbl);
                                 info_col.append(&btns_row);
 
-                                let hero_card = GtkBox::new(Orientation::Horizontal, 20);
+                                let hero_card = GtkBox::new(Orientation::Horizontal, 24);
                                 hero_card.add_css_class("home-hero-card");
                                 hero_card.append(&cover_frame);
                                 hero_card.append(&info_col);
+
+                                let hero_css = gtk4::CssProvider::new();
+                                #[allow(deprecated)]
+                                hero_card.style_context().add_provider(
+                                    &hero_css,
+                                    gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION + 1,
+                                );
+                                let apply_hero_tint = move |pic: &gtk4::Picture| {
+                                    if let Some(tex) = pic
+                                        .paintable()
+                                        .and_then(|p| p.downcast::<gtk4::gdk::Texture>().ok())
+                                        && let Some((r, g, b)) =
+                                            crate::ui::widgets::extract_dominant_rgb(&tex)
+                                    {
+                                        hero_css.load_from_string(&format!(
+                                            "box.home-hero-card {{ \
+                                                background-image: linear-gradient(125deg, \
+                                                    rgba({r}, {g}, {b}, 0.34) 0%, \
+                                                    rgba({r}, {g}, {b}, 0.14) 46%, \
+                                                    alpha(@window_fg_color, 0.04) 100%); \
+                                                border-color: rgba({r}, {g}, {b}, 0.34); \
+                                            }}"
+                                        ));
+                                    }
+                                };
+                                {
+                                    let apply = apply_hero_tint.clone();
+                                    cover_pic.connect_paintable_notify(move |pic| apply(pic));
+                                }
+                                if let Some(url) = &featured.cover_url {
+                                    load_cover_into_picture(&cover_pic, url, Rc::clone(&state));
+                                }
+                                apply_hero_tint(&cover_pic);
+
                                 hero_section.append(&hero_card);
                                 hero_section.set_visible(true);
                             } else {
                                 hero_section.set_visible(false);
                             }
 
-                            while albums_carousel.n_pages() > 0 {
-                                let page = albums_carousel.nth_page(0);
-                                albums_carousel.remove(&page);
+                            while let Some(child) = albums_rail.first_child() {
+                                albums_rail.remove(&child);
                             }
-                            let limited_albums: Vec<_> = feed.new_albums.iter().take(16).collect();
-                            for chunk in limited_albums.chunks(4) {
-                                let page_flow = FlowBox::builder()
-                                    .valign(Align::Start)
-                                    .hexpand(true)
-                                    .homogeneous(true)
-                                    .min_children_per_line(1)
-                                    .max_children_per_line(4)
-                                    .row_spacing(12)
-                                    .column_spacing(12)
-                                    .selection_mode(SelectionMode::None)
-                                    .build();
-                                for album in chunk {
-                                    let card = build_album_card(album, Rc::clone(&state));
-                                    page_flow.insert(&card, -1);
-                                }
-                                albums_carousel.append(&page_flow);
+                            let skip_featured = usize::from(feed.new_albums.len() > 1);
+                            let limited_albums: Vec<_> =
+                                feed.new_albums.iter().skip(skip_featured).take(16).collect();
+                            for album in &limited_albums {
+                                let card = build_album_card(album, Rc::clone(&state));
+                                albums_rail.append(&card);
                             }
-                            albums_section.set_visible(!feed.new_albums.is_empty());
+                            albums_scroller.hadjustment().set_value(0.0);
+                            albums_section.set_visible(!limited_albums.is_empty());
                         }
                         Err(err) => {
                             state.borrow().show_toast(&err);
@@ -1119,7 +1102,7 @@ pub fn build_home_page(
                             .build();
 
                         let pill = Label::builder()
-                            .label("Estación")
+                            .label(tr("Estación", "Station"))
                             .halign(Align::Start)
                             .valign(Align::Center)
                             .css_classes(["bento-pill"])
@@ -1148,7 +1131,10 @@ pub fn build_home_page(
                             .build();
 
                         let desc = Label::builder()
-                            .label("Playlists y mezclas seleccionadas para este estilo.")
+                            .label(tr(
+                                "Playlists y mezclas seleccionadas para este estilo.",
+                                "Curated playlists and mixes for this style.",
+                            ))
                             .xalign(0.0)
                             .wrap(true)
                             .lines(2)
@@ -1164,7 +1150,7 @@ pub fn build_home_page(
                         mid_box.append(&desc);
 
                         let cta = Label::builder()
-                            .label("Explorar estación →")
+                            .label(tr("Explorar estación →", "Explore station →"))
                             .xalign(0.0)
                             .hexpand(true)
                             .css_classes(["bento-cta"])
@@ -1173,7 +1159,7 @@ pub fn build_home_page(
 
                         let quick_play_btn = Button::builder()
                             .icon_name("play-filled")
-                            .tooltip_text("Reproducir estación")
+                            .tooltip_text(tr("Reproducir estación", "Play station"))
                             .valign(Align::Center)
                             .css_classes(["flat", "station-play-btn"])
                             .build();

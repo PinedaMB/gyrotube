@@ -191,7 +191,7 @@ pub fn build_explore_page(
 ) -> (ScrolledWindow, ExploreActions) {
     let container = GtkBox::new(Orientation::Vertical, 16);
     container.set_margin_top(18);
-    container.set_margin_bottom(88);
+    container.set_margin_bottom(112);
     container.set_margin_start(20);
     container.set_margin_end(20);
 
@@ -650,7 +650,8 @@ pub fn build_explore_page(
     container.append(&genre_playlists_section);
 
     let clamp = adw::Clamp::builder()
-        .maximum_size(1100)
+        .maximum_size(1280)
+        .tightening_threshold(960)
         .child(&container)
         .build();
 
