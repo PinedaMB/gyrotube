@@ -205,6 +205,7 @@ pub fn build_carousel_section(title: &str) -> (GtkBox, GtkBox, ScrolledWindow) {
     let adjustment = scroller.hadjustment();
     // Keep the scrollbar out of the viewport's height allocation.
     let scrollbar = gtk4::Scrollbar::new(Orientation::Horizontal, Some(&adjustment));
+    scrollbar.add_css_class("browse-rail-scrollbar");
     scrollbar.set_visible(false);
     let weak_bar = scrollbar.downgrade();
     adjustment.connect_changed(move |adj| {
@@ -327,6 +328,7 @@ pub fn build_carousel_section(title: &str) -> (GtkBox, GtkBox, ScrolledWindow) {
     });
 
     let section = GtkBox::new(Orientation::Vertical, 10);
+    section.add_css_class("browse-rail-section");
     section.append(&header_box);
     section.append(&scroller);
     section.append(&scrollbar);
@@ -835,7 +837,7 @@ pub fn build_album_card(album: &Album, state: Rc<RefCell<AppState>>) -> GtkBox {
 pub fn build_playlist_card(playlist: &Playlist, state: Rc<RefCell<AppState>>) -> GtkBox {
     let (card, play_btn) = build_media_card(
         playlist.cover_url.as_deref(),
-        Some(("Playlist", ["album-year-badge"].as_slice())),
+        None,
         &playlist.name,
         &playlist.subtitle,
         &state,
@@ -942,7 +944,7 @@ pub fn build_track_row(
         .label(&track.title)
         .xalign(0.0)
         .ellipsize(gtk4::pango::EllipsizeMode::End)
-        .css_classes(["heading"])
+        .css_classes(["heading", "track-row-title"])
         .build();
 
     let subtitle_label = Label::builder()
@@ -976,63 +978,110 @@ pub fn build_track_row(
         .active(is_fav)
         .tooltip_text(tr("Favorito", "Favorite"))
         .valign(Align::Center)
-        .css_classes(["flat", "circular"])
+        .css_classes(if is_fav {
+            vec!["flat", "circular", "mini-fav-btn", "is-favorite"]
+        } else {
+            vec!["flat", "circular", "mini-fav-btn"]
+        })
         .build();
     {
         let state = Rc::clone(&state);
         let track = track.clone();
         fav_btn.connect_toggled(move |btn| {
-            btn.set_icon_name(if btn.is_active() {
+            let active = btn.is_active();
+            btn.set_icon_name(if active {
                 "heart-filled"
             } else {
                 "heart-regular"
             });
-            set_track_favorite(Rc::clone(&state), &track, btn.is_active());
-        });
-    }
-
-    let queue_btn = Button::builder()
-        .icon_name("add-regular")
-        .tooltip_text(tr("Agregar a la cola", "Add to queue"))
-        .valign(Align::Center)
-        .css_classes(["flat", "circular"])
-        .build();
-    {
-        let state = Rc::clone(&state);
-        let track = track.clone();
-        queue_btn.connect_clicked(move |_| {
-            let should_start = {
-                let mut s = state.borrow_mut();
-                s.queue.push(track.clone());
-                s.update_nav_buttons();
-                s.show_toast(&format!("Agregado a la cola: {}", track.title));
-                s.current_index.is_none()
-            };
-            refresh_queue_ui(Rc::clone(&state));
-            if should_start {
-                play_queue_index(Rc::clone(&state), 0);
+            if active {
+                btn.add_css_class("is-favorite");
+            } else {
+                btn.remove_css_class("is-favorite");
             }
+            set_track_favorite(Rc::clone(&state), &track, active);
         });
     }
 
-    let add_pl_popover = Popover::new();
-    let add_pl_btn = MenuButton::builder()
-        .icon_name("music-note-2-regular")
-        .tooltip_text(tr("Agregar a playlist", "Add to playlist"))
+    let more_popover = Popover::new();
+    let more_btn = MenuButton::builder()
+        .icon_name("view-more-symbolic")
+        .tooltip_text(tr("Más acciones", "More actions"))
         .valign(Align::Center)
-        .popover(&add_pl_popover)
+        .popover(&more_popover)
         .css_classes(["flat", "circular"])
         .build();
     {
         let state = Rc::clone(&state);
         let track = track.clone();
-        let pop = add_pl_popover.clone();
-        add_pl_popover.connect_show(move |_| {
-            let box_pl = GtkBox::new(Orientation::Vertical, 4);
-            box_pl.set_margin_top(6);
-            box_pl.set_margin_bottom(6);
-            box_pl.set_margin_start(6);
-            box_pl.set_margin_end(6);
+        let pop = more_popover.clone();
+        more_popover.connect_show(move |_| {
+            let menu_box = GtkBox::new(Orientation::Vertical, 4);
+            menu_box.set_margin_top(6);
+            menu_box.set_margin_bottom(6);
+            menu_box.set_margin_start(6);
+            menu_box.set_margin_end(6);
+
+            let queue_row = GtkBox::new(Orientation::Horizontal, 8);
+            queue_row.append(&Image::from_icon_name("add-regular"));
+            queue_row.append(&Label::new(Some(tr("Agregar a la cola", "Add to queue"))));
+            let queue_item = Button::builder()
+                .child(&queue_row)
+                .css_classes(["flat"])
+                .build();
+            {
+                let state_q = Rc::clone(&state);
+                let track_q = track.clone();
+                let pop_inner = pop.clone();
+                queue_item.connect_clicked(move |_| {
+                    let should_start = {
+                        let mut s = state_q.borrow_mut();
+                        s.queue.push(track_q.clone());
+                        s.update_nav_buttons();
+                        s.show_toast(&format!(
+                            "{}: {}",
+                            tr("Agregado a la cola", "Added to queue"),
+                            track_q.title
+                        ));
+                        s.current_index.is_none()
+                    };
+                    refresh_queue_ui(Rc::clone(&state_q));
+                    if should_start {
+                        play_queue_index(Rc::clone(&state_q), 0);
+                    }
+                    pop_inner.popdown();
+                });
+            }
+            menu_box.append(&queue_item);
+
+            let radio_row = GtkBox::new(Orientation::Horizontal, 8);
+            radio_row.append(&Image::from_icon_name("sound-wave-circle-regular"));
+            radio_row.append(&Label::new(Some(tr("Iniciar radio", "Start radio"))));
+            let radio_item = Button::builder()
+                .child(&radio_row)
+                .css_classes(["flat"])
+                .build();
+            {
+                let state_r = Rc::clone(&state);
+                let track_r = track.clone();
+                let pop_inner = pop.clone();
+                radio_item.connect_clicked(move |_| {
+                    pop_inner.popdown();
+                    start_track_radio(Rc::clone(&state_r), &track_r);
+                });
+            }
+            menu_box.append(&radio_item);
+
+            menu_box.append(&gtk4::Separator::new(Orientation::Horizontal));
+            menu_box.append(
+                &Label::builder()
+                    .label(tr("Agregar a playlist", "Add to playlist"))
+                    .xalign(0.0)
+                    .margin_start(8)
+                    .margin_top(2)
+                    .css_classes(["caption", "dim-label"])
+                    .build(),
+            );
 
             let playlists = state.borrow().user_playlists.clone();
             for pl in playlists {
@@ -1081,13 +1130,10 @@ pub fn build_track_row(
                     refresh_playlists_ui(Rc::clone(&state));
                     pop_inner.popdown();
                 });
-                box_pl.append(&item);
-            }
-            if !state.borrow().user_playlists.is_empty() {
-                box_pl.append(&gtk4::Separator::new(Orientation::Horizontal));
+                menu_box.append(&item);
             }
             let new_row = GtkBox::new(Orientation::Horizontal, 6);
-            new_row.append(&Image::from_icon_name("add-regular"));
+            new_row.append(&Image::from_icon_name("music-note-2-regular"));
             new_row.append(&Label::new(Some(tr("Nueva playlist…", "New playlist…"))));
             let new_btn = Button::builder()
                 .child(&new_row)
@@ -1107,22 +1153,8 @@ pub fn build_track_row(
                     );
                 });
             }
-            box_pl.append(&new_btn);
-            pop.set_child(Some(&box_pl));
-        });
-    }
-
-    let radio_btn = Button::builder()
-        .icon_name("sound-wave-circle-regular")
-        .tooltip_text(tr("Iniciar radio", "Start radio"))
-        .valign(Align::Center)
-        .css_classes(["flat", "circular"])
-        .build();
-    {
-        let state = Rc::clone(&state);
-        let track = track.clone();
-        radio_btn.connect_clicked(move |_| {
-            start_track_radio(Rc::clone(&state), &track);
+            menu_box.append(&new_btn);
+            pop.set_child(Some(&menu_box));
         });
     }
 
@@ -1130,7 +1162,7 @@ pub fn build_track_row(
         .icon_name("play-filled")
         .tooltip_text(tr("Reproducir ahora", "Play now"))
         .valign(Align::Center)
-        .css_classes(["flat", "circular"])
+        .css_classes(["flat", "circular", "track-row-play-btn"])
         .build();
     {
         let state = Rc::clone(&state);
@@ -1149,9 +1181,7 @@ pub fn build_track_row(
     row_box.append(&text_box);
     row_box.append(&duration_label);
     row_box.append(&fav_btn);
-    row_box.append(&add_pl_btn);
-    row_box.append(&radio_btn);
-    row_box.append(&queue_btn);
+    row_box.append(&more_btn);
     row_box.append(&play_btn);
 
     let row = ListBoxRow::builder().child(&row_box).build();

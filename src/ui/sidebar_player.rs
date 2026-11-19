@@ -154,8 +154,15 @@ pub fn build_sidebar_player() -> SidebarPlayerWidgets {
         .icon_name("heart-regular")
         .tooltip_text(tr("Agregar a favoritos", "Add to favorites"))
         .sensitive(false)
-        .css_classes(["flat", "circular"])
+        .css_classes(["flat", "circular", "mini-fav-btn"])
         .build();
+    player_fav_btn.connect_active_notify(|btn| {
+        if btn.is_active() {
+            btn.add_css_class("is-favorite");
+        } else {
+            btn.remove_css_class("is-favorite");
+        }
+    });
 
     let player_radio_btn = Button::builder()
         .icon_name("sound-wave-circle-regular")
@@ -222,7 +229,7 @@ pub fn build_sidebar_player() -> SidebarPlayerWidgets {
     let shuffle_btn = ToggleButton::builder()
         .icon_name("arrow-shuffle-regular")
         .tooltip_text(tr("Aleatorio", "Shuffle"))
-        .css_classes(["flat", "circular"])
+        .css_classes(["flat", "circular", "sidebar-toggle-btn"])
         .build();
 
     let prev_btn = Button::builder()
@@ -259,7 +266,7 @@ pub fn build_sidebar_player() -> SidebarPlayerWidgets {
     let repeat_btn = ToggleButton::builder()
         .icon_name("arrow-repeat-all-regular")
         .tooltip_text(tr("Repetir", "Repeat"))
-        .css_classes(["flat", "circular"])
+        .css_classes(["flat", "circular", "sidebar-toggle-btn"])
         .build();
 
     let transport_row = GtkBox::new(Orientation::Horizontal, 10);
@@ -302,7 +309,8 @@ pub fn build_sidebar_player() -> SidebarPlayerWidgets {
     let lyrics_sync_badge = Label::builder()
         .label("")
         .visible(false)
-        .halign(Align::Start)
+        .halign(Align::End)
+        .valign(Align::Center)
         .build();
 
     let lyrics_title_col = GtkBox::new(Orientation::Vertical, 2);
@@ -407,13 +415,13 @@ pub fn build_sidebar_player() -> SidebarPlayerWidgets {
     let lyrics_np_open_btn = Button::builder()
         .child(&lyrics_np_info_box)
         .hexpand(true)
-        .tooltip_text("Ir al reproductor")
+        .tooltip_text(tr("Ir al reproductor", "Go to player"))
         .css_classes(["flat"])
         .build();
 
     let lyrics_prev_btn = Button::builder()
         .icon_name("previous-filled")
-        .tooltip_text("Anterior")
+        .tooltip_text(tr("Anterior", "Previous"))
         .css_classes(["flat", "circular"])
         .build();
     prev_btn
@@ -426,7 +434,7 @@ pub fn build_sidebar_player() -> SidebarPlayerWidgets {
     }
 
     let lyrics_play_btn = Button::builder()
-        .tooltip_text("Reproducir / Pausar")
+        .tooltip_text(tr("Reproducir / Pausar", "Play / Pause"))
         .css_classes(["suggested-action", "circular"])
         .build();
     attach_mirrored_play_stack(&lyrics_play_btn, &play_pause_btn, &play_spinner, 16);
@@ -441,7 +449,7 @@ pub fn build_sidebar_player() -> SidebarPlayerWidgets {
 
     let lyrics_next_btn = Button::builder()
         .icon_name("next-filled")
-        .tooltip_text("Siguiente")
+        .tooltip_text(tr("Siguiente", "Next"))
         .css_classes(["flat", "circular"])
         .build();
     next_btn
@@ -466,7 +474,8 @@ pub fn build_sidebar_player() -> SidebarPlayerWidgets {
     let lyrics_np_progress = build_bound_progress_bar(&seek_scale.adjustment());
 
     let lyrics_np_bar = GtkBox::new(Orientation::Vertical, 6);
-    lyrics_np_bar.set_margin_top(6);
+    lyrics_np_bar.add_css_class("lyrics-np-bar");
+    lyrics_np_bar.set_margin_top(4);
     lyrics_np_bar.set_margin_bottom(8);
     lyrics_np_bar.set_margin_start(10);
     lyrics_np_bar.set_margin_end(10);
@@ -476,7 +485,6 @@ pub fn build_sidebar_player() -> SidebarPlayerWidgets {
     let lyrics_page = GtkBox::new(Orientation::Vertical, 0);
     lyrics_page.set_vexpand(true);
     lyrics_page.append(&lyrics_overlay);
-    lyrics_page.append(&gtk4::Separator::new(Orientation::Horizontal));
     lyrics_page.append(&lyrics_np_bar);
 
     // Queue View
@@ -505,8 +513,10 @@ pub fn build_sidebar_player() -> SidebarPlayerWidgets {
         .build();
     let queue_clear_btn = Button::builder()
         .label(tr("Limpiar", "Clear"))
-        .css_classes(["flat"])
+        .valign(Align::Center)
+        .css_classes(["flat", "queue-clear-btn"])
         .build();
+    queue_clear_btn.set_cursor_from_name(Some("pointer"));
     let queue_header = GtkBox::new(Orientation::Horizontal, 6);
     queue_header.append(&queue_title_label);
     queue_header.append(&queue_save_btn);

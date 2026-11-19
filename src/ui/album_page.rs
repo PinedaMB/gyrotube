@@ -5,7 +5,7 @@ use gtk4::glib;
 use gtk4::prelude::*;
 use gtk4::{
     Align, Box as GtkBox, Button, Image, Justification, Label, ListBox, ListBoxRow, MenuButton,
-    Orientation, PolicyType, Popover, ScrolledWindow, SelectionMode, Separator,
+    Orientation, PolicyType, Popover, ScrolledWindow, SelectionMode, Separator, ToggleButton,
 };
 use libadwaita as adw;
 
@@ -36,7 +36,7 @@ pub fn build_album_page(
 
     let back_btn = Button::builder()
         .icon_name("go-previous-symbolic")
-        .tooltip_text("Volver")
+        .tooltip_text(tr("Volver", "Back"))
         .halign(Align::Start)
         .valign(Align::Start)
         .css_classes(["circular", "artist-hero-back"])
@@ -62,7 +62,7 @@ pub fn build_album_page(
     cover_skeleton.set_visible(false);
 
     let badge_label = Label::builder()
-        .label("ÁLBUM")
+        .label(tr("ÁLBUM", "ALBUM"))
         .halign(Align::Center)
         .css_classes(["album-type-label"])
         .build();
@@ -231,7 +231,7 @@ pub fn build_album_page(
         &Image::builder()
             .icon_name("document-open-recent-symbolic")
             .pixel_size(14)
-            .margin_end(36)
+            .margin_end(82)
             .css_classes(["dim-label"])
             .build(),
     );
@@ -269,13 +269,15 @@ pub fn build_album_page(
     container.append(&track_list);
 
     let clamp = adw::Clamp::builder()
-        .maximum_size(860)
+        .maximum_size(1100)
+        .tightening_threshold(880)
         .child(&container)
         .build();
 
     let scrolled = ScrolledWindow::builder()
         .hscrollbar_policy(PolicyType::Never)
         .vexpand(true)
+        .css_classes(["home-ambient-bg"])
         .child(&clamp)
         .build();
 
@@ -501,7 +503,11 @@ pub fn build_album_page(
                         .as_deref()
                         .is_some_and(|a| !a.is_empty() && a.eq_ignore_ascii_case(&title))
                 });
-                badge_label.set_label(if is_album { "ÁLBUM" } else { "PLAYLIST" });
+                badge_label.set_label(if is_album {
+                    tr("ÁLBUM", "ALBUM")
+                } else {
+                    "PLAYLIST"
+                });
                 title_label.set_label(&title);
 
                 let first_artist = tracks
@@ -519,14 +525,15 @@ pub fn build_album_page(
                     .iter()
                     .filter_map(|t| t.duration_secs.map(u64::from))
                     .sum();
-                let meta = if total_secs > 0 {
-                    format!(
-                        "{} canciones • {}",
-                        tracks.len(),
-                        format_total_duration(total_secs)
-                    )
+                let count_label = if tracks.len() == 1 {
+                    format!("1 {}", tr("canción", "song"))
                 } else {
-                    format!("{} canciones", tracks.len())
+                    format!("{} {}", tracks.len(), tr("canciones", "songs"))
+                };
+                let meta = if total_secs > 0 {
+                    format!("{count_label} • {}", format_total_duration(total_secs))
+                } else {
+                    count_label
                 };
                 meta_label.set_label(&meta);
                 meta_label.set_visible(true);
@@ -610,14 +617,14 @@ fn build_album_track_row(
         .width_chars(2)
         .xalign(1.0)
         .valign(Align::Center)
-        .css_classes(["dim-label", "caption", "numeric"])
+        .css_classes(["dim-label", "caption", "numeric", "album-track-num"])
         .build();
 
     let title_label = Label::builder()
         .label(&track.title)
         .xalign(0.0)
         .ellipsize(gtk4::pango::EllipsizeMode::End)
-        .css_classes(["heading"])
+        .css_classes(["heading", "track-row-title"])
         .build();
 
     let artist_label = Label::builder()
@@ -644,10 +651,46 @@ fn build_album_track_row(
         .css_classes(["dim-label", "caption", "numeric"])
         .build();
 
+    let is_fav_init = state.borrow().is_favorite(&track.id);
+    let inline_fav_btn = ToggleButton::builder()
+        .icon_name(if is_fav_init {
+            "heart-filled"
+        } else {
+            "heart-regular"
+        })
+        .active(is_fav_init)
+        .tooltip_text(tr("Favorito", "Favorite"))
+        .valign(Align::Center)
+        .css_classes(if is_fav_init {
+            vec!["flat", "circular", "mini-fav-btn", "is-favorite"]
+        } else {
+            vec!["flat", "circular", "mini-fav-btn"]
+        })
+        .build();
+    inline_fav_btn.set_cursor_from_name(Some("pointer"));
+    {
+        let state = Rc::clone(&state);
+        let track = track.clone();
+        inline_fav_btn.connect_toggled(move |btn| {
+            let active = btn.is_active();
+            btn.set_icon_name(if active {
+                "heart-filled"
+            } else {
+                "heart-regular"
+            });
+            if active {
+                btn.add_css_class("is-favorite");
+            } else {
+                btn.remove_css_class("is-favorite");
+            }
+            set_track_favorite(Rc::clone(&state), &track, active);
+        });
+    }
+
     let menu_popover = Popover::new();
     let menu_btn = MenuButton::builder()
         .icon_name("view-more-symbolic")
-        .tooltip_text("Opciones")
+        .tooltip_text(tr("Opciones", "Options"))
         .valign(Align::Center)
         .popover(&menu_popover)
         .css_classes(["flat", "circular"])
@@ -665,7 +708,7 @@ fn build_album_track_row(
             menu_box.set_margin_end(6);
 
             let play_next_btn = Button::builder()
-                .label("Reproducir siguiente")
+                .label(tr("Reproducir siguiente", "Play next"))
                 .css_classes(["flat"])
                 .build();
             if let Some(child) = play_next_btn.child().and_downcast::<Label>() {
@@ -686,7 +729,7 @@ fn build_album_track_row(
                         }
                         s.update_nav_buttons();
                         s.save_session();
-                        s.show_toast(&format!("Siguiente: {}", track.title));
+                        s.show_toast(&format!("{}: {}", tr("Siguiente", "Next"), track.title));
                         s.current_index.is_none()
                     };
                     refresh_queue_ui(Rc::clone(&state));
@@ -699,7 +742,7 @@ fn build_album_track_row(
             menu_box.append(&play_next_btn);
 
             let add_q_btn = Button::builder()
-                .label("Añadir a la cola")
+                .label(tr("Añadir a la cola", "Add to queue"))
                 .css_classes(["flat"])
                 .build();
             if let Some(child) = add_q_btn.child().and_downcast::<Label>() {
@@ -714,7 +757,11 @@ fn build_album_track_row(
                         let mut s = state.borrow_mut();
                         s.queue.push(track.clone());
                         s.update_nav_buttons();
-                        s.show_toast(&format!("Agregado a la cola: {}", track.title));
+                        s.show_toast(&format!(
+                            "{}: {}",
+                            tr("Agregado a la cola", "Added to queue"),
+                            track.title
+                        ));
                         s.current_index.is_none()
                     };
                     refresh_queue_ui(Rc::clone(&state));
@@ -726,34 +773,11 @@ fn build_album_track_row(
             }
             menu_box.append(&add_q_btn);
 
-            let is_fav = state.borrow().is_favorite(&track.id);
-            let fav_btn = Button::builder()
-                .label(if is_fav {
-                    "Quitar de favoritos"
-                } else {
-                    "Añadir a favoritos"
-                })
-                .css_classes(["flat"])
-                .build();
-            if let Some(child) = fav_btn.child().and_downcast::<Label>() {
-                child.set_xalign(0.0);
-            }
-            {
-                let state = Rc::clone(&state);
-                let track = track.clone();
-                let pop = pop.clone();
-                fav_btn.connect_clicked(move |_| {
-                    set_track_favorite(Rc::clone(&state), &track, !is_fav);
-                    pop.popdown();
-                });
-            }
-            menu_box.append(&fav_btn);
-
             let playlists = state.borrow().user_playlists.clone();
             if !playlists.is_empty() {
                 menu_box.append(&Separator::new(Orientation::Horizontal));
                 let pl_header = Label::builder()
-                    .label("Añadir a playlist")
+                    .label(tr("Añadir a playlist", "Add to playlist"))
                     .xalign(0.0)
                     .margin_start(8)
                     .margin_top(2)
@@ -790,9 +814,14 @@ fn build_album_track_row(
                         };
                         if added {
                             refresh_playlists_ui(Rc::clone(&state));
-                            state.borrow().show_toast(&format!("Agregada a {pl_name}"));
+                            state
+                                .borrow()
+                                .show_toast(&format!("{}: {pl_name}", tr("Agregado a", "Added to")));
                         } else {
-                            state.borrow().show_toast("La canción ya está en esta playlist");
+                            state.borrow().show_toast(tr(
+                                "Ya está en la playlist.",
+                                "Already in this playlist.",
+                            ));
                         }
                         pop.popdown();
                     });
@@ -812,6 +841,7 @@ fn build_album_track_row(
     row_box.append(&num_label);
     row_box.append(&text_box);
     row_box.append(&duration_label);
+    row_box.append(&inline_fav_btn);
     row_box.append(&menu_btn);
 
     let row = ListBoxRow::new();

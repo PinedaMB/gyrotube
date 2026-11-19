@@ -84,7 +84,8 @@
 .cover-art-large {
     border-radius: 16px;
     background-color: alpha(@window_fg_color, 0.08);
-    box-shadow: 0 10px 28px alpha(black, 0.34);
+    border: 1px solid alpha(#ffffff, 0.08);
+    box-shadow: 0 14px 36px alpha(black, 0.44);
 }
 
 .player-cover-glow {
@@ -112,9 +113,16 @@
 }
 
 .play-pill {
-    min-width: 56px;
-    min-height: 44px;
+    min-width: 54px;
+    min-height: 54px;
+    padding: 0;
     border-radius: 999px;
+    box-shadow: 0 6px 18px alpha(@accent_bg_color, 0.38);
+}
+
+.sidebar-toggle-btn:checked {
+    color: @accent_color;
+    background-color: alpha(@accent_bg_color, 0.16);
 }
 
 .play-pill spinner,
@@ -155,6 +163,38 @@ button.suggested-action spinner {
 
 .sidebar-tabs button {
     padding: 6px 8px;
+    border-radius: 10px;
+    border: 1px solid transparent;
+    transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease;
+}
+
+.sidebar-tabs button:checked {
+    background-color: alpha(@accent_bg_color, 0.18);
+    border-color: alpha(@accent_bg_color, 0.34);
+    color: @accent_color;
+}
+
+.lyrics-np-bar {
+    padding: 8px 10px;
+    border-radius: 14px;
+    background-color: alpha(@window_fg_color, 0.05);
+    border: 1px solid alpha(@window_fg_color, 0.08);
+}
+
+.queue-clear-btn {
+    padding: 4px 12px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+    background-color: alpha(@window_fg_color, 0.06);
+    border: 1px solid alpha(@window_fg_color, 0.10);
+    transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease;
+}
+
+.queue-clear-btn:hover {
+    background-color: alpha(#e01b24, 0.18);
+    border-color: alpha(#e01b24, 0.42);
+    color: #ff7b82;
 }
 
 .genre-chip {
@@ -553,25 +593,31 @@ button.suggested-action spinner {
 }
 
 .lyric-line {
-    font-size: 15px;
-    line-height: 1.45;
+    font-size: 15.5px;
+    line-height: 1.48;
     padding: 8px 10px;
-    border-radius: 8px;
-    opacity: 0.55;
-    transition: opacity 160ms ease, background-color 160ms ease;
+    border-radius: 10px;
+    opacity: 0.48;
+    color: @window_fg_color;
+    transform: translateX(0px);
+    transition:
+        opacity 320ms cubic-bezier(0.22, 1, 0.36, 1),
+        color 320ms cubic-bezier(0.22, 1, 0.36, 1),
+        background-color 320ms cubic-bezier(0.22, 1, 0.36, 1),
+        transform 320ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .lyric-line:hover {
-    opacity: 0.9;
+    opacity: 0.88;
     background-color: alpha(@window_fg_color, 0.06);
 }
 
 .lyric-line-active {
-    font-size: 16px;
     opacity: 1.0;
     font-weight: 700;
     color: @accent_color;
     background-color: alpha(@accent_bg_color, 0.16);
+    transform: translateX(4px);
 }
 
 .lyrics-resync-btn {
@@ -591,8 +637,10 @@ button.suggested-action spinner {
 }
 
 .album-page-hero {
-    padding: 18px 22px 20px 22px;
-    border-radius: 16px;
+    padding: 20px 24px 22px 24px;
+    border-radius: 18px;
+    border: 1px solid alpha(@window_fg_color, 0.08);
+    box-shadow: 0 12px 32px alpha(black, 0.28);
     background-image: linear-gradient(
         180deg,
         alpha(@accent_bg_color, 0.28) 0%,
@@ -601,17 +649,26 @@ button.suggested-action spinner {
 }
 
 .album-hero-title {
-    font-size: 1.95em;
-    font-weight: 800;
-    letter-spacing: -0.02em;
+    font-size: 2.35em;
+    font-weight: 850;
+    letter-spacing: -0.025em;
 }
 
 .album-type-label {
-    font-size: 0.76em;
-    font-weight: 700;
+    font-size: 11px;
+    font-weight: 800;
     letter-spacing: 0.08em;
     text-transform: uppercase;
-    opacity: 0.78;
+    padding: 3px 10px;
+    border-radius: 999px;
+    background-color: alpha(@window_fg_color, 0.14);
+    color: @window_fg_color;
+}
+
+.chart-active-row .album-track-num {
+    color: @accent_color;
+    font-weight: 800;
+    opacity: 1;
 }
 
 .album-play-fab {
@@ -683,7 +740,12 @@ button.suggested-action spinner {
     line-height: 1.4;
     padding: 12px 18px;
     border-radius: 14px;
-    transition: background-color 180ms ease;
+    transform: translateX(0px);
+    transition:
+        opacity 340ms cubic-bezier(0.22, 1, 0.36, 1),
+        color 340ms cubic-bezier(0.22, 1, 0.36, 1),
+        background-color 340ms cubic-bezier(0.22, 1, 0.36, 1),
+        transform 340ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .party-lyric-line:hover {
@@ -695,6 +757,7 @@ button.suggested-action spinner {
     font-weight: 800;
     color: @window_fg_color;
     background-color: alpha(@accent_bg_color, 0.18);
+    transform: translateX(6px);
 }
 
 .party-lyrics-plain {
@@ -730,6 +793,105 @@ button.suggested-action spinner {
         alpha(@accent_bg_color, 0.03) 36%,
         transparent 64%
     );
+}
+
+.search-top-result-card {
+    border-radius: 16px;
+    padding: 18px;
+    background-image: linear-gradient(
+        145deg,
+        alpha(@accent_bg_color, 0.14) 0%,
+        alpha(@window_fg_color, 0.05) 55%,
+        alpha(@window_fg_color, 0.03) 100%
+    );
+    border: 1px solid alpha(@window_fg_color, 0.09);
+    transition: background-color 150ms ease, border-color 150ms ease, box-shadow 150ms ease;
+}
+
+.search-top-result-card:hover {
+    background-color: alpha(@window_fg_color, 0.05);
+    border-color: alpha(@accent_bg_color, 0.36);
+    box-shadow: 0 10px 26px alpha(black, 0.30);
+}
+
+.search-top-result-badge {
+    font-size: 11px;
+    font-weight: 700;
+    padding: 3px 10px;
+    border-radius: 999px;
+    background-color: alpha(@window_fg_color, 0.12);
+    color: @window_fg_color;
+}
+
+.search-top-result-play {
+    box-shadow: 0 6px 16px alpha(@accent_bg_color, 0.42);
+}
+
+.search-see-all-btn {
+    font-size: 12.5px;
+    font-weight: 600;
+    color: alpha(@window_fg_color, 0.72);
+    padding: 4px 10px;
+    border-radius: 999px;
+}
+
+.search-see-all-btn:hover {
+    color: @accent_color;
+    background-color: alpha(@accent_bg_color, 0.12);
+}
+
+.browse-rail-scrollbar {
+    opacity: 0;
+    margin-top: -4px;
+    transition: opacity 180ms ease;
+}
+
+.browse-rail-section:hover .browse-rail-scrollbar {
+    opacity: 0.85;
+}
+
+.browse-rail-scrollbar trough {
+    min-height: 4px;
+    background-color: transparent;
+}
+
+.browse-rail-scrollbar slider {
+    min-height: 4px;
+    border-radius: 999px;
+    background-color: alpha(@window_fg_color, 0.24);
+}
+
+.browse-rail-scrollbar slider:hover {
+    background-color: alpha(@accent_bg_color, 0.72);
+}
+
+.search-filter-pill {
+    border: 1px solid alpha(@window_fg_color, 0.10);
+    background-color: alpha(@window_fg_color, 0.04);
+    padding: 5px 13px;
+    transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease;
+}
+
+.search-filter-pill:hover {
+    background-color: alpha(@window_fg_color, 0.09);
+    border-color: alpha(@window_fg_color, 0.18);
+}
+
+.search-filter-pill:checked {
+    background-color: alpha(@accent_bg_color, 0.24);
+    border-color: alpha(@accent_bg_color, 0.48);
+    color: @accent_color;
+    font-weight: 700;
+}
+
+.chart-active-row .track-row-title {
+    color: @accent_color;
+    font-weight: 700;
+}
+
+.track-row:hover .track-row-play-btn {
+    background-color: @accent_bg_color;
+    color: #ffffff;
 }
 
 .home-hero-cover {
@@ -832,17 +994,64 @@ button.suggested-action spinner {
 }
 
 /* Local Playlists */
+.collection-new-pl-btn {
+    padding: 7px 16px;
+    border-radius: 999px;
+    font-weight: 700;
+    font-size: 13px;
+}
+
+.collection-play-all-btn {
+    padding: 5px 13px;
+    border-radius: 999px;
+    font-weight: 600;
+    font-size: 12.5px;
+    background-color: alpha(@window_fg_color, 0.06);
+    border: 1px solid alpha(@window_fg_color, 0.10);
+    transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease;
+}
+
+.collection-play-all-btn:hover {
+    background-color: alpha(@accent_bg_color, 0.22);
+    border-color: alpha(@accent_bg_color, 0.45);
+    color: @accent_color;
+}
+
 .playlist-card {
     padding: 12px 14px;
     border-radius: 14px;
     background-color: alpha(@window_fg_color, 0.05);
     border: 1px solid alpha(@window_fg_color, 0.08);
-    transition: background-color 150ms ease, border-color 150ms ease;
+    transition: background-color 150ms ease, border-color 150ms ease, box-shadow 150ms ease;
 }
 
 .playlist-card:hover {
     background-color: alpha(@window_fg_color, 0.09);
-    border-color: alpha(@window_fg_color, 0.16);
+    border-color: alpha(@accent_bg_color, 0.34);
+    box-shadow: 0 6px 18px alpha(black, 0.24);
+}
+
+.playlist-card-favorites {
+    background-image: linear-gradient(
+        135deg,
+        alpha(#e01b24, 0.16) 0%,
+        alpha(@window_fg_color, 0.04) 68%
+    );
+    border-color: alpha(#e01b24, 0.24);
+}
+
+.playlist-card-favorites:hover {
+    background-image: linear-gradient(
+        135deg,
+        alpha(#e01b24, 0.24) 0%,
+        alpha(@window_fg_color, 0.07) 68%
+    );
+    border-color: alpha(#e01b24, 0.46);
+}
+
+.playlist-card:hover .playlist-play-btn:not(:disabled) {
+    background-color: @accent_bg_color;
+    color: #ffffff;
 }
 
 .playlist-open-btn {
@@ -853,6 +1062,41 @@ button.suggested-action spinner {
 .playlist-open-btn:hover,
 .playlist-open-btn:active {
     background: transparent;
+}
+
+.playlist-color-auto {
+    min-height: 28px;
+    padding: 0 12px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+    background-color: alpha(@window_fg_color, 0.06);
+    border: 1px solid alpha(@window_fg_color, 0.14);
+    transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease;
+}
+
+.playlist-color-auto:hover {
+    background-color: alpha(@window_fg_color, 0.11);
+    border-color: alpha(@window_fg_color, 0.24);
+}
+
+.playlist-color-auto.active {
+    background-color: alpha(@accent_bg_color, 0.24);
+    border-color: alpha(@accent_bg_color, 0.55);
+    color: @accent_color;
+}
+
+.playlist-icon-chip {
+    min-width: 36px;
+    min-height: 36px;
+    background-color: alpha(@window_fg_color, 0.06);
+    border: 1px solid alpha(@window_fg_color, 0.10);
+    transition: background-color 140ms ease, border-color 140ms ease;
+}
+
+.playlist-icon-chip:hover {
+    background-color: alpha(@window_fg_color, 0.12);
+    border-color: alpha(@window_fg_color, 0.22);
 }
 
 .playlist-color-swatch {

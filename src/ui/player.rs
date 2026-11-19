@@ -7,6 +7,8 @@ use gtk4::prelude::*;
 use gtk4::{
     Align, Box as GtkBox, Button, Image, Label, ListBoxRow, MenuButton, Orientation, Scale,
 };
+use libadwaita as adw;
+use libadwaita::prelude::AnimationExt;
 
 use crate::backend::runtime;
 use crate::i18n::tr;
@@ -126,6 +128,8 @@ pub fn refresh_queue_ui(state: Rc<RefCell<AppState>>) {
         }
 
         row_box.append(&drag_handle);
+        row_box.append(&cover_frame);
+        row_box.append(&text_box);
         if is_current {
             let playing_icon = Image::builder()
                 .icon_name("speaker-2-regular")
@@ -135,8 +139,6 @@ pub fn refresh_queue_ui(state: Rc<RefCell<AppState>>) {
                 .build();
             row_box.append(&playing_icon);
         }
-        row_box.append(&cover_frame);
-        row_box.append(&text_box);
         row_box.append(&duration_label);
         row_box.append(&remove_btn);
 
@@ -676,9 +678,14 @@ fn scroll_lyric_list_to_idx(
     lyrics: &[(f64, Button)],
     lyrics_box: &gtk4::Box,
     scroll: &gtk4::ScrolledWindow,
-    programmatic_flag: Option<&std::cell::Cell<bool>>,
+    programmatic_flag: Option<Rc<std::cell::Cell<bool>>>,
     idx: Option<usize>,
 ) {
+    thread_local! {
+        static LYRICS_SCROLL_ANIM: RefCell<Option<adw::TimedAnimation>> =
+            const { RefCell::new(None) };
+    }
+
     if let Some(idx) = idx
         && let Some((_, btn)) = lyrics.get(idx)
         && let Some(bounds) = btn.compute_bounds(lyrics_box)
@@ -686,13 +693,44 @@ fn scroll_lyric_list_to_idx(
         let adj = scroll.vadjustment();
         let target = (bounds.y() as f64 - adj.page_size() * 0.35)
             .clamp(0.0, (adj.upper() - adj.page_size()).max(0.0));
-        if let Some(flag) = programmatic_flag {
-            flag.set(true);
+        let from = adj.value();
+
+        LYRICS_SCROLL_ANIM.with(|slot| {
+            if let Some(prev) = slot.borrow_mut().take() {
+                prev.pause();
+            }
+        });
+
+        if (target - from).abs() < 1.0 {
+            if let Some(flag) = programmatic_flag.as_ref() {
+                flag.set(true);
+            }
+            adj.set_value(target);
+            if let Some(flag) = programmatic_flag.as_ref() {
+                flag.set(false);
+            }
+            return;
         }
-        adj.set_value(target);
-        if let Some(flag) = programmatic_flag {
-            flag.set(false);
-        }
+
+        let weak_adj = adj.downgrade();
+        let anim_target = adw::CallbackAnimationTarget::new(move |value| {
+            if let Some(adj) = weak_adj.upgrade() {
+                if let Some(flag) = programmatic_flag.as_ref() {
+                    flag.set(true);
+                }
+                adj.set_value(value);
+                if let Some(flag) = programmatic_flag.as_ref() {
+                    flag.set(false);
+                }
+            }
+        });
+        let anim = adw::TimedAnimation::new(scroll, from, target, 380, anim_target);
+        anim.set_easing(adw::Easing::EaseOutCubic);
+        anim.set_follow_enable_animations_setting(true);
+        LYRICS_SCROLL_ANIM.with(|slot| {
+            slot.borrow_mut().replace(anim.clone());
+        });
+        anim.play();
     }
 }
 
@@ -701,7 +739,7 @@ pub fn scroll_to_active_lyric(s: &AppState) {
         &s.synced_lyrics,
         &s.lyrics_box,
         &s.lyrics_scroll,
-        Some(&s.lyrics_programmatic_scroll),
+        Some(Rc::clone(&s.lyrics_programmatic_scroll)),
         s.active_lyric_idx,
     );
 }

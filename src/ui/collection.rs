@@ -50,6 +50,18 @@ const PLAYLIST_ICONS: &[&str] = &[
     "sound-wave-circle-regular",
     "library-regular",
     "people-community-regular",
+    "guitar-regular",
+    "mic-regular",
+    "cd-regular",
+    "fire-regular",
+    "star-regular",
+    "flash-regular",
+    "dumbbell-regular",
+    "vehicle-car-regular",
+    "drink-coffee-regular",
+    "book-open-regular",
+    "weather-moon-regular",
+    "weather-sunny-regular",
 ];
 
 fn format_playlist_stats(pl: &UserPlaylist) -> String {
@@ -184,7 +196,8 @@ pub fn build_collection_page(state: Rc<RefCell<AppState>>) -> ScrolledWindow {
     new_pl_content.append(&Label::new(Some(tr("Nueva playlist", "New playlist"))));
     let new_pl_btn = Button::builder()
         .child(&new_pl_content)
-        .css_classes(["suggested-action", "pill"])
+        .valign(Align::Center)
+        .css_classes(["suggested-action", "collection-new-pl-btn"])
         .build();
     new_pl_btn.set_cursor_from_name(Some("pointer"));
     pl_header.append(&new_pl_btn);
@@ -214,10 +227,18 @@ pub fn build_collection_page(state: Rc<RefCell<AppState>>) -> ScrolledWindow {
             .css_classes(["title-2"])
             .build(),
     );
+    let play_recent_content = GtkBox::new(Orientation::Horizontal, 6);
+    play_recent_content.append(
+        &Image::builder()
+            .icon_name("play-filled")
+            .pixel_size(12)
+            .build(),
+    );
+    play_recent_content.append(&Label::new(Some(tr("Reproducir todo", "Play all"))));
     let play_recent_btn = Button::builder()
-        .icon_name("play-filled")
-        .label(tr("Reproducir todo", "Play all"))
-        .css_classes(["flat", "pill-switch"])
+        .child(&play_recent_content)
+        .valign(Align::Center)
+        .css_classes(["flat", "collection-play-all-btn"])
         .build();
     play_recent_btn.set_cursor_from_name(Some("pointer"));
     {
@@ -274,13 +295,14 @@ pub fn build_collection_page(state: Rc<RefCell<AppState>>) -> ScrolledWindow {
     container.append(&recent_list);
 
     let clamp = adw::Clamp::builder()
-        .maximum_size(1200)
-        .tightening_threshold(900)
+        .maximum_size(1280)
+        .tightening_threshold(960)
         .child(&container)
         .build();
 
     ScrolledWindow::builder()
         .hscrollbar_policy(PolicyType::Never)
+        .css_classes(["home-ambient-bg"])
         .child(&clamp)
         .build()
 }
@@ -409,7 +431,7 @@ pub fn refresh_playlists_ui(state: Rc<RefCell<AppState>>) {
             .tooltip_text(tr("Reproducir playlist", "Play playlist"))
             .valign(Align::Center)
             .sensitive(!pl.tracks.is_empty())
-            .css_classes(["flat", "circular"])
+            .css_classes(["flat", "circular", "playlist-play-btn"])
             .build();
         play_btn.set_cursor_from_name(Some("pointer"));
         {
@@ -428,47 +450,82 @@ pub fn refresh_playlists_ui(state: Rc<RefCell<AppState>>) {
             });
         }
 
-        let edit_btn = Button::builder()
-            .icon_name("document-edit-symbolic")
-            .tooltip_text(tr("Personalizar playlist", "Customize playlist"))
-            .valign(Align::Center)
-            .css_classes(["flat", "circular"])
-            .build();
-        edit_btn.set_cursor_from_name(Some("pointer"));
-        {
-            let state = Rc::clone(&state);
-            let pl_id = pl.id.clone();
-            edit_btn.connect_clicked(move |btn| {
-                open_edit_playlist_dialog(btn, Rc::clone(&state), pl_id.clone(), None);
-            });
-        }
-
-        let del_btn = Button::builder()
-            .icon_name("delete-regular")
-            .tooltip_text(tr("Eliminar playlist", "Delete playlist"))
-            .valign(Align::Center)
-            .css_classes(["flat", "circular"])
-            .build();
-        del_btn.set_cursor_from_name(Some("pointer"));
-        {
-            let state = Rc::clone(&state);
-            let pl_id = pl.id.clone();
-            let pl_name = pl.name.clone();
-            del_btn.connect_clicked(move |btn| {
-                confirm_delete_playlist(btn, Rc::clone(&state), pl_id.clone(), pl_name.clone(), None);
-            });
-        }
-
-        let actions = GtkBox::new(Orientation::Horizontal, 2);
+        let actions = GtkBox::new(Orientation::Horizontal, 4);
         actions.set_valign(Align::Center);
-        actions.append(&play_btn);
         if !is_favorites {
-            actions.append(&edit_btn);
-            actions.append(&del_btn);
+            let more_popover = Popover::new();
+            let menu_box = GtkBox::new(Orientation::Vertical, 4);
+            menu_box.set_margin_top(6);
+            menu_box.set_margin_bottom(6);
+            menu_box.set_margin_start(6);
+            menu_box.set_margin_end(6);
+
+            let edit_row = GtkBox::new(Orientation::Horizontal, 8);
+            edit_row.append(&Image::from_icon_name("document-edit-symbolic"));
+            edit_row.append(&Label::new(Some(tr(
+                "Personalizar playlist",
+                "Customize playlist",
+            ))));
+            let edit_item = Button::builder()
+                .child(&edit_row)
+                .css_classes(["flat"])
+                .build();
+            {
+                let state = Rc::clone(&state);
+                let pl_id = pl.id.clone();
+                let pop = more_popover.clone();
+                edit_item.connect_clicked(move |btn| {
+                    pop.popdown();
+                    open_edit_playlist_dialog(btn, Rc::clone(&state), pl_id.clone(), None);
+                });
+            }
+            menu_box.append(&edit_item);
+
+            let del_row = GtkBox::new(Orientation::Horizontal, 8);
+            del_row.append(&Image::from_icon_name("delete-regular"));
+            del_row.append(&Label::new(Some(tr(
+                "Eliminar playlist",
+                "Delete playlist",
+            ))));
+            let del_item = Button::builder()
+                .child(&del_row)
+                .css_classes(["flat", "destructive-action"])
+                .build();
+            {
+                let state = Rc::clone(&state);
+                let pl_id = pl.id.clone();
+                let pl_name = pl.name.clone();
+                let pop = more_popover.clone();
+                del_item.connect_clicked(move |btn| {
+                    pop.popdown();
+                    confirm_delete_playlist(
+                        btn,
+                        Rc::clone(&state),
+                        pl_id.clone(),
+                        pl_name.clone(),
+                        None,
+                    );
+                });
+            }
+            menu_box.append(&del_item);
+            more_popover.set_child(Some(&menu_box));
+
+            let more_btn = MenuButton::builder()
+                .icon_name("view-more-symbolic")
+                .tooltip_text(tr("Más acciones", "More actions"))
+                .valign(Align::Center)
+                .popover(&more_popover)
+                .css_classes(["flat", "circular"])
+                .build();
+            actions.append(&more_btn);
         }
+        actions.append(&play_btn);
 
         let card_row = GtkBox::new(Orientation::Horizontal, 6);
         card_row.add_css_class("playlist-card");
+        if is_favorites {
+            card_row.add_css_class("playlist-card-favorites");
+        }
         card_row.append(&open_btn);
         card_row.append(&actions);
         flow.insert(&card_row, -1);
@@ -715,8 +772,9 @@ fn open_playlist_editor_dialog(
 
     let auto_color_btn = Button::builder()
         .label("Auto")
+        .valign(Align::Center)
         .tooltip_text(tr("Usar portada automática", "Use automatic cover"))
-        .css_classes(["flat", "pill", "caption"])
+        .css_classes(["flat", "playlist-color-auto"])
         .build();
     auto_color_btn.set_cursor_from_name(Some("pointer"));
     {
@@ -773,8 +831,15 @@ fn open_playlist_editor_dialog(
         .xalign(0.0)
         .css_classes(["heading", "caption"])
         .build();
-    let icon_row = GtkBox::new(Orientation::Horizontal, 8);
-    icon_row.set_halign(Align::Start);
+    let icon_row = FlowBox::builder()
+        .selection_mode(SelectionMode::None)
+        .homogeneous(true)
+        .min_children_per_line(6)
+        .max_children_per_line(9)
+        .row_spacing(8)
+        .column_spacing(8)
+        .halign(Align::Start)
+        .build();
 
     let icon_buttons: Rc<RefCell<Vec<(String, Button)>>> = Rc::new(RefCell::new(Vec::new()));
     let update_icon_active: Rc<dyn Fn()> = {
@@ -797,7 +862,9 @@ fn open_playlist_editor_dialog(
     for &icon_name in PLAYLIST_ICONS {
         let btn = Button::builder()
             .icon_name(icon_name)
-            .css_classes(["flat", "circular"])
+            .width_request(36)
+            .height_request(36)
+            .css_classes(["flat", "circular", "playlist-icon-chip"])
             .build();
         btn.set_cursor_from_name(Some("pointer"));
         let ico = Rc::clone(&selected_icon);
@@ -814,7 +881,7 @@ fn open_playlist_editor_dialog(
         icon_buttons
             .borrow_mut()
             .push((icon_name.to_string(), btn.clone()));
-        icon_row.append(&btn);
+        icon_row.insert(&btn, -1);
     }
     update_icon_active();
 
@@ -823,18 +890,32 @@ fn open_playlist_editor_dialog(
     icon_section.append(&icon_row);
     content.append(&icon_section);
 
-    // Save / Create CTA button
+    // Footer actions: Cancel + Save / Create CTA
+    let cancel_btn = Button::builder()
+        .label(tr("Cancelar", "Cancel"))
+        .css_classes(["flat", "collection-play-all-btn"])
+        .build();
+    cancel_btn.set_cursor_from_name(Some("pointer"));
+
     let save_btn = Button::builder()
         .label(if is_editing {
             tr("Guardar cambios", "Save changes")
         } else {
             tr("Crear playlist", "Create playlist")
         })
-        .halign(Align::End)
-        .css_classes(["suggested-action", "pill"])
+        .css_classes(["suggested-action", "collection-new-pl-btn"])
         .build();
     save_btn.set_cursor_from_name(Some("pointer"));
-    content.append(&save_btn);
+
+    let footer_row = GtkBox::builder()
+        .orientation(Orientation::Horizontal)
+        .spacing(8)
+        .halign(Align::End)
+        .margin_top(6)
+        .build();
+    footer_row.append(&cancel_btn);
+    footer_row.append(&save_btn);
+    content.append(&footer_row);
 
     let scroller = ScrolledWindow::builder()
         .hscrollbar_policy(PolicyType::Never)
@@ -853,6 +934,13 @@ fn open_playlist_editor_dialog(
         .follows_content_size(true)
         .child(&toolbar)
         .build();
+
+    {
+        let dlg = dialog.clone();
+        cancel_btn.connect_clicked(move |_| {
+            dlg.close();
+        });
+    }
 
     // Wire image picker & clear
     {

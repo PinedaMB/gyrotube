@@ -39,6 +39,8 @@ fn build_quick_card(
     let icon_badge = GtkBox::builder()
         .halign(Align::Start)
         .valign(Align::Center)
+        .hexpand(false)
+        .vexpand(false)
         .width_request(36)
         .height_request(36)
         .css_classes(["quick-icon-badge", &badge_class])
@@ -48,6 +50,7 @@ fn build_quick_card(
     let title_label = Label::builder()
         .label(title)
         .xalign(0.0)
+        .width_chars(6)
         .max_width_chars(18)
         .ellipsize(gtk4::pango::EllipsizeMode::End)
         .css_classes(["heading"])
@@ -56,6 +59,7 @@ fn build_quick_card(
     let sub_label = Label::builder()
         .label(subtitle)
         .xalign(0.0)
+        .width_chars(6)
         .max_width_chars(22)
         .ellipsize(gtk4::pango::EllipsizeMode::End)
         .css_classes(["dim-label", "caption"])
@@ -480,7 +484,7 @@ pub fn build_home_page(
     let quick_grid = FlowBox::builder()
         .valign(Align::Start)
         .homogeneous(true)
-        .min_children_per_line(4)
+        .min_children_per_line(2)
         .max_children_per_line(4)
         .row_spacing(10)
         .column_spacing(10)
@@ -689,21 +693,22 @@ pub fn build_home_page(
             .hexpand(true)
             .build(),
     );
-    chart_cols.append(
-        &Label::builder()
-            .label(tr("ÁLBUM", "ALBUM"))
-            .xalign(0.0)
-            .width_chars(16)
-            .build(),
-    );
+    let chart_album_col = Label::builder()
+        .label(tr("ÁLBUM", "ALBUM"))
+        .xalign(0.0)
+        .width_chars(10)
+        .ellipsize(gtk4::pango::EllipsizeMode::End)
+        .build();
+    chart_cols.append(&chart_album_col);
     chart_cols.append(
         &Label::builder()
             .label(tr("DURACIÓN", "DURATION"))
             .xalign(1.0)
-            .width_chars(8)
+            .width_chars(6)
             .build(),
     );
-    chart_cols.append(&GtkBox::builder().width_request(112).build());
+    let chart_actions_spacer = GtkBox::builder().width_request(96).build();
+    chart_cols.append(&chart_actions_spacer);
 
     let chart_list = ListBox::builder()
         .selection_mode(SelectionMode::None)
@@ -770,6 +775,37 @@ pub fn build_home_page(
         .css_classes(["home-ambient-bg"])
         .child(&clamp)
         .build();
+
+    // Adapt Home hero card & chart header columns on narrow/mobile viewports
+    {
+        let last_wide: std::cell::Cell<Option<bool>> = std::cell::Cell::new(None);
+        let hero_sec = hero_section.clone();
+        let album_col = chart_album_col.clone();
+        let actions_sp = chart_actions_spacer.clone();
+        scrolled.add_tick_callback(move |s, _| {
+            let w = s.width();
+            if w > 0 {
+                let is_wide = w >= 540;
+                if last_wide.get() != Some(is_wide) {
+                    last_wide.set(Some(is_wide));
+                    album_col.set_visible(is_wide);
+                    actions_sp.set_visible(is_wide);
+                }
+                if let Some(hero_card) = hero_sec.first_child().and_downcast::<GtkBox>() {
+                    let target = if is_wide {
+                        Orientation::Horizontal
+                    } else {
+                        Orientation::Vertical
+                    };
+                    if hero_card.orientation() != target {
+                        hero_card.set_orientation(target);
+                        hero_card.set_spacing(if is_wide { 24 } else { 14 });
+                    }
+                }
+            }
+            glib::ControlFlow::Continue
+        });
+    }
 
     let cached_trending: Rc<RefCell<Vec<Track>>> = Rc::new(RefCell::new(Vec::new()));
     let cached_top: Rc<RefCell<Vec<Track>>> = Rc::new(RefCell::new(Vec::new()));
@@ -1012,7 +1048,7 @@ pub fn build_home_page(
                                 info_col.append(&sub_lbl);
                                 info_col.append(&btns_row);
 
-                                let hero_card = GtkBox::new(Orientation::Horizontal, 24);
+                                let hero_card = GtkBox::new(Orientation::Vertical, 14);
                                 hero_card.add_css_class("home-hero-card");
                                 hero_card.append(&cover_frame);
                                 hero_card.append(&info_col);

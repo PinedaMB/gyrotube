@@ -1509,14 +1509,21 @@ fn parse_mm_ss(raw: &str) -> Option<u32> {
 
 fn parse_sub_count(raw: &str) -> Option<u64> {
     let s = raw.trim().to_uppercase();
-    let num_part: String = s
-        .chars()
-        .take_while(|c| c.is_ascii_digit() || *c == '.')
-        .collect();
-    let val = num_part.parse::<f64>().ok()?;
-    let mult = if s.contains('M') {
+    let num_end = s
+        .find(|c: char| !(c.is_ascii_digit() || c == '.' || c == ','))
+        .unwrap_or(s.len());
+    if num_end == 0 {
+        return None;
+    }
+    let num_str = s[..num_end].replace(',', ".");
+    let val = num_str.parse::<f64>().ok()?;
+    let rest = s[num_end..].trim_start();
+    let unit = rest.split_whitespace().next().unwrap_or("");
+    let mult = if unit == "B" || unit.starts_with("MRD") || unit.starts_with("BILL") {
+        1_000_000_000.0
+    } else if unit == "M" || unit.starts_with("MILL") || unit == "MLN" {
         1_000_000.0
-    } else if s.contains('K') {
+    } else if unit == "K" || unit == "MIL" {
         1_000.0
     } else {
         1.0
@@ -1940,6 +1947,10 @@ mod tests {
         assert_eq!(parse_mm_ss("1:02:03"), Some(3723));
         assert_eq!(parse_sub_count("9.4M subscribers"), Some(9_400_000));
         assert_eq!(parse_sub_count("120K"), Some(120_000));
+        assert_eq!(parse_sub_count("176K monthly audience"), Some(176_000));
+        assert_eq!(parse_sub_count("176 mil suscriptores"), Some(176_000));
+        assert_eq!(parse_sub_count("1,5 M de suscriptores"), Some(1_500_000));
+        assert_eq!(parse_sub_count("721 monthly listeners"), Some(721));
     }
 
     #[test]
