@@ -73,7 +73,8 @@ pub fn build_header_bar(_content_view_stack: &adw::ViewStack) -> HeaderWidgets {
         .css_classes(["header-search"])
         .build();
     let top_search_clamp = adw::Clamp::builder()
-        .maximum_size(360)
+        .maximum_size(460)
+        .tightening_threshold(360)
         .child(&search_entry)
         .build();
 
@@ -150,11 +151,21 @@ pub fn build_header_bar(_content_view_stack: &adw::ViewStack) -> HeaderWidgets {
         .build();
     jam_btn.set_cursor_from_name(Some("pointer"));
 
+    let end_sep = gtk4::Separator::builder()
+        .orientation(Orientation::Vertical)
+        .margin_top(8)
+        .margin_bottom(8)
+        .margin_start(4)
+        .margin_end(2)
+        .css_classes(["header-end-sep"])
+        .build();
+
     let header_bar = adw::HeaderBar::builder()
         .centering_policy(adw::CenteringPolicy::Loose)
         .title_widget(&top_search_clamp)
         .build();
     header_bar.pack_start(&brand_box);
+    header_bar.pack_end(&end_sep);
     header_bar.pack_end(&menu_btn);
     header_bar.pack_end(&party_btn);
     header_bar.pack_end(&jam_btn);
@@ -172,19 +183,75 @@ pub fn build_header_bar(_content_view_stack: &adw::ViewStack) -> HeaderWidgets {
     }
 }
 
+pub fn apply_theme_mode(mode: &str) {
+    let scheme = match mode {
+        "dark" => adw::ColorScheme::ForceDark,
+        "light" => adw::ColorScheme::ForceLight,
+        _ => adw::ColorScheme::Default,
+    };
+    adw::StyleManager::default().set_color_scheme(scheme);
+}
+
 pub fn wire_settings_dialog(
     settings_btn: &Button,
     menu_popover: &Popover,
+    queue_autoplay_switch: &gtk4::Switch,
     state: Rc<RefCell<AppState>>,
 ) {
     let pop = menu_popover.clone();
+    let autoplay_sw = queue_autoplay_switch.clone();
     settings_btn.connect_clicked(move |btn| {
         pop.popdown();
         let dialog = adw::PreferencesDialog::builder()
             .title(tr("Configuración", "Settings"))
+            .content_width(480)
             .build();
         let page = adw::PreferencesPage::new();
 
+        // 1. Appearance
+        let appearance_group = adw::PreferencesGroup::builder()
+            .title(tr("Apariencia", "Appearance"))
+            .description(tr(
+                "Tema visual de la aplicación",
+                "Visual theme of the application",
+            ))
+            .build();
+        let theme_labels = [
+            tr("Sistema", "System"),
+            tr("Oscuro", "Dark"),
+            tr("Claro", "Light"),
+        ];
+        let theme_model = gtk4::StringList::new(&theme_labels);
+        let current_theme_idx = match state.borrow().theme_mode.as_str() {
+            "dark" => 1,
+            "light" => 2,
+            _ => 0,
+        };
+        let theme_row = adw::ComboRow::builder()
+            .title(tr("Tema", "Theme"))
+            .model(&theme_model)
+            .selected(current_theme_idx)
+            .build();
+        {
+            let state_theme = Rc::clone(&state);
+            theme_row.connect_selected_notify(move |row| {
+                let mode = match row.selected() {
+                    1 => "dark",
+                    2 => "light",
+                    _ => "system",
+                };
+                apply_theme_mode(mode);
+                let mut s = state_theme.borrow_mut();
+                if s.theme_mode != mode {
+                    s.theme_mode = mode.to_string();
+                    s.save_session();
+                }
+            });
+        }
+        appearance_group.add(&theme_row);
+        page.add(&appearance_group);
+
+        // 2. Language
         let lang_group = adw::PreferencesGroup::builder()
             .title(tr("Idioma", "Language"))
             .description(tr(
@@ -225,11 +292,12 @@ pub fn wire_settings_dialog(
         lang_group.add(&lang_row);
         page.add(&lang_group);
 
+        // 3. Playback
         let playback_group = adw::PreferencesGroup::builder()
             .title(tr("Reproducción", "Playback"))
             .description(tr(
-                "Transición suave entre pistas",
-                "Smooth transition between tracks",
+                "Transición suave y comportamiento al reproducir",
+                "Smooth transitions and playback behavior",
             ))
             .build();
 
@@ -273,6 +341,33 @@ pub fn wire_settings_dialog(
         cf_row.add_suffix(&cf_scale);
         playback_group.add(&cf_row);
 
+        let autoplay_row = adw::SwitchRow::builder()
+            .title(tr("Reproducción automática", "Autoplay"))
+            .subtitle(tr(
+                "Agregar canciones similares al terminar la cola",
+                "Queue similar songs when the queue ends",
+            ))
+            .active(state.borrow().autoplay_related)
+            .build();
+        {
+            let state_ap = Rc::clone(&state);
+            let queue_sw = autoplay_sw.clone();
+            autoplay_row.connect_active_notify(move |row| {
+                let active = row.is_active();
+                {
+                    let mut s = state_ap.borrow_mut();
+                    if s.autoplay_related != active {
+                        s.autoplay_related = active;
+                        s.save_session();
+                    }
+                }
+                if queue_sw.is_active() != active {
+                    queue_sw.set_active(active);
+                }
+            });
+        }
+        playback_group.add(&autoplay_row);
+
         let bg_row = adw::SwitchRow::builder()
             .title(tr("Reproducción en segundo plano", "Background playback"))
             .subtitle(tr(
@@ -292,40 +387,52 @@ pub fn wire_settings_dialog(
         playback_group.add(&bg_row);
         page.add(&playback_group);
 
+        // 4. Storage
         let storage_group = adw::PreferencesGroup::builder()
             .title(tr("Almacenamiento", "Storage"))
             .description(tr(
-                "Audios descargados para reproducción instantánea",
-                "Downloaded audio files for instant playback",
+                "Caché local y datos de búsqueda",
+                "Local cache and search data",
             ))
             .build();
 
         let streams_dir = crate::models::cache_dir().map(|d| d.join("streams"));
-        let calc_size_text = |dir: Option<&std::path::PathBuf>| -> String {
-            let bytes: u64 = dir
-                .and_then(|d| std::fs::read_dir(d).ok())
+        let calc_cache_bytes = |dir: Option<&std::path::PathBuf>| -> u64 {
+            dir.and_then(|d| std::fs::read_dir(d).ok())
                 .into_iter()
                 .flatten()
                 .filter_map(|e| e.ok())
                 .filter_map(|e| e.metadata().ok())
                 .map(|m| m.len())
-                .sum();
-            let mb = bytes as f64 / (1024.0 * 1024.0);
-            format!("{mb:.1} MB {}", tr("en caché", "cached"))
+                .sum()
         };
+        let format_cache = |bytes: u64| -> String {
+            let mb = bytes as f64 / (1024.0 * 1024.0);
+            format!("{mb:.1} MB / 1024 MB {}", tr("en caché", "cached"))
+        };
+        let initial_bytes = calc_cache_bytes(streams_dir.as_ref());
+        let cache_frac = (initial_bytes as f64 / (1024.0 * 1024.0 * 1024.0)).clamp(0.0, 1.0);
 
+        let cache_bar = gtk4::ProgressBar::builder()
+            .fraction(cache_frac)
+            .valign(Align::Center)
+            .width_request(96)
+            .css_classes(["settings-cache-bar"])
+            .build();
         let cache_row = adw::ActionRow::builder()
             .title(tr("Caché de audio", "Audio cache"))
-            .subtitle(&calc_size_text(streams_dir.as_ref()))
+            .subtitle(&format_cache(initial_bytes))
             .build();
         let clear_btn = Button::builder()
             .label(tr("Limpiar", "Clear"))
             .valign(Align::Center)
+            .sensitive(initial_bytes > 0)
             .css_classes(["destructive-action"])
             .build();
         clear_btn.set_cursor_from_name(Some("pointer"));
         {
             let cache_row_ref = cache_row.clone();
+            let cache_bar_ref = cache_bar.clone();
             let dir_ref = streams_dir.clone();
             clear_btn.connect_clicked(move |b| {
                 if let Some(ref d) = dir_ref
@@ -335,12 +442,51 @@ pub fn wire_settings_dialog(
                         let _ = std::fs::remove_file(entry.path());
                     }
                 }
-                cache_row_ref.set_subtitle(&format!("0.0 MB {}", tr("en caché", "cached")));
+                cache_row_ref.set_subtitle(&format_cache(0));
+                cache_bar_ref.set_fraction(0.0);
                 b.set_sensitive(false);
             });
         }
+        cache_row.add_suffix(&cache_bar);
         cache_row.add_suffix(&clear_btn);
         storage_group.add(&cache_row);
+
+        let hist_count = state.borrow().search_history.len();
+        let format_hist = |n: usize| -> String {
+            if n == 0 {
+                String::from(tr("Sin búsquedas recientes", "No recent searches"))
+            } else if n == 1 {
+                String::from(tr("1 búsqueda guardada", "1 saved search"))
+            } else {
+                format!("{n} {}", tr("búsquedas guardadas", "saved searches"))
+            }
+        };
+        let hist_row = adw::ActionRow::builder()
+            .title(tr("Historial de búsqueda", "Search history"))
+            .subtitle(&format_hist(hist_count))
+            .build();
+        let clear_hist_btn = Button::builder()
+            .label(tr("Limpiar", "Clear"))
+            .valign(Align::Center)
+            .sensitive(hist_count > 0)
+            .css_classes(["flat", "queue-clear-btn"])
+            .build();
+        clear_hist_btn.set_cursor_from_name(Some("pointer"));
+        {
+            let state_h = Rc::clone(&state);
+            let hist_row_ref = hist_row.clone();
+            clear_hist_btn.connect_clicked(move |b| {
+                {
+                    let mut s = state_h.borrow_mut();
+                    s.search_history.clear();
+                    s.report_save_result(save_search_history(&s.search_history));
+                }
+                hist_row_ref.set_subtitle(&format_hist(0));
+                b.set_sensitive(false);
+            });
+        }
+        hist_row.add_suffix(&clear_hist_btn);
+        storage_group.add(&hist_row);
         page.add(&storage_group);
 
         dialog.add(&page);
@@ -356,7 +502,13 @@ pub fn wire_search_popover(
     content_view_stack: &adw::ViewStack,
     trigger_explore_search: Rc<dyn Fn(&str)>,
 ) -> (gtk4::EventControllerFocus, Popover, Rc<Cell<bool>>) {
-    let search_popover = Popover::builder().autohide(false).can_focus(false).build();
+    let search_popover = Popover::builder()
+        .autohide(false)
+        .can_focus(false)
+        .has_arrow(false)
+        .css_classes(["search-popover"])
+        .build();
+    search_popover.set_offset(0, 6);
     search_popover.set_parent(top_search_entry);
     let debounce_id: Rc<RefCell<Option<glib::SourceId>>> = Rc::new(RefCell::new(None));
     let suggest_gen: Rc<RefCell<u64>> = Rc::new(RefCell::new(0));
@@ -432,20 +584,22 @@ pub fn wire_search_popover(
                 search_popover.popdown();
                 return;
             }
-            let box_hist = GtkBox::new(Orientation::Vertical, 4);
-            box_hist.set_margin_top(6);
-            box_hist.set_margin_bottom(6);
-            box_hist.set_margin_start(6);
-            box_hist.set_margin_end(6);
-            box_hist.set_width_request(320);
+            let box_hist = GtkBox::new(Orientation::Vertical, 3);
+            box_hist.set_margin_top(8);
+            box_hist.set_margin_bottom(8);
+            box_hist.set_margin_start(8);
+            box_hist.set_margin_end(8);
+            let target_w = top_entry_ref.width().clamp(300, 444);
+            box_hist.set_width_request(target_w);
 
             let header_row = GtkBox::new(Orientation::Horizontal, 6);
+            header_row.set_margin_bottom(2);
             header_row.append(
                 &Label::builder()
                     .label(heading_text)
                     .xalign(0.0)
                     .hexpand(true)
-                    .margin_start(6)
+                    .margin_start(8)
                     .css_classes(["dim-label", "caption"])
                     .build(),
             );
@@ -473,17 +627,35 @@ pub fn wire_search_popover(
             }
             box_hist.append(&header_row);
 
+            let typed_lower = top_entry_ref.text().trim().to_lowercase();
             for term in items {
-                let row = GtkBox::new(Orientation::Horizontal, 8);
-                row.append(&Image::from_icon_name(icon_name));
-                row.append(
-                    &Label::builder()
-                        .label(&term)
-                        .xalign(0.0)
-                        .hexpand(true)
-                        .ellipsize(gtk4::pango::EllipsizeMode::End)
-                        .build(),
-                );
+                let row = GtkBox::new(Orientation::Horizontal, 10);
+                let icon_img = Image::builder()
+                    .icon_name(icon_name)
+                    .pixel_size(14)
+                    .css_classes(["dim-label"])
+                    .build();
+                row.append(&icon_img);
+                let term_label = Label::builder()
+                    .xalign(0.0)
+                    .hexpand(true)
+                    .ellipsize(gtk4::pango::EllipsizeMode::End)
+                    .build();
+                if !is_history
+                    && !typed_lower.is_empty()
+                    && term.to_lowercase().starts_with(&typed_lower)
+                    && term.is_char_boundary(typed_lower.len())
+                {
+                    let (prefix, rest) = term.split_at(typed_lower.len());
+                    let p_esc = glib::markup_escape_text(prefix);
+                    let r_esc = glib::markup_escape_text(rest);
+                    term_label.set_markup(&format!(
+                        "<span alpha=\"68%\">{p_esc}</span><b>{r_esc}</b>"
+                    ));
+                } else {
+                    term_label.set_label(&term);
+                }
+                row.append(&term_label);
                 let item = Button::builder()
                     .child(&row)
                     .hexpand(true)
@@ -491,6 +663,7 @@ pub fn wire_search_popover(
                     .focus_on_click(false)
                     .css_classes(["flat", "search-popover-row"])
                     .build();
+                item.set_cursor_from_name(Some("pointer"));
                 let top_entry = top_entry_ref.clone();
                 let run_fn = Rc::clone(&run_header_search);
                 let suppress = Rc::clone(&suppress_suggest);

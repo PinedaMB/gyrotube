@@ -751,24 +751,30 @@ pub fn update_party_lyrics_fade(s: &AppState) {
     let adj = s.party_lyrics_scroll.vadjustment();
     let scroll_top = adj.value();
     let page_h = adj.page_size();
-    let fade_zone = 130.0_f64;
+    let max_scroll = (adj.upper() - page_h).max(0.0);
+    let fade_top = scroll_top > 4.0;
+    let fade_bottom = scroll_top < max_scroll - 4.0;
+    let fade_zone = 120.0_f64;
 
     for (i, (_, btn)) in s.party_synced_lyrics.iter().enumerate() {
+        let is_active = s.active_lyric_idx == Some(i);
         let base_opacity = match s.active_lyric_idx {
             Some(active) if i == active => 1.0,
-            Some(active) if i.abs_diff(active) == 1 => 0.62,
-            Some(active) if i.abs_diff(active) == 2 => 0.38,
-            Some(_) => 0.20,
-            None => 0.45,
+            Some(active) if i.abs_diff(active) == 1 => 0.66,
+            Some(active) if i.abs_diff(active) == 2 => 0.42,
+            Some(_) => 0.24,
+            None => 0.72,
         };
-        let edge_fade = if page_h > 0.0
+        let edge_fade = if is_active {
+            1.0
+        } else if page_h > 0.0
             && let Some(bounds) = btn.compute_bounds(&s.party_lyrics_box)
         {
             let center_y = (bounds.y() as f64 + bounds.height() as f64 * 0.5) - scroll_top;
-            if center_y < fade_zone {
-                (center_y / fade_zone).clamp(0.08, 1.0)
-            } else if center_y > page_h - fade_zone {
-                ((page_h - center_y) / fade_zone).clamp(0.08, 1.0)
+            if fade_top && center_y < fade_zone {
+                (center_y / fade_zone).clamp(0.15, 1.0)
+            } else if fade_bottom && center_y > page_h - fade_zone {
+                ((page_h - center_y) / fade_zone).clamp(0.15, 1.0)
             } else {
                 1.0
             }

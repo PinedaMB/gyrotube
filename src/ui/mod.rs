@@ -42,7 +42,7 @@ use crate::ui::header_search::{
 };
 use crate::ui::home::build_home_page;
 use crate::ui::jam_dialog::{
-    JamRuntime, build_spin_bottom_bar, open_jam_dialog, sync_jam_snapshot, wire_jam_commands,
+    JamRuntime, build_spin_bottom_bar, build_spin_sidebar, sync_jam_snapshot, wire_jam_commands,
     wire_remote_sync,
 };
 use crate::ui::party_mode::{
@@ -106,6 +106,7 @@ pub fn build_ui(app: &adw::Application) {
     let toast_overlay = adw::ToastOverlay::new();
     let saved_session = load_session_state();
     set_language_preference(saved_session.language);
+    crate::ui::header_search::apply_theme_mode(&saved_session.theme_mode);
     let initial_sidebar_collapsed = saved_session.sidebar_collapsed;
     let initial_source_name = if saved_session.source_name.is_empty() {
         String::from(tr("Sin reproducción", "Not playing"))
@@ -236,6 +237,7 @@ pub fn build_ui(app: &adw::Application) {
         shuffle: saved_session.shuffle,
         repeat: saved_session.repeat,
         language: saved_session.language,
+        theme_mode: saved_session.theme_mode,
         background_playback: saved_session.background_playback,
         autoplay_related: saved_session.autoplay_related,
         related_tracks: Vec::new(),
@@ -478,7 +480,12 @@ pub fn build_ui(app: &adw::Application) {
 
     let main_toolbar = adw::ToolbarView::new();
     main_toolbar.add_top_bar(&hdr.header_bar);
-    wire_settings_dialog(&hdr.settings_btn, &hdr.menu_popover, Rc::clone(&state));
+    wire_settings_dialog(
+        &hdr.settings_btn,
+        &hdr.menu_popover,
+        &sb.queue_autoplay_switch,
+        Rc::clone(&state),
+    );
     let party = build_party_mode(&state, &sb.shuffle_btn, &sb.repeat_btn);
     {
         let mut s = state.borrow_mut();
@@ -491,7 +498,57 @@ pub fn build_ui(app: &adw::Application) {
         s.party_next_artist = party.next_artist.clone();
     }
 
-    let (spin_bar, spin_bar_label, spin_bar_count) = build_spin_bottom_bar(&state, &hdr.jam_btn);
+    let spin_split_view = adw::OverlaySplitView::builder()
+        .content(&main_overlay)
+        .sidebar_position(gtk4::PackType::End)
+        .min_sidebar_width(320.0)
+        .max_sidebar_width(370.0)
+        .sidebar_width_fraction(0.30)
+        .collapsed(true)
+        .show_sidebar(false)
+        .build();
+    let (spin_sidebar, refresh_spin_sidebar) = {
+        let sv = spin_split_view.clone();
+        build_spin_sidebar(
+            Rc::clone(&state),
+            hdr.jam_btn.clone(),
+            Rc::new(move || sv.set_show_sidebar(false)),
+        )
+    };
+    spin_split_view.set_sidebar(Some(&spin_sidebar));
+
+    // Dock SPIN sidebar cleanly on wide screens (>= 1180px), overlay on smaller screens,
+    // while always preserving whether the user currently has it open (closed by default).
+    {
+        let last_wide = std::cell::Cell::new(None::<bool>);
+        spin_split_view.add_tick_callback(move |sv, _| {
+            let w = sv.width();
+            if w > 0 {
+                let is_wide = w >= 1180;
+                if last_wide.get() != Some(is_wide) {
+                    let was_open = sv.shows_sidebar();
+                    last_wide.set(Some(is_wide));
+                    sv.set_collapsed(!is_wide);
+                    if !was_open {
+                        sv.set_show_sidebar(false);
+                    }
+                }
+            }
+            glib::ControlFlow::Continue
+        });
+    }
+
+    let open_spin_sidebar: Rc<dyn Fn()> = {
+        let sv = spin_split_view.clone();
+        let refresh = Rc::clone(&refresh_spin_sidebar);
+        Rc::new(move || {
+            refresh();
+            sv.set_show_sidebar(true);
+        })
+    };
+
+    let (spin_bar, spin_bar_label, spin_bar_count) =
+        build_spin_bottom_bar(Rc::clone(&open_spin_sidebar));
     {
         let mut s = state.borrow_mut();
         s.spin_bar = spin_bar.clone();
@@ -503,7 +560,7 @@ pub fn build_ui(app: &adw::Application) {
         state.borrow().show_toast(&warning);
     }
 
-    main_toolbar.set_content(Some(&main_overlay));
+    main_toolbar.set_content(Some(&spin_split_view));
     main_toolbar.add_bottom_bar(&spin_bar);
     let root_stack = gtk4::Stack::builder()
         .transition_type(gtk4::StackTransitionType::Crossfade)
@@ -553,9 +610,14 @@ pub fn build_ui(app: &adw::Application) {
         hdr.party_btn.connect_clicked(move |_| ep());
     }
     {
-        let st_jam = Rc::clone(&state);
-        hdr.jam_btn.connect_clicked(move |btn| {
-            open_jam_dialog(btn, Rc::clone(&st_jam), btn.clone());
+        let sv = spin_split_view.clone();
+        let refresh = Rc::clone(&refresh_spin_sidebar);
+        hdr.jam_btn.connect_clicked(move |_| {
+            let next = !sv.shows_sidebar();
+            if next {
+                refresh();
+            }
+            sv.set_show_sidebar(next);
         });
     }
     wire_jam_commands(Rc::clone(&state), jam_cmd_rx);

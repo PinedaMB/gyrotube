@@ -51,6 +51,7 @@ pub struct AppState {
     pub shuffle: bool,
     pub repeat: bool,
     pub language: crate::i18n::AppLanguage,
+    pub theme_mode: String,
     pub background_playback: bool,
     pub autoplay_related: bool,
     pub related_tracks: Vec<Track>,
@@ -156,6 +157,7 @@ impl AppState {
             language: self.language,
             background_playback: self.background_playback,
             autoplay_related: self.autoplay_related,
+            theme_mode: self.theme_mode.clone(),
         }));
     }
     pub fn report_save_result(&self, result: std::io::Result<()>) {

@@ -127,18 +127,56 @@ pub fn build_party_mode(
         .build();
 
     let progress_bar = build_bound_progress_bar(&s.seek_scale.adjustment());
+    progress_bar.add_css_class("party-progress");
     let time_cur = Label::builder()
         .css_classes(["caption", "numeric", "dim-label"])
         .hexpand(true)
         .xalign(0.0)
+        .valign(Align::Center)
         .build();
     s.time_label
         .bind_property("label", &time_cur, "label")
         .sync_create()
         .build();
+
+    let party_fav_btn = Button::builder()
+        .icon_name("heart-regular")
+        .tooltip_text(tr("Agregar a favoritos", "Add to favorites"))
+        .valign(Align::Center)
+        .css_classes(["flat", "circular", "mini-fav-btn"])
+        .build();
+    party_fav_btn.set_cursor_from_name(Some("pointer"));
+    s.player_fav_btn
+        .bind_property("icon-name", &party_fav_btn, "icon-name")
+        .sync_create()
+        .build();
+    s.player_fav_btn
+        .bind_property("sensitive", &party_fav_btn, "sensitive")
+        .sync_create()
+        .build();
+    if s.player_fav_btn.is_active() {
+        party_fav_btn.add_css_class("is-favorite");
+    }
+    {
+        let fav_mirror = party_fav_btn.clone();
+        s.player_fav_btn.connect_active_notify(move |btn| {
+            if btn.is_active() {
+                fav_mirror.add_css_class("is-favorite");
+            } else {
+                fav_mirror.remove_css_class("is-favorite");
+            }
+        });
+    }
+    {
+        let fav_ref = s.player_fav_btn.clone();
+        party_fav_btn.connect_clicked(move |_| fav_ref.set_active(!fav_ref.is_active()));
+    }
+
     let time_dur = Label::builder()
         .css_classes(["caption", "numeric", "dim-label"])
+        .hexpand(true)
         .xalign(1.0)
+        .valign(Align::Center)
         .build();
     s.duration_label
         .bind_property("label", &time_dur, "label")
@@ -147,6 +185,7 @@ pub fn build_party_mode(
 
     let times_row = GtkBox::new(Orientation::Horizontal, 8);
     times_row.append(&time_cur);
+    times_row.append(&party_fav_btn);
     times_row.append(&time_dur);
 
     let progress_box = GtkBox::new(Orientation::Vertical, 4);
@@ -159,7 +198,7 @@ pub fn build_party_mode(
     let shuffle_btn = ToggleButton::builder()
         .icon_name("arrow-shuffle-regular")
         .tooltip_text(tr("Aleatorio", "Shuffle"))
-        .css_classes(["flat", "circular"])
+        .css_classes(["flat", "circular", "sidebar-toggle-btn"])
         .build();
     sidebar_shuffle_btn
         .bind_property("active", &shuffle_btn, "active")
@@ -216,7 +255,7 @@ pub fn build_party_mode(
     let repeat_btn = ToggleButton::builder()
         .icon_name("arrow-repeat-all-regular")
         .tooltip_text(tr("Repetir", "Repeat"))
-        .css_classes(["flat", "circular"])
+        .css_classes(["flat", "circular", "sidebar-toggle-btn"])
         .build();
     sidebar_repeat_btn
         .bind_property("active", &repeat_btn, "active")
@@ -235,7 +274,8 @@ pub fn build_party_mode(
     let next_header = Label::builder()
         .label(tr("A CONTINUACIÓN", "UP NEXT"))
         .xalign(0.0)
-        .css_classes(["album-type-label"])
+        .halign(Align::Start)
+        .css_classes(["party-next-heading"])
         .build();
     let (next_cover_frame, next_cover) = clamped_cover(42, 42, "cover-art");
     let next_title = Label::builder()
@@ -284,12 +324,13 @@ pub fn build_party_mode(
     let lyrics_heading = Label::builder()
         .label(tr("Letra", "Lyrics"))
         .xalign(0.0)
-        .hexpand(true)
         .css_classes(["title-3", "dim-label"])
         .build();
     let lyrics_sync_badge = Label::builder()
         .visible(false)
-        .halign(Align::End)
+        .halign(Align::Start)
+        .valign(Align::Center)
+        .css_classes(["lyrics-badge-synced"])
         .build();
     s.lyrics_sync_badge
         .bind_property("label", &lyrics_sync_badge, "label")
@@ -300,7 +341,7 @@ pub fn build_party_mode(
         .sync_create()
         .build();
 
-    let lyrics_header = GtkBox::new(Orientation::Horizontal, 8);
+    let lyrics_header = GtkBox::new(Orientation::Horizontal, 10);
     lyrics_header.append(&lyrics_heading);
     lyrics_header.append(&lyrics_sync_badge);
 
@@ -322,6 +363,7 @@ pub fn build_party_mode(
 
     let lyrics_scroll = ScrolledWindow::builder()
         .hscrollbar_policy(PolicyType::Never)
+        .vscrollbar_policy(PolicyType::External)
         .vexpand(true)
         .hexpand(true)
         .child(&lyrics_box)

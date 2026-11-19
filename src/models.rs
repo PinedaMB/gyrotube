@@ -541,6 +541,8 @@ pub struct SessionState {
     pub background_playback: bool,
     #[serde(default = "default_autoplay_related")]
     pub autoplay_related: bool,
+    #[serde(default)]
+    pub theme_mode: String,
 }
 
 pub fn load_session_state() -> SessionState {

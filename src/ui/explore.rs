@@ -517,7 +517,7 @@ pub fn build_explore_page(
     let artist_tracks_expanded = Rc::new(Cell::new(false));
     let artist_tracks_toggle_btn = Button::builder()
         .halign(Align::Start)
-        .css_classes(["flat", "pill-switch"])
+        .css_classes(["flat", "collection-play-all-btn"])
         .visible(false)
         .build();
     artist_tracks_toggle_btn.set_cursor_from_name(Some("pointer"));
@@ -640,17 +640,27 @@ pub fn build_explore_page(
     let genre_back_btn = Button::builder()
         .icon_name("go-previous-symbolic")
         .tooltip_text(tr("Volver a géneros", "Back to genres"))
-        .css_classes(["flat", "circular"])
+        .valign(Align::Center)
+        .width_request(36)
+        .height_request(36)
+        .css_classes(["circular", "artist-hero-back"])
         .build();
+    genre_back_btn.set_cursor_from_name(Some("pointer"));
     let genre_heading = Label::builder()
         .label("Playlists")
         .xalign(0.0)
-        .hexpand(true)
         .css_classes(["title-2"])
+        .build();
+    let genre_count_badge = Label::builder()
+        .label("")
+        .valign(Align::Center)
+        .visible(false)
+        .css_classes(["search-top-result-badge", "numeric"])
         .build();
     let genre_header = GtkBox::new(Orientation::Horizontal, 10);
     genre_header.append(&genre_back_btn);
     genre_header.append(&genre_heading);
+    genre_header.append(&genre_count_badge);
 
     let playlists_flow = FlowBox::builder()
         .selection_mode(SelectionMode::None)
@@ -658,7 +668,7 @@ pub fn build_explore_page(
         .column_spacing(12)
         .row_spacing(12)
         .min_children_per_line(1)
-        .max_children_per_line(4)
+        .max_children_per_line(5)
         .build();
 
     let genre_playlists_skeleton = GtkBox::new(Orientation::Vertical, 12);
@@ -864,6 +874,7 @@ pub fn build_explore_page(
         let genre_playlists_skeleton = genre_playlists_skeleton.clone();
         let genre_playlists_section = genre_playlists_section.clone();
         let genre_heading = genre_heading.clone();
+        let genre_count_badge = genre_count_badge.clone();
         let playlists_flow = playlists_flow.clone();
 
         glib::spawn_future_local(async move {
@@ -873,17 +884,20 @@ pub fn build_explore_page(
                     "gaming", "party", "romance", "sad", "sleep", "workout",
                 ];
                 for genre in genres {
+                    let lower = genre.name.to_lowercase();
+                    let is_mood = mood_names.iter().any(|m| lower.contains(m));
                     let btn = build_genre_button(
                         &genre,
+                        is_mood,
                         Rc::clone(&state),
                         &genres_section,
                         &genre_playlists_skeleton,
                         &genre_playlists_section,
                         &genre_heading,
+                        &genre_count_badge,
                         &playlists_flow,
                     );
-                    let lower = genre.name.to_lowercase();
-                    if mood_names.iter().any(|m| lower.contains(m)) {
+                    if is_mood {
                         moods_flow.insert(&btn, -1);
                     } else {
                         genres_flow.insert(&btn, -1);
@@ -1894,27 +1908,75 @@ fn build_artist_card(
     btn
 }
 
+fn genre_palette_color(name: &str) -> &'static str {
+    const PALETTE: &[&str] = &[
+        "#2190a4", // turquoise
+        "#e66100", // amber
+        "#3584e4", // blue
+        "#9141ac", // violet
+        "#2ec27e", // emerald
+        "#e01b24", // coral red
+        "#c061cb", // magenta
+        "#f5c211", // gold
+        "#00b4d8", // cyan
+        "#625df5", // indigo
+    ];
+    let mut hash: u32 = 2166136261;
+    for b in name.to_lowercase().bytes() {
+        hash ^= u32::from(b);
+        hash = hash.wrapping_mul(16777619);
+    }
+    PALETTE[(hash as usize) % PALETTE.len()]
+}
+
+fn mood_icon_for_name(name: &str) -> &'static str {
+    let n = name.to_lowercase();
+    if n.contains("chill") || n.contains("relaj") {
+        "drink-coffee-regular"
+    } else if n.contains("sleep") || n.contains("dormir") || n.contains("noche") {
+        "weather-moon-regular"
+    } else if n.contains("feel good")
+        || n.contains("alegr")
+        || n.contains("feliz")
+        || n.contains("summer")
+        || n.contains("verano")
+    {
+        "weather-sunny-regular"
+    } else if n.contains("workout") || n.contains("entren") || n.contains("gym") {
+        "dumbbell-regular"
+    } else if n.contains("energ") {
+        "flash-regular"
+    } else if n.contains("focus") || n.contains("concentr") || n.contains("estud") {
+        "book-open-regular"
+    } else if n.contains("commute") || n.contains("camino") || n.contains("viaj") {
+        "vehicle-car-regular"
+    } else if n.contains("romance") || n.contains("amor") || n.contains("románt") {
+        "heart-filled"
+    } else if n.contains("party") || n.contains("fiesta") {
+        "sparkle-regular"
+    } else if n.contains("sad") || n.contains("trist") || n.contains("melanc") {
+        "sound-wave-circle-regular"
+    } else if n.contains("christmas") || n.contains("navidad") || n.contains("holiday") {
+        "star-regular"
+    } else if n.contains("gaming") || n.contains("juegos") {
+        "fire-regular"
+    } else {
+        "music-note-2-regular"
+    }
+}
+
 fn build_genre_button(
     genre: &Genre,
+    is_mood: bool,
     state: Rc<RefCell<AppState>>,
     genres_section: &GtkBox,
     genre_playlists_skeleton: &GtkBox,
     genre_playlists_section: &GtkBox,
     genre_heading: &Label,
+    genre_count_badge: &Label,
     playlists_flow: &FlowBox,
 ) -> Button {
-    let color = &genre.color_hex;
-
-    let accent_bar = GtkBox::builder()
-        .valign(Align::Center)
-        .css_classes(["genre-accent-bar"])
-        .build();
-    let bar_css = CssProvider::new();
-    bar_css.load_from_string(&format!("box {{ background-color: {color}; }}"));
-    #[allow(deprecated)]
-    accent_bar
-        .style_context()
-        .add_provider(&bar_css, gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION);
+    let color = genre_palette_color(&genre.name);
 
     let name_label = Label::builder()
         .label(&genre.name)
@@ -1931,21 +1993,72 @@ fn build_genre_button(
         .css_classes(["genre-arrow"])
         .build();
 
-    let inner = GtkBox::new(Orientation::Horizontal, 10);
-    inner.append(&accent_bar);
+    let inner = GtkBox::new(Orientation::Horizontal, if is_mood { 12 } else { 10 });
+    if is_mood {
+        let icon = gtk4::Image::builder()
+            .icon_name(mood_icon_for_name(&genre.name))
+            .pixel_size(16)
+            .halign(Align::Center)
+            .valign(Align::Center)
+            .hexpand(true)
+            .vexpand(true)
+            .build();
+        let badge = GtkBox::builder()
+            .halign(Align::Start)
+            .valign(Align::Center)
+            .hexpand(false)
+            .vexpand(false)
+            .width_request(34)
+            .height_request(34)
+            .css_classes(["mood-icon-badge"])
+            .build();
+        badge.append(&icon);
+        let badge_css = CssProvider::new();
+        badge_css.load_from_string(&format!(
+            "box {{ background-color: alpha({color}, 0.22); color: {color}; }}"
+        ));
+        #[allow(deprecated)]
+        badge
+            .style_context()
+            .add_provider(&badge_css, gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION);
+        inner.append(&badge);
+    } else {
+        let accent_bar = GtkBox::builder()
+            .valign(Align::Center)
+            .css_classes(["genre-accent-bar"])
+            .build();
+        let bar_css = CssProvider::new();
+        bar_css.load_from_string(&format!("box {{ background-color: {color}; }}"));
+        #[allow(deprecated)]
+        accent_bar
+            .style_context()
+            .add_provider(&bar_css, gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION);
+        inner.append(&accent_bar);
+    }
     inner.append(&name_label);
     inner.append(&arrow);
 
     let btn = Button::builder()
         .child(&inner)
-        .css_classes(["flat", "genre-chip"])
+        .css_classes(if is_mood {
+            vec!["flat", "genre-chip", "mood-tile"]
+        } else {
+            vec!["flat", "genre-chip"]
+        })
         .build();
     btn.set_cursor_from_name(Some("pointer"));
     let card_css = CssProvider::new();
-    card_css.load_from_string(&format!(
-        "button {{ background-image: linear-gradient(90deg, alpha({color}, 0.14) 0%, alpha(@window_fg_color, 0.04) 60%); }}
-         button:hover {{ background-image: linear-gradient(90deg, alpha({color}, 0.24) 0%, alpha(@window_fg_color, 0.07) 65%); border-color: alpha({color}, 0.45); }}"
-    ));
+    if is_mood {
+        card_css.load_from_string(&format!(
+            "button {{ background-image: linear-gradient(135deg, alpha({color}, 0.20) 0%, alpha(@window_fg_color, 0.04) 68%); border-color: alpha({color}, 0.20); }}
+             button:hover {{ background-image: linear-gradient(135deg, alpha({color}, 0.30) 0%, alpha(@window_fg_color, 0.07) 72%); border-color: alpha({color}, 0.50); }}"
+        ));
+    } else {
+        card_css.load_from_string(&format!(
+            "button {{ background-image: linear-gradient(90deg, alpha({color}, 0.14) 0%, alpha(@window_fg_color, 0.04) 60%); }}
+             button:hover {{ background-image: linear-gradient(90deg, alpha({color}, 0.24) 0%, alpha(@window_fg_color, 0.07) 65%); border-color: alpha({color}, 0.45); }}"
+        ));
+    }
     #[allow(deprecated)]
     btn.style_context()
         .add_provider(&card_css, gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION);
@@ -1956,6 +2069,7 @@ fn build_genre_button(
     let genre_playlists_skeleton = genre_playlists_skeleton.clone();
     let genre_playlists_section = genre_playlists_section.clone();
     let genre_heading = genre_heading.clone();
+    let genre_count_badge = genre_count_badge.clone();
     let playlists_flow = playlists_flow.clone();
 
     btn.connect_clicked(move |_| {
@@ -1977,6 +2091,7 @@ fn build_genre_button(
         let genre_playlists_skeleton = genre_playlists_skeleton.clone();
         let genre_playlists_section = genre_playlists_section.clone();
         let genre_heading = genre_heading.clone();
+        let genre_count_badge = genre_count_badge.clone();
         let playlists_flow = playlists_flow.clone();
         let fallback_name = genre_name.clone();
 
@@ -1995,6 +2110,13 @@ fn build_genre_button(
                         } else {
                             &name
                         });
+                        let count = playlists.len();
+                        genre_count_badge.set_label(&if count == 1 {
+                            String::from("1 playlist")
+                        } else {
+                            format!("{count} playlists")
+                        });
+                        genre_count_badge.set_visible(count > 0);
                         for pl in playlists {
                             let card = build_playlist_card(&pl, Rc::clone(&state));
                             playlists_flow.insert(&card, -1);

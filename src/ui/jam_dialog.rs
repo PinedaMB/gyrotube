@@ -7,7 +7,8 @@ use gtk4::gdk;
 use gtk4::glib;
 use gtk4::prelude::*;
 use gtk4::{
-    Align, Box as GtkBox, Button, Entry, FlowBox, Image, Label, Orientation, Picture, SelectionMode,
+    Align, Box as GtkBox, Button, Entry, FlowBox, Image, Label, Orientation, Picture, PolicyType,
+    ScrolledWindow, SelectionMode, Stack, ToggleButton,
 };
 use libadwaita as adw;
 
@@ -120,10 +121,7 @@ pub fn sync_jam_snapshot(s: &AppState) {
     refresh_spin_ui(s);
 }
 
-pub fn build_spin_bottom_bar(
-    state: &Rc<RefCell<AppState>>,
-    jam_btn: &Button,
-) -> (GtkBox, Label, Label) {
+pub fn build_spin_bottom_bar(on_open: Rc<dyn Fn()>) -> (GtkBox, Label, Label) {
     let icon = Image::builder()
         .icon_name("people-community-regular")
         .pixel_size(16)
@@ -145,13 +143,9 @@ pub fn build_spin_bottom_bar(
         .css_classes(["flat", "pill-switch"])
         .build();
     manage_btn.set_cursor_from_name(Some("pointer"));
-    {
-        let st = Rc::clone(state);
-        let jb = jam_btn.clone();
-        manage_btn.connect_clicked(move |btn| {
-            open_jam_dialog(btn, Rc::clone(&st), jb.clone());
-        });
-    }
+    manage_btn.connect_clicked(move |_| {
+        on_open();
+    });
 
     let bar = GtkBox::new(Orientation::Horizontal, 10);
     bar.add_css_class("spin-bottom-bar");
@@ -535,57 +529,11 @@ fn update_jam_btn_highlight(s: &AppState, jam_btn: &Button) {
     }
 }
 
-pub fn open_jam_dialog(parent: &Button, state: Rc<RefCell<AppState>>, jam_btn: Button) {
-    let dialog = adw::PreferencesDialog::builder()
-        .title(tr("Modo SPIN", "SPIN Mode"))
-        .content_width(500)
-        .content_height(720)
-        .build();
-    let page = adw::PreferencesPage::new();
-
-    let (is_active, allow_controls, url, guest_count, added_count, remote_role) = {
-        let s = state.borrow();
-        let snap = s.jam.snapshot.read().ok();
-        (
-            s.jam.server.is_some(),
-            snap.as_ref().map(|n| n.allow_controls).unwrap_or(false),
-            snap.as_ref().map(|n| n.url.clone()).unwrap_or_default(),
-            snap.as_ref().map(|n| n.guest_count).unwrap_or(0),
-            snap.as_ref().map(|n| n.added_count).unwrap_or(0),
-            s.jam.remote_role.clone(),
-        )
-    };
-
-    // Control Remoto / Jukebox (Wi-Fi local)
-    let jukebox_group = adw::PreferencesGroup::builder()
-        .title(tr("Jukebox local (Wi‑Fi)", "Local Jukebox (Wi-Fi)"))
-        .description(tr(
-            "Agrega canciones a tu cola desde el celular.",
-            "Add songs to your queue from a phone.",
-        ))
-        .build();
-
-    let active_row = adw::SwitchRow::builder()
-        .title(tr("Activar Jukebox local", "Enable local Jukebox"))
-        .subtitle(tr(
-            "Inicia un servidor web local en tu red",
-            "Starts a local web server on your network",
-        ))
-        .active(is_active)
-        .build();
-
-    let controls_row = adw::SwitchRow::builder()
-        .title(tr(
-            "Permitir controles de reproducción",
-            "Allow playback controls",
-        ))
-        .subtitle(tr(
-            "Los invitados podrán pausar, saltar y reordenar la cola",
-            "Guests can pause, skip, and reorder the queue",
-        ))
-        .active(allow_controls)
-        .build();
-
+pub fn build_spin_sidebar(
+    state: Rc<RefCell<AppState>>,
+    jam_btn: Button,
+    on_close: Rc<dyn Fn()>,
+) -> (adw::ToolbarView, Rc<dyn Fn()>) {
     let status_text = |active: bool, guests: usize, added: usize| -> String {
         if !active {
             String::from(tr("Inactivo", "Inactive"))
@@ -597,28 +545,100 @@ pub fn open_jam_dialog(parent: &Button, state: Rc<RefCell<AppState>>, jam_btn: B
             )
         }
     };
+
+    // Header bar
+    let spin_icon = Image::builder()
+        .icon_name("people-community-regular")
+        .pixel_size(17)
+        .valign(Align::Center)
+        .build();
+    let spin_title = Label::builder()
+        .label(tr("Modo SPIN", "SPIN Mode"))
+        .xalign(0.0)
+        .css_classes(["title-4"])
+        .build();
+    let live_badge = Label::builder()
+        .label(tr("● En vivo", "● Live"))
+        .valign(Align::Center)
+        .visible(false)
+        .css_classes(["lyrics-badge-synced"])
+        .build();
+    let header_left = GtkBox::new(Orientation::Horizontal, 8);
+    header_left.set_hexpand(true);
+    header_left.append(&spin_icon);
+    header_left.append(&spin_title);
+    header_left.append(&live_badge);
+
+    let close_btn = Button::builder()
+        .icon_name("window-close-symbolic")
+        .tooltip_text(tr("Cerrar panel SPIN", "Close SPIN panel"))
+        .valign(Align::Center)
+        .css_classes(["flat", "circular"])
+        .build();
+    close_btn.set_cursor_from_name(Some("pointer"));
+    close_btn.connect_clicked(move |_| on_close());
+
+    let top_bar = GtkBox::new(Orientation::Horizontal, 8);
+    top_bar.add_css_class("spin-sidebar-header");
+    top_bar.append(&header_left);
+    top_bar.append(&close_btn);
+
+    // Compact mode switcher: Wi-Fi Jukebox | App to App
+    let tab_local = ToggleButton::builder()
+        .label(tr("Wi‑Fi Jukebox", "Wi-Fi Jukebox"))
+        .active(true)
+        .hexpand(true)
+        .css_classes(["flat", "pill-switch"])
+        .build();
+    let tab_remote = ToggleButton::builder()
+        .label(tr("App a App", "App to App"))
+        .group(&tab_local)
+        .hexpand(true)
+        .css_classes(["flat", "pill-switch"])
+        .build();
+    let tab_bar = GtkBox::new(Orientation::Horizontal, 4);
+    tab_bar.set_homogeneous(true);
+    tab_bar.add_css_class("pill-switch-group");
+    tab_bar.append(&tab_local);
+    tab_bar.append(&tab_remote);
+
+    let mode_stack = Stack::builder()
+        .transition_type(gtk4::StackTransitionType::Crossfade)
+        .transition_duration(140)
+        .vhomogeneous(false)
+        .build();
+
+    // --- Page 1: Local Wi-Fi Jukebox ---
+    let active_row = adw::SwitchRow::builder()
+        .title(tr("Activar Jukebox local", "Enable local Jukebox"))
+        .subtitle(tr(
+            "Servidor web en tu red Wi‑Fi",
+            "Local web server on your Wi-Fi",
+        ))
+        .build();
+    let controls_row = adw::SwitchRow::builder()
+        .title(tr("Permitir controles", "Allow controls"))
+        .subtitle(tr(
+            "Pausar, saltar y reordenar la cola",
+            "Pause, skip, and reorder the queue",
+        ))
+        .build();
     let status_row = adw::ActionRow::builder()
         .title(tr("Estado", "Status"))
-        .subtitle(&status_text(is_active, guest_count, added_count))
+        .subtitle(&status_text(false, 0, 0))
         .build();
 
-    jukebox_group.add(&active_row);
-    jukebox_group.add(&controls_row);
-    jukebox_group.add(&status_row);
-    page.add(&jukebox_group);
-
-    let connect_group = adw::PreferencesGroup::builder()
-        .title(tr("Conectar celulares (QR)", "Connect phones (QR)"))
-        .description(tr(
-            "Escanea el código QR o abre la dirección en el navegador",
-            "Scan the QR code or open the address in a browser",
-        ))
-        .visible(is_active)
+    let jukebox_list = gtk4::ListBox::builder()
+        .selection_mode(SelectionMode::None)
+        .css_classes(["boxed-list"])
         .build();
+    jukebox_list.append(&active_row);
+    jukebox_list.append(&controls_row);
+    jukebox_list.append(&status_row);
 
     let qr_picture = Picture::builder()
-        .width_request(180)
-        .height_request(180)
+        .width_request(176)
+        .height_request(176)
         .halign(Align::Center)
         .valign(Align::Center)
         .build();
@@ -628,161 +648,179 @@ pub fn open_jam_dialog(parent: &Button, state: Rc<RefCell<AppState>>, jam_btn: B
     qr_card.set_halign(Align::Center);
     qr_card.append(&qr_picture);
 
-    let qr_frame = GtkBox::new(Orientation::Vertical, 8);
-    qr_frame.set_halign(Align::Center);
-    qr_frame.set_margin_top(12);
-    qr_frame.set_margin_bottom(12);
-    qr_frame.append(&qr_card);
-
-    let qr_row = adw::ActionRow::new();
-    qr_row.set_child(Some(&qr_frame));
-
     let url_label = Label::builder()
-        .label(&url)
+        .label("")
         .selectable(true)
+        .xalign(0.0)
+        .hexpand(true)
         .ellipsize(gtk4::pango::EllipsizeMode::Middle)
-        .css_classes(["heading"])
+        .css_classes(["caption", "heading"])
         .build();
     let copy_btn = Button::builder()
         .label(tr("Copiar", "Copy"))
         .valign(Align::Center)
-        .css_classes(["flat"])
+        .css_classes(["flat", "collection-play-all-btn"])
         .build();
+    copy_btn.set_cursor_from_name(Some("pointer"));
     {
         let url_lbl = url_label.clone();
-        let dlg = dialog.clone();
+        let st = Rc::clone(&state);
         copy_btn.connect_clicked(move |_| {
             if let Some(display) = gdk::Display::default() {
                 display.clipboard().set_text(&url_lbl.text());
-                dlg.add_toast(adw::Toast::new(tr("Enlace SPIN copiado", "SPIN link copied")));
+                st.borrow()
+                    .show_toast(tr("Enlace SPIN copiado", "SPIN link copied"));
             }
         });
     }
-    let url_row = adw::ActionRow::builder()
-        .title(tr("Dirección local", "Local address"))
-        .build();
-    url_row.add_suffix(&url_label);
-    url_row.add_suffix(&copy_btn);
+    let url_row = GtkBox::new(Orientation::Horizontal, 8);
+    url_row.append(&url_label);
+    url_row.append(&copy_btn);
 
-    connect_group.add(&qr_row);
-    connect_group.add(&url_row);
-    page.add(&connect_group);
+    let connect_card = GtkBox::new(Orientation::Vertical, 12);
+    connect_card.add_css_class("spin-sidebar-card");
+    connect_card.set_visible(false);
+    connect_card.append(
+        &Label::builder()
+            .label(tr("Escanea para unirte", "Scan to join"))
+            .xalign(0.5)
+            .css_classes(["heading", "caption"])
+            .build(),
+    );
+    connect_card.append(&qr_card);
+    connect_card.append(&url_row);
 
-    // Escucha Sincronizada Remota (entre instancias de GyroTube)
-    let remote_group = adw::PreferencesGroup::builder()
-        .title(tr(
-            "Escucha sincronizada (App a App)",
-            "Synced listening (App to App)",
-        ))
-        .description(tr(
-            "Escucha lo mismo al mismo tiempo con amigos.",
-            "Listen together in real time with friends.",
-        ))
-        .build();
+    let local_page = GtkBox::new(Orientation::Vertical, 14);
+    local_page.append(&jukebox_list);
+    local_page.append(&connect_card);
 
-    let is_host = matches!(remote_role, RemoteRole::Host(_));
-    let host_code_init = match &remote_role {
-        RemoteRole::Host(c) => format!("GYRO-{c}"),
-        _ => String::new(),
-    };
-    let guest_target_init = match &remote_role {
-        RemoteRole::Guest(t) => t.clone(),
-        _ => String::new(),
-    };
-
+    // --- Page 2: Remote App-to-App Sync ---
     let host_row = adw::SwitchRow::builder()
         .title(tr("Transmitir como anfitrión", "Broadcast as host"))
         .subtitle(tr("Crea una invitación", "Create an invitation"))
-        .active(is_host)
         .build();
 
+    let host_list = gtk4::ListBox::builder()
+        .selection_mode(SelectionMode::None)
+        .css_classes(["boxed-list"])
+        .build();
+    host_list.append(&host_row);
+
     let room_code_label = Label::builder()
-        .label(&host_code_init)
+        .label("")
         .ellipsize(gtk4::pango::EllipsizeMode::Middle)
-        .max_width_chars(24)
+        .xalign(0.0)
+        .hexpand(true)
         .selectable(true)
+        .css_classes(["caption", "heading"])
         .build();
     let copy_code_btn = Button::builder()
         .label(tr("Copiar", "Copy"))
         .valign(Align::Center)
-        .css_classes(["flat"])
+        .css_classes(["flat", "collection-play-all-btn"])
         .build();
+    copy_code_btn.set_cursor_from_name(Some("pointer"));
     {
         let lbl = room_code_label.clone();
-        let dlg = dialog.clone();
+        let st = Rc::clone(&state);
         copy_code_btn.connect_clicked(move |_| {
             if let Some(display) = gdk::Display::default() {
                 display.clipboard().set_text(&lbl.text());
-                dlg.add_toast(adw::Toast::new(tr(
-                    "Invitación copiada",
-                    "Invitation copied",
-                )));
+                st.borrow()
+                    .show_toast(tr("Invitación copiada", "Invitation copied"));
             }
         });
     }
-    let room_code_row = adw::ActionRow::builder()
-        .title(tr("Invitación", "Invitation"))
-        .visible(is_host)
+    let ticket_qr = Picture::builder()
+        .width_request(176)
+        .height_request(176)
+        .halign(Align::Center)
+        .valign(Align::Center)
         .build();
-    room_code_row.add_suffix(&room_code_label);
-    room_code_row.add_suffix(&copy_code_btn);
+    let ticket_qr_card = GtkBox::new(Orientation::Vertical, 0);
+    ticket_qr_card.add_css_class("spin-qr-card");
+    ticket_qr_card.set_overflow(gtk4::Overflow::Hidden);
+    ticket_qr_card.set_halign(Align::Center);
+    ticket_qr_card.append(&ticket_qr);
 
+    let code_row = GtkBox::new(Orientation::Horizontal, 8);
+    code_row.append(&room_code_label);
+    code_row.append(&copy_code_btn);
+
+    let host_invite_card = GtkBox::new(Orientation::Vertical, 10);
+    host_invite_card.add_css_class("spin-sidebar-card");
+    host_invite_card.set_visible(false);
+    host_invite_card.append(
+        &Label::builder()
+            .label(tr("Invitación activa", "Active invitation"))
+            .xalign(0.5)
+            .css_classes(["heading", "caption"])
+            .build(),
+    );
+    host_invite_card.append(&ticket_qr_card);
+    host_invite_card.append(&code_row);
+
+    let join_subtitle = Label::builder()
+        .label(tr(
+            "Pega una invitación SPIN para escuchar sincronizado.",
+            "Paste a SPIN invitation to listen in sync.",
+        ))
+        .xalign(0.0)
+        .wrap(true)
+        .css_classes(["caption", "dim-label"])
+        .build();
     let join_entry = Entry::builder()
         .placeholder_text(tr(
-            "Invitación SPIN o URL del anfitrión...",
-            "SPIN invitation or host URL...",
+            "Invitación SPIN o URL del anfitrión…",
+            "SPIN invitation or host URL…",
         ))
-        .text(&guest_target_init)
-        .valign(Align::Center)
-        .width_chars(18)
+        .hexpand(true)
         .build();
-    let is_guest = matches!(remote_role, RemoteRole::Guest(_));
     let join_btn = Button::builder()
-        .label(if is_guest {
-            tr("Desconectar", "Disconnect")
-        } else {
-            tr("Unirse", "Join")
-        })
-        .valign(Align::Center)
-        .css_classes(if is_guest {
-            ["destructive-action"]
-        } else {
-            ["suggested-action"]
-        })
+        .label(tr("Unirse", "Join"))
+        .halign(Align::End)
+        .css_classes(["suggested-action", "collection-new-pl-btn"])
         .build();
-    let join_row = adw::ActionRow::builder()
-        .title(tr("Unirse a una sala", "Join a room"))
-        .subtitle(if is_guest {
-            tr("Sincronizado con anfitrión", "Synced with host")
-        } else {
-            tr("Pega una invitación", "Paste an invitation")
-        })
-        .build();
-    join_row.add_suffix(&join_entry);
-    join_row.add_suffix(&join_btn);
+    join_btn.set_cursor_from_name(Some("pointer"));
 
-    let ticket_qr = Picture::builder()
-        .width_request(220)
-        .height_request(220)
-        .halign(Align::Center)
-        .visible(false)
-        .build();
-    let show_ticket_qr = |picture: &Picture, ticket: &str| {
-        let texture = ticket_qr_svg(ticket).and_then(|svg| {
-            gdk::Texture::from_bytes(&glib::Bytes::from_owned(svg.into_bytes())).ok()
+    let join_card = GtkBox::new(Orientation::Vertical, 10);
+    join_card.add_css_class("spin-sidebar-card");
+    join_card.append(
+        &Label::builder()
+            .label(tr("Unirse a una sala", "Join a room"))
+            .xalign(0.0)
+            .css_classes(["heading"])
+            .build(),
+    );
+    join_card.append(&join_subtitle);
+    join_card.append(&join_entry);
+    join_card.append(&join_btn);
+
+    let remote_page = GtkBox::new(Orientation::Vertical, 14);
+    remote_page.append(&host_list);
+    remote_page.append(&host_invite_card);
+    remote_page.append(&join_card);
+
+    mode_stack.add_named(&local_page, Some("local"));
+    mode_stack.add_named(&remote_page, Some("remote"));
+    mode_stack.set_visible_child_name("local");
+
+    {
+        let stack = mode_stack.clone();
+        tab_local.connect_toggled(move |b| {
+            if b.is_active() {
+                stack.set_visible_child_name("local");
+            }
         });
-        picture.set_paintable(texture.as_ref());
-        picture.set_visible(texture.is_some());
-    };
-    if is_host {
-        show_ticket_qr(&ticket_qr, &host_code_init);
     }
-
-    remote_group.add(&host_row);
-    remote_group.add(&room_code_row);
-    remote_group.add(&ticket_qr);
-    remote_group.add(&join_row);
-    page.add(&remote_group);
+    {
+        let stack = mode_stack.clone();
+        tab_remote.connect_toggled(move |b| {
+            if b.is_active() {
+                stack.set_visible_child_name("remote");
+            }
+        });
+    }
 
     let update_qr = |pic: &Picture, target_url: &str| {
         if let Some(svg) = generate_qr_svg(target_url)
@@ -791,19 +829,33 @@ pub fn open_jam_dialog(parent: &Button, state: Rc<RefCell<AppState>>, jam_btn: B
             pic.set_paintable(Some(&tex));
         }
     };
-    if is_active && !url.is_empty() {
-        update_qr(&qr_picture, &url);
-    }
+    let show_ticket_qr = |picture: &Picture, card: &GtkBox, ticket: &str| {
+        let texture = ticket_qr_svg(ticket).and_then(|svg| {
+            gdk::Texture::from_bytes(&glib::Bytes::from_owned(svg.into_bytes())).ok()
+        });
+        picture.set_paintable(texture.as_ref());
+        card.set_visible(texture.is_some());
+    };
 
-    // Modo A switch
+    let sync_live_badge: Rc<dyn Fn()> = {
+        let state = Rc::clone(&state);
+        let live_badge = live_badge.clone();
+        Rc::new(move || {
+            let s = state.borrow();
+            let active = s.jam.server.is_some() || s.jam.remote_role != RemoteRole::Idle;
+            live_badge.set_visible(active);
+        })
+    };
+
+    // Local Jukebox switch
     {
         let state_sw = Rc::clone(&state);
-        let connect_group = connect_group.clone();
+        let connect_card = connect_card.clone();
         let status_row = status_row.clone();
         let url_label = url_label.clone();
         let qr_picture = qr_picture.clone();
         let jam_btn = jam_btn.clone();
-        let dlg = dialog.clone();
+        let sync_badge = Rc::clone(&sync_live_badge);
         active_row.connect_active_notify(move |row| {
             let want = row.is_active();
             if want {
@@ -839,12 +891,13 @@ pub fn open_jam_dialog(parent: &Button, state: Rc<RefCell<AppState>>, jam_btn: B
                         }
                         url_label.set_label(&url);
                         update_qr(&qr_picture, &url);
-                        connect_group.set_visible(true);
+                        connect_card.set_visible(true);
                         status_row.set_subtitle(&status_text(true, 0, 0));
+                        sync_badge();
                     }
                     Err(err) => {
                         row.set_active(false);
-                        dlg.add_toast(adw::Toast::new(&err));
+                        state_sw.borrow().show_toast(&err);
                     }
                 }
             } else {
@@ -859,8 +912,9 @@ pub fn open_jam_dialog(parent: &Button, state: Rc<RefCell<AppState>>, jam_btn: B
                     refresh_spin_ui(&s);
                     update_jam_btn_highlight(&s, &jam_btn);
                 }
-                connect_group.set_visible(false);
+                connect_card.set_visible(false);
                 status_row.set_subtitle(&status_text(false, 0, 0));
+                sync_badge();
             }
         });
     }
@@ -877,16 +931,17 @@ pub fn open_jam_dialog(parent: &Button, state: Rc<RefCell<AppState>>, jam_btn: B
         });
     }
 
-    // Modo B Host switch
+    // Remote Host switch
     {
         let state_h = Rc::clone(&state);
-        let room_code_row = room_code_row.clone();
+        let host_invite_card = host_invite_card.clone();
         let room_code_label = room_code_label.clone();
-        let join_row = join_row.clone();
+        let join_subtitle = join_subtitle.clone();
         let join_btn = join_btn.clone();
         let jam_btn = jam_btn.clone();
         let ticket_qr = ticket_qr.clone();
-        let dlg = dialog.clone();
+        let ticket_qr_card = ticket_qr_card.clone();
+        let sync_badge = Rc::clone(&sync_live_badge);
         host_row.connect_active_notify(move |row| {
             if row.is_active() {
                 let commands = {
@@ -903,23 +958,25 @@ pub fn open_jam_dialog(parent: &Button, state: Rc<RefCell<AppState>>, jam_btn: B
                 let (
                     row,
                     state_h,
-                    room_code_row,
+                    host_invite_card,
                     room_code_label,
                     join_btn,
-                    join_row,
+                    join_subtitle,
                     jam_btn,
                     ticket_qr,
-                    dlg,
+                    ticket_qr_card,
+                    sync_badge,
                 ) = (
                     row.clone(),
                     state_h.clone(),
-                    room_code_row.clone(),
+                    host_invite_card.clone(),
                     room_code_label.clone(),
                     join_btn.clone(),
-                    join_row.clone(),
+                    join_subtitle.clone(),
                     jam_btn.clone(),
                     ticket_qr.clone(),
-                    dlg.clone(),
+                    ticket_qr_card.clone(),
+                    Rc::clone(&sync_badge),
                 );
                 spawn_bg(
                     move || HostPublisher::new(commands),
@@ -932,7 +989,7 @@ pub fn open_jam_dialog(parent: &Button, state: Rc<RefCell<AppState>>, jam_btn: B
                             Ok(publisher) => publisher,
                             Err(err) => {
                                 row.set_active(false);
-                                dlg.add_toast(adw::Toast::new(&format!("SPIN: {err}")));
+                                state_h.borrow().show_toast(&format!("SPIN: {err}"));
                                 return;
                             }
                         };
@@ -949,38 +1006,44 @@ pub fn open_jam_dialog(parent: &Button, state: Rc<RefCell<AppState>>, jam_btn: B
                         }
                         let ticket = format!("GYRO-{code}");
                         room_code_label.set_label(&ticket);
-                        room_code_row.set_visible(true);
-                        show_ticket_qr(&ticket_qr, &ticket);
+                        host_invite_card.set_visible(true);
+                        show_ticket_qr(&ticket_qr, &ticket_qr_card, &ticket);
                         join_btn.set_label(tr("Unirse", "Join"));
                         join_btn.remove_css_class("destructive-action");
                         join_btn.add_css_class("suggested-action");
-                        join_row.set_subtitle(tr("Pega una invitación", "Paste an invitation"));
+                        join_subtitle.set_label(tr(
+                            "Pega una invitación SPIN para escuchar sincronizado.",
+                            "Paste a SPIN invitation to listen in sync.",
+                        ));
+                        sync_badge();
                     },
                 );
             } else {
-                let mut s = state_h.borrow_mut();
-                if matches!(s.jam.remote_role, RemoteRole::Host(_)) {
-                    s.jam.host_publisher = None;
-                    s.jam.remote_role = RemoteRole::Idle;
-                    s.jam.latest_state = None;
+                {
+                    let mut s = state_h.borrow_mut();
+                    if matches!(s.jam.remote_role, RemoteRole::Host(_)) {
+                        s.jam.host_publisher = None;
+                        s.jam.remote_role = RemoteRole::Idle;
+                        s.jam.latest_state = None;
+                    }
+                    refresh_spin_ui(&s);
+                    update_jam_btn_highlight(&s, &jam_btn);
                 }
-                refresh_spin_ui(&s);
-                update_jam_btn_highlight(&s, &jam_btn);
-                room_code_row.set_visible(false);
-                ticket_qr.set_visible(false);
+                host_invite_card.set_visible(false);
+                sync_badge();
             }
         });
     }
 
-    // Modo B Guest Join/Disconnect
+    // Remote Guest Join / Disconnect
     {
         let state_g = Rc::clone(&state);
         let join_entry = join_entry.clone();
-        let join_row = join_row.clone();
+        let join_subtitle = join_subtitle.clone();
         let host_row = host_row.clone();
-        let room_code_row = room_code_row.clone();
+        let host_invite_card = host_invite_card.clone();
         let jam_btn = jam_btn.clone();
-        let dlg = dialog.clone();
+        let sync_badge = Rc::clone(&sync_live_badge);
         join_btn.connect_clicked(move |btn| {
             if state_g.borrow().jam.host_starting {
                 return;
@@ -988,34 +1051,37 @@ pub fn open_jam_dialog(parent: &Button, state: Rc<RefCell<AppState>>, jam_btn: B
             let is_currently_guest =
                 matches!(state_g.borrow().jam.remote_role, RemoteRole::Guest(_));
             if is_currently_guest {
-                let mut s = state_g.borrow_mut();
-                s.jam.guest_session = None;
-                s.jam.remote_role = RemoteRole::Idle;
-                s.jam.latest_state = None;
-                s.remote_host_name = None;
-                refresh_spin_ui(&s);
-                update_jam_btn_highlight(&s, &jam_btn);
+                {
+                    let mut s = state_g.borrow_mut();
+                    s.jam.guest_session = None;
+                    s.jam.remote_role = RemoteRole::Idle;
+                    s.jam.latest_state = None;
+                    s.remote_host_name = None;
+                    refresh_spin_ui(&s);
+                    update_jam_btn_highlight(&s, &jam_btn);
+                }
                 btn.set_label(tr("Unirse", "Join"));
                 btn.remove_css_class("destructive-action");
                 btn.add_css_class("suggested-action");
-                join_row.set_subtitle(tr(
-                    "Ingresa el código de tu amigo para escuchar igual",
-                    "Enter your friend's code to listen together",
+                join_subtitle.set_label(tr(
+                    "Pega una invitación SPIN para escuchar sincronizado.",
+                    "Paste a SPIN invitation to listen in sync.",
                 ));
+                sync_badge();
                 return;
             }
             let raw = join_entry.text().to_string();
             let target = match normalize_room_code(&raw) {
                 Ok(target) => target,
                 Err(err) => {
-                    dlg.add_toast(adw::Toast::new(&err));
+                    state_g.borrow().show_toast(&err);
                     return;
                 }
             };
             if host_row.is_active() {
                 host_row.set_active(false);
             }
-            room_code_row.set_visible(false);
+            host_invite_card.set_visible(false);
             {
                 let mut s = state_g.borrow_mut();
                 s.jam.host_publisher = None;
@@ -1026,19 +1092,53 @@ pub fn open_jam_dialog(parent: &Button, state: Rc<RefCell<AppState>>, jam_btn: B
                 s.jam.guest_session = Some(start_guest_sync(target, tx));
                 refresh_spin_ui(&s);
                 update_jam_btn_highlight(&s, &jam_btn);
+                s.show_toast(tr("Conectando a sala SPIN…", "Connecting to SPIN room…"));
             }
-            dlg.add_toast(adw::Toast::new(tr(
-                "Conectando a sala SPIN…",
-                "Connecting to SPIN room…",
-            )));
             btn.set_label(tr("Desconectar", "Disconnect"));
             btn.remove_css_class("suggested-action");
             btn.add_css_class("destructive-action");
-            join_row.set_subtitle(tr("Siguiendo al anfitrión", "Following the host"));
+            join_subtitle.set_label(tr("Siguiendo al anfitrión", "Following the host"));
+            sync_badge();
         });
     }
 
-    dialog.add(&page);
-    let root = parent.root().and_then(|r| r.downcast::<gtk4::Window>().ok());
-    dialog.present(root.as_ref());
+    let body = GtkBox::new(Orientation::Vertical, 14);
+    body.set_margin_top(12);
+    body.set_margin_bottom(24);
+    body.set_margin_start(14);
+    body.set_margin_end(14);
+    body.append(&tab_bar);
+    body.append(&mode_stack);
+
+    let scroller = ScrolledWindow::builder()
+        .hscrollbar_policy(PolicyType::Never)
+        .vexpand(true)
+        .child(&body)
+        .build();
+
+    let sidebar_toolbar = adw::ToolbarView::new();
+    sidebar_toolbar.add_top_bar(&top_bar);
+    sidebar_toolbar.set_content(Some(&scroller));
+    sidebar_toolbar.add_css_class("spin-sidebar-pane");
+
+    let refresh_sidebar: Rc<dyn Fn()> = {
+        let state = Rc::clone(&state);
+        let status_row = status_row.clone();
+        let sync_badge = Rc::clone(&sync_live_badge);
+        Rc::new(move || {
+            let (is_active, guests, added) = {
+                let s = state.borrow();
+                let snap = s.jam.snapshot.read().ok();
+                (
+                    s.jam.server.is_some(),
+                    snap.as_ref().map(|n| n.guest_count).unwrap_or(0),
+                    snap.as_ref().map(|n| n.added_count).unwrap_or(0),
+                )
+            };
+            status_row.set_subtitle(&status_text(is_active, guests, added));
+            sync_badge();
+        })
+    };
+
+    (sidebar_toolbar, refresh_sidebar)
 }

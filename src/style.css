@@ -203,7 +203,22 @@ button.suggested-action spinner {
     font-weight: 600;
     background-color: alpha(@window_fg_color, 0.04);
     border: 1px solid alpha(@window_fg_color, 0.08);
-    transition: background 150ms ease, border-color 150ms ease;
+    transition: background 150ms ease, border-color 150ms ease, box-shadow 150ms ease;
+}
+
+.mood-tile {
+    padding: 13px 15px;
+    border-radius: 14px;
+}
+
+.mood-tile:hover {
+    box-shadow: 0 6px 18px alpha(black, 0.24);
+}
+
+.mood-icon-badge {
+    min-width: 34px;
+    min-height: 34px;
+    border-radius: 10px;
 }
 
 .genre-accent-bar {
@@ -233,18 +248,37 @@ button.suggested-action spinner {
 
 .brand-badge {
     font-size: 11px;
-    font-weight: 600;
-    padding: 2px 8px;
-    border-radius: 6px;
-    background-color: alpha(@window_fg_color, 0.08);
-    color: #82b1ff;
+    font-weight: 700;
+    padding: 2px 9px;
+    border-radius: 999px;
+    background-color: alpha(@accent_bg_color, 0.18);
+    color: @accent_color;
 }
 
 .header-search {
     border-radius: 999px;
     min-width: 120px;
-    min-height: 34px;
-    padding: 0 10px;
+    min-height: 36px;
+    padding: 0 12px;
+    background-color: alpha(@window_fg_color, 0.06);
+    border: 1px solid alpha(@window_fg_color, 0.10);
+    transition: background-color 150ms ease, border-color 150ms ease, box-shadow 150ms ease;
+}
+
+.header-search:hover {
+    background-color: alpha(@window_fg_color, 0.09);
+    border-color: alpha(@window_fg_color, 0.16);
+}
+
+.header-search:focus-within {
+    background-color: alpha(@window_fg_color, 0.08);
+    border-color: @accent_bg_color;
+    box-shadow: 0 0 0 2px alpha(@accent_bg_color, 0.34);
+    outline: none;
+}
+
+.header-end-sep {
+    opacity: 0.25;
 }
 
 .floating-mini-player {
@@ -297,9 +331,22 @@ button.suggested-action spinner {
     font-size: 18px;
 }
 
+.search-popover contents {
+    border-radius: 14px;
+    border: 1px solid alpha(@window_fg_color, 0.12);
+    box-shadow: 0 14px 36px alpha(black, 0.48);
+    padding: 0;
+}
+
 .search-popover-row {
-    padding: 6px 10px;
-    border-radius: 8px;
+    padding: 8px 10px;
+    border-radius: 9px;
+    font-weight: 400;
+    transition: background-color 120ms ease;
+}
+
+.search-popover-row:hover {
+    background-color: alpha(@window_fg_color, 0.08);
 }
 
 .search-row-selected {
@@ -731,8 +778,28 @@ button.suggested-action spinner {
 }
 
 .party-lyrics-card {
-    padding: 36px 16px 56px 16px;
+    padding: 40px 16px 140px 16px;
     background-color: transparent;
+}
+
+.party-next-heading {
+    font-size: 10.5px;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: alpha(@window_fg_color, 0.56);
+}
+
+.party-progress trough {
+    min-height: 5px;
+    border-radius: 999px;
+    background-color: alpha(@window_fg_color, 0.16);
+}
+
+.party-progress progress {
+    min-height: 5px;
+    border-radius: 999px;
+    background-color: @accent_bg_color;
 }
 
 .party-lyric-line {
@@ -966,6 +1033,35 @@ button.suggested-action spinner {
     border-radius: 18px;
     padding: 8px;
     box-shadow: 0 8px 24px alpha(#000000, 0.35);
+}
+
+.spin-sidebar-pane {
+    background-color: @sidebar_bg_color;
+    border-left: 1px solid alpha(@window_fg_color, 0.08);
+}
+
+.spin-sidebar-header {
+    padding: 12px 14px 10px 16px;
+    border-bottom: 1px solid alpha(@window_fg_color, 0.08);
+}
+
+.settings-cache-bar trough {
+    min-height: 6px;
+    border-radius: 999px;
+    background-color: alpha(@window_fg_color, 0.12);
+}
+
+.settings-cache-bar progress {
+    min-height: 6px;
+    border-radius: 999px;
+    background-color: @accent_bg_color;
+}
+
+.spin-sidebar-card {
+    padding: 14px;
+    border-radius: 14px;
+    background-color: alpha(@window_fg_color, 0.05);
+    border: 1px solid alpha(@window_fg_color, 0.08);
 }
 
 .spin-bottom-bar {

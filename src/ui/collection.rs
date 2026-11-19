@@ -1109,7 +1109,7 @@ fn open_playlist_detail_dialog(
     let sort_btn = MenuButton::builder()
         .child(&sort_btn_content)
         .popover(&sort_popover)
-        .css_classes(["flat", "pill"])
+        .css_classes(["flat", "collection-play-all-btn"])
         .build();
     sort_btn.set_cursor_from_name(Some("pointer"));
 
@@ -1222,6 +1222,7 @@ fn open_playlist_detail_dialog(
                         tr("PLAYLIST LOCAL", "LOCAL PLAYLIST")
                     })
                     .xalign(0.0)
+                    .halign(Align::Start)
                     .css_classes(["album-type-label"])
                     .build(),
             );
@@ -1464,7 +1465,7 @@ fn open_playlist_detail_dialog(
                     .label(&format!("{}", idx + 1))
                     .width_chars(3)
                     .xalign(0.5)
-                    .css_classes(["dim-label", "caption", "numeric"])
+                    .css_classes(["dim-label", "caption", "numeric", "album-track-num"])
                     .build();
 
                 let (cover_frame, cover) = clamped_cover(40, 40, "cover-art");
@@ -1484,7 +1485,7 @@ fn open_playlist_detail_dialog(
                         .label(&track.title)
                         .xalign(0.0)
                         .ellipsize(gtk4::pango::EllipsizeMode::End)
-                        .css_classes(["heading"])
+                        .css_classes(["heading", "track-row-title"])
                         .build(),
                 );
                 text_col.append(
@@ -1640,6 +1641,14 @@ fn open_playlist_detail_dialog(
                 row_box.append(&remove_btn);
 
                 let row = ListBoxRow::builder().child(&row_box).build();
+                row.set_widget_name(&track.id);
+                if state
+                    .borrow()
+                    .current_track()
+                    .is_some_and(|t| t.id == track.id)
+                {
+                    row.add_css_class("chart-active-row");
+                }
                 tracks_list.append(&row);
             }
 
