@@ -44,6 +44,7 @@ pub enum JamCommand {
     TogglePlayPause,
     NextTrack,
     PrevTrack,
+    MoveTrack(usize, usize),
 }
 
 #[derive(Debug, Clone)]
@@ -249,7 +250,9 @@ async fn handle_connection(
             };
             match result {
                 Ok(info) => {
-                    if info.url.starts_with("http://") || info.url.starts_with("https://") {
+                    if info.url.starts_with("http://127.0.0.1:") {
+                        proxy_loopback_audio(&mut stream, &info.url, range_header.as_deref()).await;
+                    } else if info.url.starts_with("http://") || info.url.starts_with("https://") {
                         let resp = format!(
                             "HTTP/1.1 302 Found\r\nLocation: {}\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n",
                             info.url
@@ -327,6 +330,41 @@ async fn handle_connection(
             }
         }
 
+        ("POST", "/api/queue/move") => {
+            let allowed = snapshot.read().map(|s| s.allow_controls).unwrap_or(false);
+            if !allowed {
+                send_response(
+                    &mut stream,
+                    "403 Forbidden",
+                    "application/json",
+                    br#"{"error":"controls disabled"}"#,
+                )
+                .await;
+                return;
+            }
+            #[derive(Deserialize)]
+            struct MoveReq {
+                from: usize,
+                to: usize,
+            }
+            if let Ok(req) = serde_json::from_slice::<MoveReq>(&body) {
+                let _ = cmd_tx
+                    .send(JamRequest {
+                        source: JamSource::Lan(session_id),
+                        command: JamCommand::MoveTrack(req.from, req.to),
+                    })
+                    .await;
+                send_response(&mut stream, "200 OK", "application/json", br#"{"ok":true}"#).await;
+                return;
+            }
+            send_response(
+                &mut stream,
+                "400 Bad Request",
+                "application/json",
+                br#"{"error":"invalid move"}"#,
+            )
+            .await;
+        }
         ("POST", "/api/control") => {
             let allowed = snapshot.read().map(|s| s.allow_controls).unwrap_or(false);
             if !allowed {
@@ -374,6 +412,36 @@ async fn handle_connection(
             send_response(&mut stream, "404 Not Found", "text/plain", b"Not Found").await;
         }
     }
+}
+
+async fn proxy_loopback_audio(stream: &mut TcpStream, url: &str, range_header: Option<&str>) {
+    let Ok(parsed) = reqwest::Url::parse(url) else {
+        send_response(stream, "502 Bad Gateway", "text/plain", b"Bad stream URL").await;
+        return;
+    };
+    let Some(port) = parsed.port() else {
+        send_response(stream, "502 Bad Gateway", "text/plain", b"Missing port").await;
+        return;
+    };
+    let Ok(mut upstream) = TcpStream::connect(("127.0.0.1", port)).await else {
+        send_response(stream, "502 Bad Gateway", "text/plain", b"Stream unavailable").await;
+        return;
+    };
+    let path_and_query = match parsed.query() {
+        Some(q) => format!("{}?{q}", parsed.path()),
+        None => parsed.path().to_string(),
+    };
+    let mut req = format!(
+        "GET {path_and_query} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n"
+    );
+    if let Some(range) = range_header {
+        req.push_str(&format!("Range: {range}\r\n"));
+    }
+    req.push_str("\r\n");
+    if upstream.write_all(req.as_bytes()).await.is_err() {
+        return;
+    }
+    let _ = tokio::io::copy(&mut upstream, stream).await;
 }
 
 async fn serve_local_audio(stream: &mut TcpStream, path: &str, range_header: Option<&str>) {
@@ -709,98 +777,469 @@ fn rs_encode(data: &[u8], ec_len: usize) -> Vec<u8> {
     msg[data.len()..].to_vec()
 }
 
-const JAM_HTML: &str = r#"<!doctype html>
+const JAM_HTML: &str = r##"<!doctype html>
 <html lang="es">
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>GyroTube SPIN</title>
 <style>
-:root{color-scheme:dark;--bg:#121316;--card:#1b1d22;--line:rgba(255,255,255,.08);--fg:#f2f4f8;--muted:#9aa3b2;--accent:#1f9cf0}
-*{box-sizing:border-box;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
-body{margin:0;background:var(--bg);color:var(--fg);padding:16px 14px 48px}
-.wrap{max-width:600px;margin:0 auto;display:flex;flex-direction:column;gap:14px}
-header{display:flex;align-items:center;justify-content:space-between}
-.brand{display:flex;align-items:center;gap:8px;font-weight:800;font-size:20px}
-.badge{font-size:12px;padding:4px 10px;border-radius:999px;background:rgba(31,156,240,.18);color:#6bc2ff;font-weight:700}
-.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px}
-.np{display:flex;align-items:center;gap:12px}
-.cover{width:54px;height:54px;border-radius:10px;object-fit:cover;background:#262930;flex-shrink:0}
-.meta{min-width:0;flex:1}
-.title{font-weight:700;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.sub{font-size:13px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
-.ctrls{display:flex;gap:8px;margin-top:10px}
-button{border:0;border-radius:999px;padding:8px 14px;font-weight:600;cursor:pointer;background:rgba(255,255,255,.1);color:var(--fg)}
-button.primary{background:var(--accent);color:#fff}
-.search{display:flex;gap:8px}
-input{flex:1;min-width:0;border:1px solid var(--line);border-radius:999px;padding:10px 14px;background:var(--card);color:var(--fg);font-size:15px;outline:none}
-input:focus{border-color:var(--accent)}
-.list{display:flex;flex-direction:column;gap:8px;margin-top:10px}
-.row{display:flex;align-items:center;gap:10px;padding:6px;border-radius:12px}
-.row.cur{background:rgba(31,156,240,.14)}
-.row img{width:42px;height:42px;border-radius:8px;object-fit:cover;background:#262930;flex-shrink:0}
-.h{font-size:13px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
-.toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:#232730;border:1px solid var(--line);padding:10px 16px;border-radius:999px;font-size:13px;display:none}
+:root{
+  color-scheme:dark;
+  --bg:#121417;
+  --surface:#1a1d22;
+  --surface-2:#22262d;
+  --surface-hover:#292e37;
+  --line:rgba(255,255,255,.11);
+  --line-strong:rgba(255,255,255,.22);
+  --fg:#f3f5f8;
+  --muted:#a6afbe;
+  --accent:#2190a4;
+  --accent-hi:#2aa8be;
+  --accent-soft:color-mix(in oklab,var(--accent) 20%,transparent);
+  --accent-border:color-mix(in oklab,var(--accent) 55%,transparent);
+  --radius:16px;
+}
+*,*::before,*::after{box-sizing:border-box}
+body{
+  margin:0;
+  min-height:100dvh;
+  font-family:system-ui,-apple-system,"Segoe UI",Roboto,Inter,sans-serif;
+  background:
+    radial-gradient(900px 420px at 15% -5%,color-mix(in oklab,var(--accent) 18%,transparent),transparent 70%),
+    radial-gradient(700px 380px at 90% 0%,rgba(90,115,255,.10),transparent 65%),
+    var(--bg);
+  color:var(--fg);
+  padding:16px 16px 72px;
+  -webkit-font-smoothing:antialiased;
+}
+.sr-only{
+  position:absolute;width:1px;height:1px;padding:0;margin:-1px;
+  overflow:hidden;clip-path:inset(50%);white-space:nowrap;border:0;
+}
+.shell{max-width:1060px;margin:0 auto;display:flex;flex-direction:column;gap:18px}
+header{
+  display:flex;align-items:center;justify-content:space-between;gap:12px;
+  padding:6px 4px;
+}
+.brand{display:flex;align-items:center;gap:10px;font-weight:800;font-size:1.2rem;letter-spacing:-.02em}
+.brand-mark{
+  width:32px;height:32px;border-radius:10px;
+  background:linear-gradient(135deg,var(--accent-hi),#155e75);
+  display:grid;place-items:center;
+  box-shadow:0 6px 18px color-mix(in oklab,var(--accent) 35%,transparent);
+  flex-shrink:0;
+}
+.pill{
+  display:inline-flex;align-items:center;gap:6px;
+  font-size:.75rem;font-weight:700;letter-spacing:.03em;
+  padding:4px 10px;border-radius:999px;
+  background:var(--accent-soft);
+  border:1px solid var(--accent-border);
+  color:#8de3f2;
+}
+.guests-pill{
+  background:var(--surface);border:1px solid var(--line-strong);color:var(--fg);
+}
+.dot{width:7px;height:7px;border-radius:999px;background:#34d399;box-shadow:0 0 8px #34d399}
+.grid{display:grid;grid-template-columns:1fr;gap:14px;align-items:start}
+.mobile-tabs{
+  display:grid;grid-template-columns:1fr 1fr;gap:6px;
+  padding:4px;border-radius:999px;
+  background:var(--surface);border:1px solid var(--line);
+}
+.tab-btn{
+  border:0;border-radius:999px;padding:9px 12px;
+  background:transparent;color:var(--muted);font-weight:700;font-size:.86rem;
+}
+.tab-btn[aria-selected="true"]{
+  background:var(--surface-2);color:var(--fg);
+  border:1px solid var(--line-strong);
+  box-shadow:0 2px 8px rgba(0,0,0,.22);
+}
+@media (max-width:859px){
+  body{padding:12px 12px 56px}
+  .shell{gap:12px}
+  .card{padding:13px}
+  .np-main{gap:12px}
+  .cover-wrap{width:56px;height:56px;border-radius:10px}
+  .np-actions{
+    display:flex;align-items:center;justify-content:space-between;gap:8px;
+    margin-top:12px;flex-wrap:wrap;
+  }
+  .np-actions .ctrls,.np-actions .listen-row{margin-top:0}
+  .np-actions .play-pill{min-width:44px;height:38px;padding:0 14px;font-size:.82rem}
+  .np-actions .icon-btn{width:36px;height:36px}
+  .np-actions #listen-btn{padding:8px 12px;font-size:.8rem}
+  .queue-list{max-height:none;overflow:visible;padding-right:0}
+  .grid[data-tab="search"] #queue-card{display:none}
+  .grid[data-tab="queue"] #search-card{display:none}
+}
+@media (max-width:440px){
+  #results .dur{display:none}
+  #results button{padding:7px 11px;font-size:.8rem}
+}
+@media (min-width:860px){
+  body{padding:24px 28px 64px}
+  .mobile-tabs{display:none}
+  .grid{grid-template-columns:360px minmax(0,1fr);gap:20px}
+  .left-col{position:sticky;top:20px;display:flex;flex-direction:column;gap:16px}
+}
+.left-col,.right-col{display:flex;flex-direction:column;gap:16px;min-width:0}
+.card{
+  background:color-mix(in oklab,var(--surface) 92%,transparent);
+  border:1px solid var(--line);
+  border-radius:var(--radius);
+  padding:16px;
+  backdrop-filter:blur(14px);
+  box-shadow:0 12px 32px rgba(0,0,0,.28);
+}
+.np-card{
+  position:relative;overflow:hidden;
+  background:linear-gradient(160deg,color-mix(in oklab,var(--accent) 16%,var(--surface)) 0%,var(--surface) 62%);
+}
+.section-head{
+  display:flex;align-items:center;justify-content:space-between;gap:8px;
+  margin-bottom:12px;
+}
+.h{
+  font-size:.74rem;font-weight:700;color:var(--muted);
+  text-transform:uppercase;letter-spacing:.08em;
+}
+.np-main{display:flex;align-items:center;gap:14px}
+@media (min-width:860px){
+  .np-main{flex-direction:column;text-align:center;gap:12px}
+}
+.cover-wrap{
+  position:relative;width:68px;height:68px;border-radius:12px;overflow:hidden;
+  background:var(--surface-2);border:1px solid var(--line);flex-shrink:0;
+  box-shadow:0 10px 26px rgba(0,0,0,.42);
+}
+@media (min-width:860px){
+  .cover-wrap{width:176px;height:176px;border-radius:16px}
+}
+.cover-wrap img{width:100%;height:100%;object-fit:cover;display:block}
+.cover-wrap img:not([src]),.cover-wrap img[src=""]{opacity:0}
+.cover-fallback{
+  position:absolute;inset:0;display:grid;place-items:center;color:var(--muted);
+}
+.meta{min-width:0;flex:1;width:100%}
+.title{
+  font-weight:700;font-size:1.02rem;line-height:1.28;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.sub{
+  font-size:.85rem;color:var(--muted);line-height:1.3;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:3px;
+}
+.progress-wrap{margin-top:14px}
+.progress-track{
+  height:5px;border-radius:999px;background:rgba(255,255,255,.12);overflow:hidden;
+}
+.progress-fill{
+  height:100%;width:0%;border-radius:999px;
+  background:linear-gradient(90deg,var(--accent),var(--accent-hi));
+  transition:width .35s linear;
+}
+.progress-times{
+  display:flex;justify-content:space-between;margin-top:6px;
+  font-size:.73rem;color:var(--muted);font-variant-numeric:tabular-nums;
+}
+.ctrls{
+  display:flex;align-items:center;justify-content:center;gap:10px;margin-top:14px;
+}
+.listen-row{display:flex;justify-content:center;margin-top:12px}
+button{
+  display:inline-flex;align-items:center;justify-content:center;gap:7px;
+  border:1px solid var(--line-strong);border-radius:999px;
+  padding:9px 15px;font:inherit;font-size:.86rem;font-weight:600;
+  cursor:pointer;background:var(--surface-2);color:var(--fg);
+  transition:background-color .15s ease,border-color .15s ease,transform .1s ease;
+}
+button:hover{background:var(--surface-hover);border-color:rgba(255,255,255,.32)}
+button:active{transform:scale(.97)}
+button:focus-visible,input:focus-visible{
+  outline:2px solid var(--accent-hi);outline-offset:2px;
+}
+button.primary{
+  background:var(--accent);border-color:transparent;color:#fff;
+  box-shadow:0 4px 14px color-mix(in oklab,var(--accent) 40%,transparent);
+}
+button.primary:hover{background:var(--accent-hi)}
+button.icon-btn{width:40px;height:40px;padding:0}
+button.play-pill{min-width:56px;height:44px;padding:0 18px}
+button.added{
+  background:rgba(16,185,129,.18);border-color:rgba(52,211,153,.5);color:#6ee7b7;
+}
+.search-form{display:flex;gap:8px;align-items:center}
+.search-field{
+  position:relative;flex:1;min-width:0;display:flex;align-items:center;
+}
+.search-icon{
+  position:absolute;left:14px;color:var(--muted);pointer-events:none;display:flex;
+}
+input[type="search"]{
+  width:100%;min-width:0;
+  border:1px solid var(--line-strong);border-radius:999px;
+  padding:11px 16px 11px 40px;
+  background:var(--surface-2);color:var(--fg);font:inherit;font-size:.94rem;
+}
+input[type="search"]::placeholder{color:var(--muted)}
+input[type="search"]:focus{border-color:var(--accent-hi)}
+.list{display:flex;flex-direction:column;gap:4px;margin-top:12px}
+.row{
+  display:flex;align-items:center;gap:11px;padding:8px 10px;
+  border-radius:12px;border:1px solid transparent;
+  transition:background-color .14s ease,border-color .14s ease;
+}
+.row:hover{background:rgba(255,255,255,.045)}
+.row.cur{
+  background:var(--accent-soft);
+  border-color:var(--accent-border);
+}
+.row.cur .row-title{color:#8de3f2}
+.row.dragging{opacity:.42}
+.row.drop-target{box-shadow:inset 0 2px 0 0 var(--accent-hi)}
+.q-actions{display:flex;align-items:center;gap:4px;flex-shrink:0}
+.q-move-btn{
+  width:28px;height:28px;padding:0;border-radius:999px;
+  background:rgba(255,255,255,.06);border:1px solid var(--line);
+}
+.q-move-btn:disabled{opacity:.28;cursor:default;pointer-events:none}
+.drag-grip{color:var(--muted);opacity:.55;cursor:grab;display:flex;flex-shrink:0}
+.row-art{
+  width:44px;height:44px;border-radius:8px;object-fit:cover;
+  background:var(--surface-2);flex-shrink:0;border:1px solid var(--line);
+}
+.row-title{
+  font-weight:600;font-size:.92rem;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.row-sub{
+  font-size:.8rem;color:var(--muted);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px;
+}
+.dur{
+  font-size:.76rem;color:var(--muted);font-variant-numeric:tabular-nums;
+  margin-right:4px;flex-shrink:0;
+}
+.empty{
+  text-align:center;padding:24px 12px;color:var(--muted);font-size:.88rem;
+}
+.queue-list{max-height:360px;overflow-y:auto;padding-right:2px}
+.queue-list::-webkit-scrollbar{width:6px}
+.queue-list::-webkit-scrollbar-thumb{background:rgba(255,255,255,.16);border-radius:999px}
+.toast-region{position:fixed;inset:auto 0 18px 0;pointer-events:none;z-index:50}
+#toast-pop{
+  pointer-events:auto;
+  position:fixed;inset:auto auto 18px 50%;transform:translateX(-50%);
+  margin:0;max-width:min(92vw,420px);
+  background:#232832;color:var(--fg);
+  border:1px solid var(--line-strong);border-radius:14px;
+  padding:10px 12px 10px 16px;
+  box-shadow:0 14px 36px rgba(0,0,0,.5);
+  display:none;align-items:center;gap:12px;font-size:.88rem;
+  opacity:0;
+  transition:opacity .2s ease,transform .2s ease;
+  transition-behavior:allow-discrete;
+}
+#toast-pop:is(:popover-open,.\:popover-open){
+  display:flex;opacity:1;
+}
+@starting-style{
+  #toast-pop:is(:popover-open,.\:popover-open){
+    opacity:0;transform:translateX(-50%) translateY(8px);
+  }
+}
+.toast-close{
+  width:28px;height:28px;padding:0;border-radius:999px;
+  background:rgba(255,255,255,.08);border:1px solid transparent;flex-shrink:0;
+}
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{transition:none!important;animation:none!important}
+}
+@media (forced-colors:active){
+  .card,.pill,button,input[type="search"],#toast-pop{
+    background:Canvas;color:CanvasText;border:1px solid ButtonBorder;box-shadow:none;
+  }
+  button.primary,.row.cur{border:2px solid Highlight}
+  .progress-track{border:1px solid ButtonBorder}
+  .progress-fill{background:Highlight}
+}
 </style>
 </head>
 <body>
-<div class="wrap">
+<div class="shell">
   <header>
-    <div class="brand">GyroTube <span class="badge">SPIN</span></div>
-    <div class="badge" id="guests">0 invitados</div>
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="2.5"/><path d="M12 3a9 9 0 0 1 9 9"/></svg>
+      </span>
+      <span>GyroTube</span>
+      <span class="pill">SPIN</span>
+    </div>
+    <div class="pill guests-pill" id="guests"><span class="dot" aria-hidden="true"></span><span>0 invitados</span></div>
   </header>
-  <div class="card">
-    <div class="h">Sonando ahora</div>
-    <div class="np" style="margin-top:8px">
-      <img class="cover" id="np-cover" alt=""/>
-      <div class="meta">
-        <div class="title" id="np-title">Sin reproducción</div>
-        <div class="sub" id="np-artist">Busca una canción abajo</div>
+
+  <main class="grid" id="main-grid" data-tab="search">
+    <div class="left-col">
+      <section class="card np-card" aria-label="Sonando ahora">
+        <div class="section-head">
+          <div class="h">Sonando ahora</div>
+          <span class="h" id="np-state"></span>
+        </div>
+        <div class="np-main">
+          <div class="cover-wrap">
+            <div class="cover-fallback" aria-hidden="true">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+            </div>
+            <img id="np-cover" alt=""/>
+          </div>
+          <div class="meta">
+            <div class="title" id="np-title">Sin reproducción</div>
+            <div class="sub" id="np-artist">Busca una canción para empezar</div>
+          </div>
+        </div>
+        <div class="progress-wrap">
+          <div class="progress-track"><div class="progress-fill" id="np-progress"></div></div>
+          <div class="progress-times"><span id="np-cur">0:00</span><span id="np-dur">0:00</span></div>
+        </div>
+        <div class="np-actions">
+          <div class="ctrls" id="ctrls" style="display:none">
+            <button class="icon-btn" type="button" onclick="ctrl('prev')" aria-label="Anterior">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6 8.5 6V6z"/></svg>
+            </button>
+            <button class="primary play-pill" type="button" onclick="ctrl('play_pause')" id="pp-btn" aria-label="Reproducir o pausar"></button>
+            <button class="icon-btn" type="button" onclick="ctrl('next')" aria-label="Siguiente">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M16 6h2v12h-2zM6 18l8.5-6L6 6z"/></svg>
+            </button>
+          </div>
+          <div class="listen-row">
+            <button id="listen-btn" type="button" onclick="toggleLocalAudio()"></button>
+          </div>
+        </div>
+        <audio id="local-audio" preload="auto" style="display:none"></audio>
+      </section>
+
+      <div class="mobile-tabs" role="tablist" aria-label="Secciones de SPIN">
+        <button class="tab-btn" type="button" role="tab" id="tab-search" aria-selected="true" aria-controls="search-card" onclick="setMobileTab('search')">Buscar</button>
+        <button class="tab-btn" type="button" role="tab" id="tab-queue" aria-selected="false" aria-controls="queue-card" onclick="setMobileTab('queue')">Cola (0)</button>
       </div>
+
+      <section class="card" id="queue-card" aria-label="Cola de reproducción">
+        <div class="section-head">
+          <div class="h" id="q-title">Cola</div>
+        </div>
+        <div class="list queue-list" id="queue">
+          <div class="empty">La cola está vacía</div>
+        </div>
+      </section>
     </div>
-    <div class="ctrls">
-      <button id="listen-btn" onclick="toggleLocalAudio()">🔊 Escuchar aquí</button>
+
+    <div class="right-col">
+      <section class="card" id="search-card" aria-label="Buscar canciones">
+        <div class="section-head">
+          <div class="h">Agregar a la cola</div>
+        </div>
+        <form class="search-form" onsubmit="doSearch(event)">
+          <div class="search-field">
+            <span class="search-icon" aria-hidden="true">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+            </span>
+            <input id="q" type="search" autocomplete="off" placeholder="Buscar canción, artista o álbum…" aria-label="Buscar canción en YouTube Music"/>
+          </div>
+          <button class="primary" type="submit" id="search-btn">Buscar</button>
+        </form>
+        <div class="list" id="results">
+          <div class="empty">Escribe el nombre de una canción o artista para agregarla a la cola.</div>
+        </div>
+      </section>
     </div>
-    <div class="ctrls" id="ctrls" style="display:none">
-      <button onclick="ctrl('prev')">⏮</button>
-      <button class="primary" onclick="ctrl('play_pause')" id="pp-btn">⏯</button>
-      <button onclick="ctrl('next')">⏭</button>
-    </div>
-    <audio id="local-audio" preload="auto" style="display:none"></audio>
-  </div>
-  <div class="card">
-    <form class="search" onsubmit="doSearch(event)">
-      <input id="q" placeholder="Buscar canción en YouTube Music…"/>
-      <button class="primary" type="submit">Buscar</button>
-    </form>
-    <div class="list" id="results"></div>
-  </div>
-  <div class="card">
-    <div class="h" id="q-title">Cola</div>
-    <div class="list" id="queue"></div>
+  </main>
+</div>
+
+<div class="toast-region" role="region" aria-label="Notificaciones">
+  <div id="toast-pop" popover="manual">
+    <span id="toast-msg"></span>
+    <button type="button" class="toast-close" popovertarget="toast-pop" popovertargetaction="hide" aria-label="Cerrar notificación">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+    </button>
   </div>
 </div>
-<div class="toast" id="toast"></div>
+<p class="sr-only">Anuncios de estado</p>
+<div id="live-region" class="sr-only" aria-live="polite" aria-atomic="true"></div>
+
 <script>
-function showToast(m){const t=document.getElementById('toast');t.textContent=m;t.style.display='block';setTimeout(()=>t.style.display='none',2200);}
+const SVG_PLAY='<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>';
+const SVG_PAUSE='<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>';
+const SVG_VOL='<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M19 5a10 10 0 0 1 0 14"/></svg>';
+const SVG_MUTE='<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>';
+const SVG_PLUS='<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>';
+const SVG_CHECK='<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>';
+const SVG_UP='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m18 15-6-6-6 6"/></svg>';
+const SVG_DOWN='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>';
+const SVG_GRIP='<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="18" r="1.5"/></svg>';
+const supportsPopover=Object.hasOwn(HTMLElement.prototype,'popover');
+
+let toastTimer=null;
+function hideToast(){
+  const pop=document.getElementById('toast-pop');
+  if(supportsPopover){try{pop.hidePopover();}catch(_){}}else{pop.classList.remove(':popover-open');}
+}
+function showToast(m){
+  const pop=document.getElementById('toast-pop');
+  document.getElementById('toast-msg').textContent=m;
+  if(supportsPopover){try{pop.showPopover();}catch(_){}}else{pop.classList.add(':popover-open');}
+  if(typeof document.ariaNotify==='function'){document.ariaNotify(m);}
+  else{const lr=document.getElementById('live-region');lr.textContent='';setTimeout(()=>{lr.textContent=m;},20);}
+  clearTimeout(toastTimer);
+  toastTimer=setTimeout(()=>{
+    if(!pop.contains(document.activeElement))hideToast();
+  },2600);
+}
+if(!supportsPopover){
+  document.querySelector('.toast-close').addEventListener('click',hideToast);
+}
 function esc(s){return (s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
-let listenHere=false;let curTrackId=null;
+function fmt(sec){
+  const n=Math.max(0,Math.floor(sec||0));
+  const m=Math.floor(n/60),s=n%60;
+  return m+':'+(s<10?'0':'')+s;
+}
+let listenHere=false;let curTrackId=null;let dragFrom=null;
+function setMobileTab(tab){
+  document.getElementById('main-grid').dataset.tab=tab;
+  document.getElementById('tab-search').setAttribute('aria-selected',String(tab==='search'));
+  document.getElementById('tab-queue').setAttribute('aria-selected',String(tab==='queue'));
+}
+function renderListenBtn(){
+  const btn=document.getElementById('listen-btn');
+  btn.innerHTML=(listenHere?SVG_MUTE+'<span>Silenciar aquí</span>':SVG_VOL+'<span>Escuchar aquí</span>');
+  btn.classList.toggle('primary',listenHere);
+}
+renderListenBtn();
 function toggleLocalAudio(){
   listenHere=!listenHere;
-  const btn=document.getElementById('listen-btn');
   const aud=document.getElementById('local-audio');
-  btn.textContent=listenHere?'🔇 Silenciar aquí':'🔊 Escuchar aquí';
-  btn.classList.toggle('primary',listenHere);
+  renderListenBtn();
   if(!listenHere){aud.pause();curTrackId=null;}else{loadState();}
 }
 async function loadState(){
   try{
     const r=await fetch('/api/state');const s=await r.json();
-    document.getElementById('guests').textContent=s.guest_count+' '+(s.guest_count===1?'invitado':'invitados');
+    const gTxt=s.guest_count+' '+(s.guest_count===1?'invitado':'invitados');
+    document.getElementById('guests').innerHTML='<span class="dot" aria-hidden="true"></span><span>'+esc(gTxt)+'</span>';
     if(s.now_playing){
       document.getElementById('np-title').textContent=s.now_playing.title;
-      document.getElementById('np-artist').textContent=s.now_playing.artist;
-      document.getElementById('np-cover').src=s.now_playing.cover_url||'';
+      document.getElementById('np-artist').textContent=s.now_playing.artist+(s.now_playing.album?' • '+s.now_playing.album:'');
+      const cov=document.getElementById('np-cover');
+      if(s.now_playing.cover_url&&cov.getAttribute('src')!==s.now_playing.cover_url){cov.src=s.now_playing.cover_url;}
+      const dur=s.now_playing.duration_secs||0;
+      const pos=Math.min(dur||s.position_secs||0,s.position_secs||0);
+      document.getElementById('np-cur').textContent=fmt(pos);
+      document.getElementById('np-dur').textContent=dur?fmt(dur):'--:--';
+      document.getElementById('np-progress').style.width=(dur>0?Math.min(100,(pos/dur)*100):0)+'%';
+      document.getElementById('np-state').textContent=s.is_playing?'Reproduciendo':'En pausa';
       if(listenHere){
         const aud=document.getElementById('local-audio');
         if(curTrackId!==s.now_playing.id){
@@ -814,34 +1253,84 @@ async function loadState(){
           if(Math.abs((aud.currentTime||0)-(s.position_secs||0))>2.5)aud.currentTime=s.position_secs||0;
         }
       }
+    }else{
+      document.getElementById('np-title').textContent='Sin reproducción';
+      document.getElementById('np-artist').textContent='Busca una canción para empezar';
+      document.getElementById('np-cover').removeAttribute('src');
+      document.getElementById('np-cur').textContent='0:00';
+      document.getElementById('np-dur').textContent='0:00';
+      document.getElementById('np-progress').style.width='0%';
+      document.getElementById('np-state').textContent='';
     }
     const c=document.getElementById('ctrls');c.style.display=s.allow_controls?'flex':'none';
-    document.getElementById('pp-btn').textContent=s.is_playing?'⏸ Pausar':'▶ Reproducir';
-    document.getElementById('q-title').textContent='Cola ('+s.queue.length+')';
-    document.getElementById('queue').innerHTML=s.queue.map(t=>`<div class="row ${t.is_current?'cur':''}"><img src="${esc(t.cover_url)}"><div class="meta"><div class="title">${esc(t.title)}</div><div class="sub">${esc(t.artist)}</div></div></div>`).join('');
+    const pp=document.getElementById('pp-btn');
+    pp.innerHTML=s.is_playing?SVG_PAUSE+'<span>Pausar</span>':SVG_PLAY+'<span>Reproducir</span>';
+    const qLabel='Cola ('+s.queue.length+')';
+    document.getElementById('q-title').textContent=qLabel;
+    document.getElementById('tab-queue').textContent=qLabel;
+    if(dragFrom===null){
+      const canReorder=!!s.allow_controls;
+      document.getElementById('queue').innerHTML=s.queue.length
+        ? s.queue.map((t,i)=>`<div class="row ${t.is_current?'cur':''}" ${canReorder?`draggable="true" ondragstart="qDragStart(event,${i})" ondragover="qDragOver(event)" ondragleave="qDragLeave(event)" ondrop="qDrop(event,${i})" ondragend="qDragEnd(event)"`:''}>${canReorder?`<span class="drag-grip" aria-hidden="true">${SVG_GRIP}</span>`:''}<img class="row-art" src="${esc(t.cover_url)}" alt="" loading="lazy"/><div class="meta"><div class="row-title">${esc(t.title)}</div><div class="row-sub">${esc(t.artist)}</div></div>${t.duration_secs?`<span class="dur">${fmt(t.duration_secs)}</span>`:''}${canReorder?`<div class="q-actions"><button type="button" class="q-move-btn" ${i===0?'disabled':''} onclick="moveQueue(${i},${i-1})" aria-label="Subir">${SVG_UP}</button><button type="button" class="q-move-btn" ${i===s.queue.length-1?'disabled':''} onclick="moveQueue(${i},${i+1})" aria-label="Bajar">${SVG_DOWN}</button></div>`:''}</div>`).join('')
+        : '<div class="empty">La cola está vacía</div>';
+    }
   }catch(_){}
 }
 async function doSearch(e){
-  e.preventDefault();const q=document.getElementById('q').value.trim();if(!q)return;
-  const resEl=document.getElementById('results');resEl.innerHTML='<div class="sub">Buscando…</div>';
-  const r=await fetch('/api/search?q='+encodeURIComponent(q));const items=await r.json();
-  window._tracks=items;
-  resEl.innerHTML=items.map((t,i)=>`<div class="row"><img src="${esc(t.cover_url)}"><div class="meta"><div class="title">${esc(t.title)}</div><div class="sub">${esc(t.artist)}</div></div><button class="primary" onclick="addTrack(${i})">+ Agregar</button></div>`).join('')||'<div class="sub">Sin resultados</div>';
+  e.preventDefault();
+  const q=document.getElementById('q').value.trim();if(!q)return;
+  const resEl=document.getElementById('results');
+  resEl.innerHTML='<div class="empty">Buscando canciones…</div>';
+  try{
+    const r=await fetch('/api/search?q='+encodeURIComponent(q));
+    const items=await r.json();
+    window._tracks=Array.isArray(items)?items:[];
+    resEl.innerHTML=window._tracks.length
+      ? window._tracks.map((t,i)=>`<div class="row"><img class="row-art" src="${esc(t.cover_url)}" alt="" loading="lazy"/><div class="meta"><div class="row-title">${esc(t.title)}</div><div class="row-sub">${esc(t.artist)}${t.album?' • '+esc(t.album):''}</div></div>${t.duration_secs?`<span class="dur">${fmt(t.duration_secs)}</span>`:''}<button class="primary" type="button" id="add-${i}" onclick="addTrack(${i})">${SVG_PLUS}<span>Agregar</span></button></div>`).join('')
+      : '<div class="empty">No se encontraron canciones</div>';
+  }catch(_){
+    resEl.innerHTML='<div class="empty">Error al buscar canciones</div>';
+  }
 }
 async function addTrack(i){
-  const t=window._tracks[i];if(!t)return;
+  const t=window._tracks&&window._tracks[i];if(!t)return;
+  const btn=document.getElementById('add-'+i);
+  if(btn){btn.disabled=true;}
   const r=await fetch('/api/queue/add',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(t)});
-  if(!r.ok){showToast('No se pudo enviar la canción');return;}
-  showToast('Enviada para verificar: '+t.title);loadState();
+  if(!r.ok){
+    if(btn){btn.disabled=false;}
+    showToast('No se pudo enviar la canción');
+    return;
+  }
+  if(btn){
+    btn.classList.remove('primary');btn.classList.add('added');
+    btn.innerHTML=SVG_CHECK+'<span>Agregada</span>';
+    setTimeout(()=>{
+      btn.classList.remove('added');btn.classList.add('primary');
+      btn.innerHTML=SVG_PLUS+'<span>Agregar</span>';btn.disabled=false;
+    },1800);
+  }
+  showToast('Agregada a la cola: '+t.title);
+  setTimeout(loadState,600);
 }
 async function ctrl(action){
   await fetch('/api/control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action})});
   setTimeout(loadState,250);
 }
+async function moveQueue(from,to){
+  if(from===to||from<0||to<0)return;
+  const r=await fetch('/api/queue/move',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({from,to})});
+  if(r.ok){setTimeout(loadState,150);}
+}
+function qDragStart(e,i){dragFrom=i;e.currentTarget.classList.add('dragging');e.dataTransfer.effectAllowed='move';e.dataTransfer.setData('text/plain',String(i));}
+function qDragOver(e){e.preventDefault();e.dataTransfer.dropEffect='move';e.currentTarget.classList.add('drop-target');}
+function qDragLeave(e){e.currentTarget.classList.remove('drop-target');}
+function qDrop(e,to){e.preventDefault();e.currentTarget.classList.remove('drop-target');const from=dragFrom;dragFrom=null;if(from!==null&&from!==to){moveQueue(from,to);}}
+function qDragEnd(e){e.currentTarget.classList.remove('dragging');dragFrom=null;}
 loadState();setInterval(loadState,2500);
 </script>
 </body>
-</html>"#;
+</html>"##;
 
 #[cfg(test)]
 mod tests {
@@ -918,5 +1407,42 @@ mod tests {
         assert!(svg.starts_with("<svg"));
         assert!(svg.contains("viewBox=\"0 0 33 33\"")); // V2 (25) + 8 quiet = 33
         assert!(svg.contains("<path d=\""));
+    }
+
+    #[tokio::test]
+    async fn proxies_loopback_audio_with_range_header() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let upstream_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let upstream_port = upstream_listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            let (mut sock, _) = upstream_listener.accept().await.unwrap();
+            let mut buf = [0u8; 512];
+            let n = sock.read(&mut buf).await.unwrap();
+            let req = String::from_utf8_lossy(&buf[..n]);
+            assert!(req.contains("GET /stream/test-1.webm HTTP/1.1"));
+            assert!(req.contains("Range: bytes=0-3"));
+            let _ = sock
+                .write_all(
+                    b"HTTP/1.1 206 Partial Content\r\nContent-Type: audio/webm\r\nContent-Length: 4\r\n\r\nABCD",
+                )
+                .await;
+        });
+
+        let client_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let client_addr = client_listener.local_addr().unwrap();
+        let url = format!("http://127.0.0.1:{upstream_port}/stream/test-1.webm");
+        let proxy_task = tokio::spawn(async move {
+            let (mut srv_stream, _) = client_listener.accept().await.unwrap();
+            proxy_loopback_audio(&mut srv_stream, &url, Some("bytes=0-3")).await;
+        });
+
+        let mut client = TcpStream::connect(client_addr).await.unwrap();
+        let mut resp = Vec::new();
+        client.read_to_end(&mut resp).await.unwrap();
+        proxy_task.await.unwrap();
+        let resp_str = String::from_utf8_lossy(&resp);
+        assert!(resp_str.starts_with("HTTP/1.1 206 Partial Content"));
+        assert!(resp_str.ends_with("\r\n\r\nABCD"));
     }
 }

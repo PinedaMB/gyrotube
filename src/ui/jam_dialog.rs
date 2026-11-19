@@ -305,6 +305,20 @@ pub fn refresh_spin_ui(s: &AppState) {
     s.spin_participants_box.append(&flow);
 }
 
+async fn verify_music_track_bg(
+    backend: crate::backend::Backend,
+    video_id: String,
+) -> Result<crate::models::Track, String> {
+    let (tx, rx) = async_channel::bounded(1);
+    crate::backend::runtime().spawn(async move {
+        let res = backend.verify_music_track(&video_id).await;
+        let _ = tx.send(res).await;
+    });
+    rx.recv()
+        .await
+        .unwrap_or_else(|_| Err(String::from("Error verificando canción.")))
+}
+
 pub fn wire_remote_sync(
     state: Rc<RefCell<AppState>>,
     remote_rx: async_channel::Receiver<RemoteUpdate>,
@@ -352,7 +366,7 @@ pub fn wire_remote_sync(
                     })
             };
             state.borrow_mut().jam.latest_state = Some(payload.clone());
-            let Some(track) = payload.track else {
+            let Some(ref track) = payload.track else {
                 clear_playback(Rc::clone(&state));
                 continue;
             };
@@ -379,7 +393,7 @@ pub fn wire_remote_sync(
                     let s = state.borrow();
                     (s.backend.clone(), s.jam.remote_role.clone())
                 };
-                let track = match backend.verify_music_track(&track.id).await {
+                let track = match verify_music_track_bg(backend, track.id.clone()).await {
                     Ok(track) => track,
                     Err(err) => {
                         state.borrow().show_toast(&err);
@@ -393,7 +407,8 @@ pub fn wire_remote_sync(
                     let mut s = state.borrow_mut();
                     s.replace_queue(vec![track], format!("SPIN • {}", payload.source_name));
                 }
-                load_queue_index(Rc::clone(&state), 0, payload.is_playing, None);
+                let sync_pos = payload.position_at(now_ms());
+                load_queue_index(Rc::clone(&state), 0, payload.is_playing, Some(sync_pos));
             }
         }
     });
@@ -411,37 +426,41 @@ pub fn wire_jam_commands(
             match request.command {
                 JamCommand::AddTrack(video_id, _guest) => {
                     let backend = state.borrow().backend.clone();
-                    let track = match backend.verify_music_track(&video_id).await {
-                        Ok(track) => track,
-                        Err(err) => {
-                            state.borrow().show_toast(&err);
-                            continue;
+                    let state_add = Rc::clone(&state);
+                    let source = request.source;
+                    glib::spawn_future_local(async move {
+                        let track = match verify_music_track_bg(backend, video_id).await {
+                            Ok(track) => track,
+                            Err(err) => {
+                                state_add.borrow().show_toast(&err);
+                                return;
+                            }
+                        };
+                        if !state_add.borrow().jam.accepts_command(&source) {
+                            return;
                         }
-                    };
-                    if !state.borrow().jam.accepts_command(&request.source) {
-                        continue;
-                    }
-                    let should_start = {
-                        let mut s = state.borrow_mut();
-                        let was_empty = s.queue.is_empty() || s.current_index.is_none();
-                        let start_idx = s.queue.len();
-                        if let Ok(mut snap) = s.jam.snapshot.write() {
-                            snap.added_count += 1;
+                        let should_start = {
+                            let mut s = state_add.borrow_mut();
+                            let was_empty = s.queue.is_empty() || s.current_index.is_none();
+                            let start_idx = s.queue.len();
+                            if let Ok(mut snap) = s.jam.snapshot.write() {
+                                snap.added_count += 1;
+                            }
+                            s.queue.push(track.clone());
+                            s.update_nav_buttons();
+                            s.save_session();
+                            s.show_toast(&format!(
+                                "{}: {}",
+                                tr("SPIN • Agregada", "SPIN • Added"),
+                                track.title
+                            ));
+                            if was_empty { Some(start_idx) } else { None }
+                        };
+                        refresh_queue_ui(Rc::clone(&state_add));
+                        if let Some(idx) = should_start {
+                            play_queue_index(state_add, idx);
                         }
-                        s.queue.push(track.clone());
-                        s.update_nav_buttons();
-                        s.save_session();
-                        s.show_toast(&format!(
-                            "{}: {}",
-                            tr("SPIN • Agregada", "SPIN • Added"),
-                            track.title
-                        ));
-                        if was_empty { Some(start_idx) } else { None }
-                    };
-                    refresh_queue_ui(Rc::clone(&state));
-                    if let Some(idx) = should_start {
-                        play_queue_index(Rc::clone(&state), idx);
-                    }
+                    });
                 }
                 JamCommand::TogglePlayPause => {
                     let allowed = state
@@ -487,6 +506,19 @@ pub fn wire_jam_commands(
                         if let Some(idx) = target {
                             play_queue_index(Rc::clone(&state), idx);
                         }
+                    }
+                }
+                JamCommand::MoveTrack(from, to) => {
+                    let allowed = state
+                        .borrow()
+                        .jam
+                        .snapshot
+                        .read()
+                        .map(|sn| sn.allow_controls)
+                        .unwrap_or(false);
+                    if allowed {
+                        state.borrow_mut().move_queue_item(from, to);
+                        refresh_queue_ui(Rc::clone(&state));
                     }
                 }
             }
@@ -548,8 +580,8 @@ pub fn open_jam_dialog(parent: &Button, state: Rc<RefCell<AppState>>, jam_btn: B
             "Allow playback controls",
         ))
         .subtitle(tr(
-            "Los invitados podrán pausar y saltar canciones",
-            "Guests can pause and skip tracks",
+            "Los invitados podrán pausar, saltar y reordenar la cola",
+            "Guests can pause, skip, and reorder the queue",
         ))
         .active(allow_controls)
         .build();
@@ -618,12 +650,11 @@ pub fn open_jam_dialog(parent: &Button, state: Rc<RefCell<AppState>>, jam_btn: B
         .build();
     {
         let url_lbl = url_label.clone();
-        let st = Rc::clone(&state);
+        let dlg = dialog.clone();
         copy_btn.connect_clicked(move |_| {
             if let Some(display) = gdk::Display::default() {
                 display.clipboard().set_text(&url_lbl.text());
-                st.borrow()
-                    .show_toast(tr("Enlace SPIN copiado", "SPIN link copied"));
+                dlg.add_toast(adw::Toast::new(tr("Enlace SPIN copiado", "SPIN link copied")));
             }
         });
     }
@@ -678,12 +709,14 @@ pub fn open_jam_dialog(parent: &Button, state: Rc<RefCell<AppState>>, jam_btn: B
         .build();
     {
         let lbl = room_code_label.clone();
-        let st = Rc::clone(&state);
+        let dlg = dialog.clone();
         copy_code_btn.connect_clicked(move |_| {
             if let Some(display) = gdk::Display::default() {
                 display.clipboard().set_text(&lbl.text());
-                st.borrow()
-                    .show_toast(tr("Invitación copiada", "Invitation copied"));
+                dlg.add_toast(adw::Toast::new(tr(
+                    "Invitación copiada",
+                    "Invitation copied",
+                )));
             }
         });
     }
@@ -770,6 +803,7 @@ pub fn open_jam_dialog(parent: &Button, state: Rc<RefCell<AppState>>, jam_btn: B
         let url_label = url_label.clone();
         let qr_picture = qr_picture.clone();
         let jam_btn = jam_btn.clone();
+        let dlg = dialog.clone();
         active_row.connect_active_notify(move |row| {
             let want = row.is_active();
             if want {
@@ -810,7 +844,7 @@ pub fn open_jam_dialog(parent: &Button, state: Rc<RefCell<AppState>>, jam_btn: B
                     }
                     Err(err) => {
                         row.set_active(false);
-                        state_sw.borrow().show_toast(&err);
+                        dlg.add_toast(adw::Toast::new(&err));
                     }
                 }
             } else {
@@ -852,6 +886,7 @@ pub fn open_jam_dialog(parent: &Button, state: Rc<RefCell<AppState>>, jam_btn: B
         let join_btn = join_btn.clone();
         let jam_btn = jam_btn.clone();
         let ticket_qr = ticket_qr.clone();
+        let dlg = dialog.clone();
         host_row.connect_active_notify(move |row| {
             if row.is_active() {
                 let commands = {
@@ -874,6 +909,7 @@ pub fn open_jam_dialog(parent: &Button, state: Rc<RefCell<AppState>>, jam_btn: B
                     join_row,
                     jam_btn,
                     ticket_qr,
+                    dlg,
                 ) = (
                     row.clone(),
                     state_h.clone(),
@@ -883,6 +919,7 @@ pub fn open_jam_dialog(parent: &Button, state: Rc<RefCell<AppState>>, jam_btn: B
                     join_row.clone(),
                     jam_btn.clone(),
                     ticket_qr.clone(),
+                    dlg.clone(),
                 );
                 spawn_bg(
                     move || HostPublisher::new(commands),
@@ -895,7 +932,7 @@ pub fn open_jam_dialog(parent: &Button, state: Rc<RefCell<AppState>>, jam_btn: B
                             Ok(publisher) => publisher,
                             Err(err) => {
                                 row.set_active(false);
-                                state_h.borrow().show_toast(&format!("SPIN: {err}"));
+                                dlg.add_toast(adw::Toast::new(&format!("SPIN: {err}")));
                                 return;
                             }
                         };
@@ -943,6 +980,7 @@ pub fn open_jam_dialog(parent: &Button, state: Rc<RefCell<AppState>>, jam_btn: B
         let host_row = host_row.clone();
         let room_code_row = room_code_row.clone();
         let jam_btn = jam_btn.clone();
+        let dlg = dialog.clone();
         join_btn.connect_clicked(move |btn| {
             if state_g.borrow().jam.host_starting {
                 return;
@@ -970,7 +1008,7 @@ pub fn open_jam_dialog(parent: &Button, state: Rc<RefCell<AppState>>, jam_btn: B
             let target = match normalize_room_code(&raw) {
                 Ok(target) => target,
                 Err(err) => {
-                    state_g.borrow().show_toast(&err);
+                    dlg.add_toast(adw::Toast::new(&err));
                     return;
                 }
             };
@@ -988,8 +1026,11 @@ pub fn open_jam_dialog(parent: &Button, state: Rc<RefCell<AppState>>, jam_btn: B
                 s.jam.guest_session = Some(start_guest_sync(target, tx));
                 refresh_spin_ui(&s);
                 update_jam_btn_highlight(&s, &jam_btn);
-                s.show_toast(tr("Conectando a sala SPIN…", "Connecting to SPIN room…"));
             }
+            dlg.add_toast(adw::Toast::new(tr(
+                "Conectando a sala SPIN…",
+                "Connecting to SPIN room…",
+            )));
             btn.set_label(tr("Desconectar", "Disconnect"));
             btn.remove_css_class("suggested-action");
             btn.add_css_class("destructive-action");
