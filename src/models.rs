@@ -117,14 +117,24 @@ pub fn upgrade_cover_url(url: &str, target_size: i32) -> String {
         && let Ok(w) = w_str.parse::<i32>()
         && let Some(second) = parts.next()
         && let Some(h_str) = second.strip_prefix('h')
-        && h_str.parse::<i32>().is_ok()
+        && let Ok(h) = h_str.parse::<i32>()
+        && w > 0
+        && h > 0
     {
-        let new_size = w.max(target_size);
+        let (new_w, new_h) = if w == h {
+            let new_size = w.max(target_size);
+            (new_size, new_size)
+        } else if w >= target_size {
+            (w, h)
+        } else {
+            let scaled_h = ((h as i64 * target_size as i64) / w as i64).max(1) as i32;
+            (target_size, scaled_h)
+        };
         let rest: Vec<&str> = parts.collect();
         return if rest.is_empty() {
-            format!("{prefix}w{new_size}-h{new_size}")
+            format!("{prefix}w{new_w}-h{new_h}")
         } else {
-            format!("{prefix}w{new_size}-h{new_size}-{}", rest.join("-"))
+            format!("{prefix}w{new_w}-h{new_h}-{}", rest.join("-"))
         };
     }
 

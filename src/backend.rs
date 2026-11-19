@@ -649,7 +649,7 @@ impl Backend {
 
             return Ok(ArtistDetails {
                 name,
-                header_url: best_ytm_thumb(&artist.thumbnails),
+                header_url: best_ytm_banner(&artist.thumbnails),
                 subscriber_count: artist.subscribers.as_deref().and_then(parse_sub_count),
                 description: artist.description,
                 tracks,
@@ -1280,6 +1280,13 @@ fn best_ytm_thumb(thumbs: &[ytmapi_rs::common::Thumbnail]) -> Option<String> {
         .iter()
         .max_by_key(|t| t.width.saturating_mul(t.height))
         .map(|t| crate::models::upgrade_cover_url(&t.url, 544))
+}
+
+fn best_ytm_banner(thumbs: &[ytmapi_rs::common::Thumbnail]) -> Option<String> {
+    thumbs
+        .iter()
+        .max_by_key(|t| t.width.saturating_mul(t.height))
+        .map(|t| crate::models::upgrade_cover_url(&t.url, 1280))
 }
 
 fn runs_text(val: &serde_json::Value) -> String {

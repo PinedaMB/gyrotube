@@ -1241,7 +1241,7 @@ fn populate_artist_page(
         load_cover_into_picture_with_focal_if(
             &ui.banner,
             url,
-            0.22,
+            0.35,
             Rc::clone(&state),
             move || banners.is_current(banner_request),
         );
