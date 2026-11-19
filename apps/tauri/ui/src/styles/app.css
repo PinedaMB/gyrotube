@@ -1,3 +1,5 @@
+@import "tailwindcss";
+
 :root {
   color-scheme: dark light;
   --accent: #2190a4;
@@ -6,6 +8,7 @@
   --accent-border: rgba(33, 144, 164, 0.42);
   --danger: #e01b24;
   --fav-coral: #ff5b7f;
+  --coral: #ff5b7f;
 
   --bg: #1e1e21;
   --bg-elevated: #252529;
@@ -55,42 +58,42 @@
   color-scheme: dark;
 }
 
-*,
-*::before,
-*::after {
-  box-sizing: border-box;
-}
+@layer base {
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
 
-html,
-body,
-#app {
-  margin: 0;
-  padding: 0;
-  width: 100%;
-  height: 100%;
-  overflow: hidden;
-  background: var(--bg);
-  color: var(--text);
-  font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  -webkit-font-smoothing: antialiased;
-}
+  html,
+  body,
+  #app {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: var(--bg);
+    color: var(--text);
+    font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
 
-button {
-  font: inherit;
-  color: inherit;
-  border: none;
-  background: transparent;
-  cursor: pointer;
-}
+  button {
+    font: inherit;
+    color: inherit;
+    cursor: pointer;
+  }
 
-button:disabled {
-  opacity: 0.42;
-  cursor: default;
-}
+  button:disabled {
+    opacity: 0.42;
+    cursor: default;
+  }
 
-input {
-  font: inherit;
-  color: inherit;
+  input {
+    font: inherit;
+    color: inherit;
+  }
 }
 
 .icon-btn {

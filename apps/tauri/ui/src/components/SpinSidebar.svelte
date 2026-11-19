@@ -68,7 +68,9 @@
   }
 </script>
 
-<aside class="spin-sidebar">
+<aside
+  class="spin-sidebar w-[340px] shrink-0 h-full flex flex-col border-l border-[var(--border)] bg-[var(--bg-sidebar)] overflow-hidden max-xl:fixed max-xl:right-0 max-xl:top-14 max-xl:bottom-0 max-xl:z-40 max-xl:shadow-2xl"
+>
   <div class="spin-header">
     <div class="spin-title-row">
       <h3>SPIN Mode</h3>

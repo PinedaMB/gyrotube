@@ -397,6 +397,29 @@ class PlayerStore {
     }
   }
 
+  public async startRadioFromCurrent(): Promise<void> {
+    const current = this.currentTrack;
+    if (!current || !isTauriRuntime()) return;
+    try {
+      const radio = await api.getRadioTracks(current.id);
+      const unique = radio.filter((t) => t.id !== current.id);
+      if (unique.length === 0) {
+        this.showToast("No related radio tracks found");
+        return;
+      }
+      this.queue = [current, ...unique];
+      this.unshuffledQueue = [...this.queue];
+      this.currentIndex = 0;
+      this.shuffle = false;
+      this.sourceName = `Radio · ${current.title}`;
+      void this.persistSession();
+      void this.syncSpinSnapshot();
+      this.showToast(`Radio started · ${unique.length} songs queued`);
+    } catch (err) {
+      this.showToast(String(err));
+    }
+  }
+
   public removeQueueIndex(idx: number): void {
     if (idx < 0 || idx >= this.queue.length) return;
     const nextQueue = this.queue.filter((_, i) => i !== idx);

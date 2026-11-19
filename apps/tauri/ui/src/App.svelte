@@ -3,6 +3,7 @@
   import AlbumView from "./components/AlbumView.svelte";
   import ArtistView from "./components/ArtistView.svelte";
   import CollectionView from "./components/CollectionView.svelte";
+  import CoverImage from "./components/CoverImage.svelte";
   import ExploreView from "./components/ExploreView.svelte";
   import HeaderBar from "./components/HeaderBar.svelte";
   import HomeView from "./components/HomeView.svelte";
@@ -25,24 +26,36 @@
   });
 </script>
 
-<div class="shell">
+<div class="h-screen w-screen overflow-hidden flex flex-col bg-[var(--bg)] text-[var(--text)]">
   <HeaderBar />
 
-  <div class="workspace">
+  <div class="flex-1 min-h-0 flex overflow-hidden relative">
     {#if player.sidebarOpen}
       <SidebarPlayer />
     {/if}
 
-    <main class="main-pane ambient-surface scroll-y">
-      <nav class="main-tabs">
-        <button class:active={player.activeTab === "home"} onclick={() => player.navigateTab("home")}>
+    <main class="flex-1 min-w-0 h-full overflow-y-auto ambient-surface scroll-y">
+      <nav class="flex items-center justify-center gap-2 pt-3.5 pb-1 px-4">
+        <button
+          class="px-4 py-1.5 rounded-full text-[13px] font-semibold transition-colors {player.activeTab === 'home'
+            ? 'bg-[var(--surface-hover)] text-[var(--text)] shadow-sm'
+            : 'text-[var(--text-muted)] hover:bg-[var(--surface)] hover:text-[var(--text)]'}"
+          onclick={() => player.navigateTab("home")}
+        >
           ⌂ Home
         </button>
-        <button class:active={player.activeTab === "explore"} onclick={() => player.navigateTab("explore")}>
+        <button
+          class="px-4 py-1.5 rounded-full text-[13px] font-semibold transition-colors {player.activeTab === 'explore'
+            ? 'bg-[var(--surface-hover)] text-[var(--text)] shadow-sm'
+            : 'text-[var(--text-muted)] hover:bg-[var(--surface)] hover:text-[var(--text)]'}"
+          onclick={() => player.navigateTab("explore")}
+        >
           ⌕ Explore
         </button>
         <button
-          class:active={player.activeTab === "collection"}
+          class="px-4 py-1.5 rounded-full text-[13px] font-semibold transition-colors {player.activeTab === 'collection'
+            ? 'bg-[var(--surface-hover)] text-[var(--text)] shadow-sm'
+            : 'text-[var(--text-muted)] hover:bg-[var(--surface)] hover:text-[var(--text)]'}"
           onclick={() => player.navigateTab("collection")}
         >
           ▤ Collection
@@ -76,11 +89,18 @@
   </div>
 
   {#if !player.sidebarOpen && player.currentTrack}
-    <div class="floating-mini">
-      <button class="mini-info" onclick={() => (player.sidebarOpen = true)}>
-        {#if player.currentTrack.cover_url}
-          <img class="mini-cover" src={player.currentTrack.cover_url} alt="" />
-        {/if}
+    <div
+      class="fixed bottom-5 left-1/2 -translate-x-1/2 z-40 w-[min(560px,calc(100vw-32px))] flex items-center gap-2.5 px-3.5 py-2 rounded-full bg-[var(--bg-elevated)] border border-[var(--border-strong)] shadow-2xl"
+    >
+      <button
+        class="flex-1 min-w-0 flex items-center gap-2.5 text-left"
+        onclick={() => (player.sidebarOpen = true)}
+      >
+        <CoverImage
+          class="w-10 h-10 rounded-lg object-cover shrink-0"
+          src={player.currentTrack.cover_url}
+          alt=""
+        />
         <div class="track-meta">
           <span class="track-title">{player.currentTrack.title}</span>
           <span class="track-sub">{player.currentTrack.artist}</span>
@@ -95,7 +115,11 @@
         ♥
       </button>
       <button class="icon-btn" title="Previous" onclick={() => void player.prev()}>⏮</button>
-      <button class="play-circle mini-play" title="Play / Pause" onclick={() => void player.togglePlay()}>
+      <button
+        class="play-circle !w-10 !h-10"
+        title="Play / Pause"
+        onclick={() => void player.togglePlay()}
+      >
         {#if player.isPlaying}❚❚{:else}▶{/if}
       </button>
       <button class="icon-btn" title="Next" onclick={() => void player.next()}>⏭</button>
@@ -109,121 +133,17 @@
   <SettingsModal />
 
   {#if player.toasts.length > 0}
-    <div class="toast-stack" aria-live="polite">
+    <div
+      class="fixed bottom-5 left-1/2 -translate-x-1/2 z-50 flex flex-col items-center gap-2 pointer-events-none"
+      aria-live="polite"
+    >
       {#each player.toasts as toast (toast.id)}
-        <div class="toast">{toast.message}</div>
+        <div
+          class="px-4 py-2 rounded-full text-[13px] font-medium bg-[var(--bg-elevated)] border border-[var(--border-strong)] shadow-xl"
+        >
+          {toast.message}
+        </div>
       {/each}
     </div>
   {/if}
 </div>
-
-<style>
-  .shell {
-    width: 100%;
-    height: 100%;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-  }
-
-  .workspace {
-    flex: 1;
-    min-height: 0;
-    display: flex;
-    overflow: hidden;
-  }
-
-  .main-pane {
-    flex: 1;
-    min-width: 0;
-    height: 100%;
-    position: relative;
-  }
-
-  .main-tabs {
-    display: flex;
-    justify-content: center;
-    gap: 6px;
-    padding: 12px 16px 4px;
-  }
-
-  .main-tabs button {
-    padding: 7px 16px;
-    border-radius: 999px;
-    font-size: 13.5px;
-    font-weight: 600;
-    color: var(--text-muted);
-    transition: background-color 140ms ease, color 140ms ease;
-  }
-
-  .main-tabs button:hover {
-    background: var(--surface);
-    color: var(--text);
-  }
-
-  .main-tabs button.active {
-    background: var(--surface-hover);
-    color: var(--text);
-  }
-
-  .floating-mini {
-    position: fixed;
-    right: 18px;
-    bottom: 18px;
-    z-index: 25;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 8px 12px 8px 10px;
-    border-radius: 20px;
-    background: var(--bg-elevated);
-    border: 1px solid var(--border-strong);
-    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.52);
-    max-width: 360px;
-  }
-
-  .mini-info {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    min-width: 0;
-    max-width: 170px;
-    text-align: left;
-  }
-
-  .mini-cover {
-    width: 40px;
-    height: 40px;
-    border-radius: 8px;
-    object-fit: cover;
-    flex-shrink: 0;
-  }
-
-  .mini-play {
-    width: 36px;
-    height: 36px;
-    font-size: 13px;
-  }
-
-  .toast-stack {
-    position: fixed;
-    left: 50%;
-    bottom: 22px;
-    transform: translateX(-50%);
-    z-index: 80;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    pointer-events: none;
-  }
-
-  .toast {
-    padding: 10px 18px;
-    border-radius: 999px;
-    background: var(--bg-elevated);
-    border: 1px solid var(--accent-border);
-    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
-    font-size: 13px;
-    font-weight: 600;
-  }
-</style>

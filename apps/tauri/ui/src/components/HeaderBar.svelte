@@ -68,8 +68,10 @@
   }
 </script>
 
-<header class="header">
-  <div class="brand">
+<header
+  class="h-14 shrink-0 z-30 grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-4 px-4 bg-[var(--bg-elevated)] border-b border-[var(--border)]"
+>
+  <div class="flex items-center gap-2.5 shrink-0">
     <button
       class="icon-btn"
       title="Toggle player sidebar"
@@ -83,19 +85,37 @@
         <line x1="9" y1="4" x2="9" y2="20" />
       </svg>
     </button>
-    <span class="brand-dot" aria-hidden="true"></span>
-    <span class="brand-name">GyroTube</span>
-    <span class="brand-badge">Music</span>
+    <span
+      class="w-4 h-4 rounded-full bg-gradient-to-br from-[#2eb0c7] to-[#2190a4] shadow-[0_0_12px_rgba(33,144,164,0.55)] shrink-0"
+      aria-hidden="true"
+    ></span>
+    <span class="font-extrabold text-[15px] tracking-tight hidden sm:inline">GyroTube</span>
+    <span
+      class="hidden md:inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold bg-[var(--accent-soft)] text-[var(--accent-bright)]"
+    >
+      Music
+    </span>
   </div>
 
-  <div class="search-wrap">
-    <div class="search-box">
-      <svg class="search-icon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2">
+  <div class="w-full max-w-[460px] mx-auto relative">
+    <div
+      class="flex items-center gap-2.5 h-9 px-3.5 rounded-full bg-[var(--surface)] border border-[var(--border)] focus-within:border-[var(--accent-border)] focus-within:bg-[var(--surface-hover)] transition-colors"
+    >
+      <svg
+        class="text-[var(--text-muted)] shrink-0"
+        viewBox="0 0 24 24"
+        width="15"
+        height="15"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+      >
         <circle cx="11" cy="11" r="7" />
         <line x1="20" y1="20" x2="16.65" y2="16.65" />
       </svg>
       <input
         type="search"
+        class="w-full bg-transparent outline-none text-[13.5px] placeholder:text-[var(--text-muted)]"
         bind:value={query}
         placeholder="Search songs, albums, artists…"
         onfocus={() => {
@@ -108,26 +128,43 @@
     </div>
 
     {#if popoverOpen && listItems.length > 0}
-      <div class="search-popover" role="listbox">
-        <div class="popover-head">
+      <div
+        class="absolute left-0 right-0 top-[calc(100%+8px)] rounded-2xl bg-[var(--bg-elevated)] border border-[var(--border-strong)] shadow-2xl overflow-hidden py-1.5 z-50"
+        role="listbox"
+      >
+        <div class="flex items-center justify-between px-3.5 py-1.5 text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
           <span>{showingHistory ? "Recent searches" : "Suggestions"}</span>
           {#if showingHistory}
-            <button class="clear-link" onmousedown={() => player.clearSearchHistory()}>Clear</button>
+            <button
+              class="text-[var(--accent-bright)] hover:underline normal-case font-semibold"
+              onmousedown={() => player.clearSearchHistory()}
+            >
+              Clear
+            </button>
           {/if}
         </div>
         {#each listItems as term, i}
           {@const [prefix, rest] = splitHighlight(term)}
           <button
-            class="popover-row"
-            class:selected={i === selectedIdx}
+            class="w-full flex items-center gap-2.5 px-3.5 py-2 text-left text-[13.5px] transition-colors {i === selectedIdx
+              ? 'bg-[var(--accent-soft)] text-[var(--accent-bright)]'
+              : 'hover:bg-[var(--surface-hover)]'}"
             onmousedown={() => submitSearch(term)}
           >
-            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+            <svg
+              class="text-[var(--text-muted)] shrink-0"
+              viewBox="0 0 24 24"
+              width="14"
+              height="14"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            >
               <circle cx="11" cy="11" r="7" />
               <line x1="20" y1="20" x2="16.65" y2="16.65" />
             </svg>
-            <span class="term-text">
-              {#if prefix}<span class="term-prefix">{prefix}</span><strong>{rest}</strong>{:else}{term}{/if}
+            <span class="truncate">
+              {#if prefix}<span class="text-[var(--text-muted)]">{prefix}</span><strong>{rest}</strong>{:else}{term}{/if}
             </span>
           </button>
         {/each}
@@ -135,7 +172,7 @@
     {/if}
   </div>
 
-  <div class="actions">
+  <div class="flex items-center gap-1.5 shrink-0">
     <button
       class="icon-btn"
       class:active={player.spinOpen || player.spinStatus.local_active || player.spinStatus.remote_role !== "idle"}
@@ -159,171 +196,22 @@
       onclick={() => (player.partyMode = !player.partyMode)}
     >
       <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
-        <path d="M12 3l2.2 5.8L20 11l-5.8 2.2L12 19l-2.2-5.8L4 11l5.8-2.2z" />
+        <path d="M12 3l2.2 6.2L20.5 12l-6.3 2.8L12 21l-2.2-6.2L3.5 12l6.3-2.8L12 3z" />
       </svg>
     </button>
-    <button class="icon-btn" title="Settings" onclick={() => (player.settingsOpen = true)}>
+    <span class="w-px h-5 bg-[var(--border-strong)] mx-0.5" aria-hidden="true"></span>
+    <button
+      class="icon-btn"
+      class:active={player.settingsOpen}
+      title="Settings"
+      onclick={() => (player.settingsOpen = true)}
+    >
       <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
         <circle cx="12" cy="12" r="3" />
-        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c.26.6.85 1 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+        <path
+          d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.01a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.01a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"
+        />
       </svg>
     </button>
   </div>
 </header>
-
-<style>
-  .header {
-    height: 54px;
-    padding: 0 14px;
-    display: grid;
-    grid-template-columns: 1fr minmax(200px, 460px) 1fr;
-    align-items: center;
-    gap: 12px;
-    background: var(--bg-sidebar);
-    border-bottom: 1px solid var(--border);
-    flex-shrink: 0;
-  }
-
-  .brand {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-
-  .brand-dot {
-    width: 22px;
-    height: 22px;
-    border-radius: 999px;
-    background: radial-gradient(circle at 35% 35%, var(--accent-bright), var(--accent));
-    box-shadow: 0 0 12px rgba(33, 144, 164, 0.45);
-  }
-
-  .brand-name {
-    font-weight: 800;
-    font-size: 15px;
-    letter-spacing: -0.02em;
-  }
-
-  .brand-badge {
-    font-size: 11px;
-    font-weight: 700;
-    padding: 2px 9px;
-    border-radius: 999px;
-    background: var(--accent-soft);
-    color: var(--accent-bright);
-  }
-
-  .search-wrap {
-    position: relative;
-    width: 100%;
-  }
-
-  .search-box {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    height: 36px;
-    padding: 0 14px;
-    border-radius: 999px;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    transition: border-color 150ms ease, box-shadow 150ms ease, background-color 150ms ease;
-  }
-
-  .search-box:focus-within {
-    border-color: var(--accent);
-    box-shadow: 0 0 0 2px rgba(33, 144, 164, 0.34);
-    background: var(--surface-hover);
-  }
-
-  .search-icon {
-    color: var(--text-muted);
-    flex-shrink: 0;
-  }
-
-  .search-box input {
-    width: 100%;
-    border: none;
-    outline: none;
-    background: transparent;
-    font-size: 13.5px;
-  }
-
-  .search-popover {
-    position: absolute;
-    top: calc(100% + 6px);
-    left: 0;
-    right: 0;
-    z-index: 40;
-    padding: 8px;
-    border-radius: 14px;
-    background: var(--bg-elevated);
-    border: 1px solid var(--border-strong);
-    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.48);
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
-
-  .popover-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 2px 10px 6px;
-    font-size: 11.5px;
-    color: var(--text-muted);
-  }
-
-  .clear-link {
-    font-size: 11.5px;
-    color: var(--text-muted);
-  }
-
-  .clear-link:hover {
-    color: var(--accent-bright);
-  }
-
-  .popover-row {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    width: 100%;
-    text-align: left;
-    padding: 8px 10px;
-    border-radius: 9px;
-    font-size: 13.5px;
-    color: var(--text);
-  }
-
-  .popover-row:hover,
-  .popover-row.selected {
-    background: var(--surface-hover);
-  }
-
-  .term-text {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .term-prefix {
-    opacity: 0.68;
-  }
-
-  .actions {
-    display: flex;
-    justify-content: flex-end;
-    align-items: center;
-    gap: 4px;
-  }
-
-  @media (max-width: 680px) {
-    .brand-name,
-    .brand-badge {
-      display: none;
-    }
-    .header {
-      grid-template-columns: auto 1fr auto;
-    }
-  }
-</style>
