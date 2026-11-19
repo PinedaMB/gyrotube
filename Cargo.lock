@@ -1549,22 +1549,16 @@ dependencies = [
 ]
 
 [[package]]
-name = "gyrotube"
+name = "gyrotube-core"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-channel",
  "base64 0.23.1",
- "gstreamer",
- "gtk4",
  "iroh",
  "iroh-tickets",
- "libadwaita",
- "mpris-server",
  "qrcode",
  "quircs",
- "relm4-icons",
- "relm4-icons-build",
  "reqwest 0.13.5",
  "ring",
  "rustypipe",
@@ -1573,6 +1567,25 @@ dependencies = [
  "tempfile",
  "tokio",
  "ytmapi-rs",
+]
+
+[[package]]
+name = "gyrotube-gtk"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-channel",
+ "gstreamer",
+ "gtk4",
+ "gyrotube-core",
+ "libadwaita",
+ "mpris-server",
+ "relm4-icons",
+ "relm4-icons-build",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
 ]
 
 [[package]]

@@ -288,7 +288,19 @@ pub fn clean_track_title(title: &str) -> String {
     out
 }
 
+static CUSTOM_DATA_DIR: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+static CUSTOM_CACHE_DIR: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+
+/// Overrides the default XDG/HOME storage locations (used by Tauri on Windows, macOS, Android).
+pub fn init_storage_dirs(data: PathBuf, cache: PathBuf) {
+    let _ = CUSTOM_DATA_DIR.set(data);
+    let _ = CUSTOM_CACHE_DIR.set(cache);
+}
+
 fn data_dir() -> Option<PathBuf> {
+    if let Some(dir) = CUSTOM_DATA_DIR.get() {
+        return Some(dir.clone());
+    }
     if let Ok(xdg) = std::env::var("XDG_DATA_HOME")
         && !xdg.is_empty()
     {
@@ -300,6 +312,9 @@ fn data_dir() -> Option<PathBuf> {
 }
 
 pub fn cache_dir() -> Option<PathBuf> {
+    if let Some(dir) = CUSTOM_CACHE_DIR.get() {
+        return Some(dir.clone());
+    }
     if let Ok(xdg) = std::env::var("XDG_CACHE_HOME")
         && !xdg.is_empty()
     {

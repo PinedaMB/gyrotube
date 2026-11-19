@@ -25,7 +25,12 @@ def unescape_rust_str(s: str) -> str:
 def main() -> None:
     os.makedirs("locales", exist_ok=True)
     keys: dict[str, str] = {}
-    for path in sorted(glob.glob("src/**/*.rs", recursive=True)):
+    rs_files = sorted(
+        glob.glob("crates/**/*.rs", recursive=True)
+        + glob.glob("apps/**/*.rs", recursive=True)
+        + glob.glob("src/**/*.rs", recursive=True)
+    )
+    for path in rs_files:
         with open(path, "r", encoding="utf-8") as f:
             src = f.read()
         for m in PATTERN.finditer(src):

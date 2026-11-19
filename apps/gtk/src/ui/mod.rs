@@ -59,7 +59,7 @@ use crate::ui::state::{AppState, next_queue_index};
 use crate::ui::widgets::{empty_state_card, set_track_favorite, start_track_radio};
 
 pub const APP_ID: &str = "com.github.gyrotube.GyroTube";
-const APP_ICON_SVG: &[u8] = include_bytes!("../../gyrotube.svg");
+const APP_ICON_SVG: &[u8] = include_bytes!("../../../../gyrotube.svg");
 
 fn register_app_icon() {
     if let Some(cache) = crate::models::cache_dir() {

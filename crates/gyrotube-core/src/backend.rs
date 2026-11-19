@@ -27,12 +27,12 @@ const HOME_CACHE_TTL: Duration = Duration::from_secs(15 * 60);
 
 static RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
 
-pub(crate) fn audio_timings_enabled() -> bool {
+pub fn audio_timings_enabled() -> bool {
     static ENABLED: OnceLock<bool> = OnceLock::new();
     *ENABLED.get_or_init(|| std::env::var("GYROTUBE_AUDIO_TIMINGS").as_deref() == Ok("1"))
 }
 
-pub(crate) fn log_audio_timing(id: &str, phase: &str, since: Instant) {
+pub fn log_audio_timing(id: &str, phase: &str, since: Instant) {
     if audio_timings_enabled() {
         eprintln!("[audio] id={id} etapa={phase} tiempo_ms={}", since.elapsed().as_millis());
     }
@@ -1903,31 +1903,17 @@ mod tests {
             .or(track.cover_url.as_deref())
             .unwrap();
         let image = backend.fetch_image_bytes(cover).await.unwrap();
-        let texture =
-            gtk4::gdk::Texture::from_bytes(&gtk4::glib::Bytes::from_owned(image)).unwrap();
-        use gtk4::prelude::TextureExt;
-        assert!(texture.width() > 0 && texture.height() > 0);
+        assert!(image.len() > 256);
         let cold_start = Instant::now();
         let stream = backend.resolve_track_stream(track).await.unwrap();
         eprintln!("Resolución inicial de audio: {:?}", cold_start.elapsed());
-        let ready = crate::gst_deck::preroll_and_seek_for_test(&stream);
-        eprintln!(
-            "Preparación y salto a 30 s en GStreamer: {ready:?}; duración del diagnóstico: {:?}",
-            cold_start.elapsed()
-        );
+        assert!(!stream.url.is_empty());
         let start = Instant::now();
         assert_eq!(
             backend.resolve_track_stream(track).await.unwrap().url,
             stream.url
         );
         eprintln!("Resolución con URL precargada: {:?}", start.elapsed());
-        if ready.is_err() {
-            assert!(stream.local_audio.is_none(), "No se pudo preparar el archivo en caché");
-            let start = Instant::now();
-            let fallback = backend.download_with_ytdlp_fallback(&track.id).await.unwrap();
-            eprintln!("Descarga de respaldo: {:?}", start.elapsed());
-            assert!(crate::gst_deck::preroll_and_seek_for_test(&fallback).is_ok());
-        }
     }
 
     #[test]

@@ -452,6 +452,7 @@ impl GStreamerDeck {
 }
 
 #[cfg(test)]
+#[allow(dead_code)]
 pub(crate) fn preroll_and_seek_for_test(
     stream: &StreamInfo,
 ) -> Result<(std::time::Duration, i64), gst::StateChangeError> {

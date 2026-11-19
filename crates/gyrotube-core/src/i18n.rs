@@ -107,12 +107,6 @@ pub fn detect_system_lang() -> Lang {
             }
         }
     }
-    for name in gtk4::glib::language_names() {
-        let s = name.as_str();
-        if !s.is_empty() && s != "C" && s != "POSIX" {
-            return detect_lang_from_locale(s);
-        }
-    }
     Lang::En
 }
 

@@ -29,7 +29,7 @@ pub struct HeaderWidgets {
 
 pub fn build_header_bar(_content_view_stack: &adw::ViewStack) -> HeaderWidgets {
     let brand_icon = match gdk::Texture::from_bytes(&glib::Bytes::from_static(include_bytes!(
-        "../../gyrotube.svg"
+        "../../../../gyrotube.svg"
     ))) {
         Ok(tex) => Image::builder()
             .paintable(&tex)
