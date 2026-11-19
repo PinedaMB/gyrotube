@@ -78,4 +78,18 @@ export const api = {
   spinStartRemoteHost: (): Promise<SpinStatus> => call("spin_start_remote_host"),
   spinStopRemote: (): Promise<SpinStatus> => call("spin_stop_remote"),
   spinJoinRemote: (code: string): Promise<SpinStatus> => call("spin_join_remote", { code }),
+  spinSyncSnapshot: (payload: {
+    isPlaying: boolean;
+    positionSecs: number;
+    sourceName: string;
+    currentIndex: number | null;
+    queue: Track[];
+  }): Promise<void> =>
+    call("spin_sync_snapshot", {
+      isPlaying: payload.isPlaying,
+      positionSecs: payload.positionSecs,
+      sourceName: payload.sourceName,
+      currentIndex: payload.currentIndex,
+      queue: payload.queue,
+    }),
 };

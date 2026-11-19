@@ -2,6 +2,7 @@
   import { api, isTauriRuntime } from "../lib/api";
   import { player } from "../lib/stores/player.svelte";
   import { formatDuration, type Track } from "../lib/types";
+  import CoverImage from "./CoverImage.svelte";
 
   let {
     id,
@@ -50,9 +51,7 @@
       ←
     </button>
     <div class="hero-row">
-      {#if coverUrl || tracks[0]?.cover_url}
-        <img class="album-cover" src={coverUrl || tracks[0]?.cover_url || ""} alt={resolvedTitle} />
-      {/if}
+      <CoverImage class="album-cover" src={coverUrl} fallbackSrc={tracks[0]?.cover_url} alt={resolvedTitle} />
       <div class="album-meta">
         <span class="type-pill">{isPlaylist ? "PLAYLIST" : "ALBUM"}</span>
         <h1>{resolvedTitle}</h1>
@@ -152,15 +151,6 @@
     display: flex;
     align-items: flex-end;
     gap: 22px;
-  }
-
-  .album-cover {
-    width: 184px;
-    height: 184px;
-    border-radius: 14px;
-    object-fit: cover;
-    box-shadow: 0 14px 36px rgba(0, 0, 0, 0.44);
-    flex-shrink: 0;
   }
 
   .album-meta {

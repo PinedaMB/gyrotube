@@ -1,3 +1,4 @@
+import { listen } from "@tauri-apps/api/event";
 import { api, isTauriRuntime } from "../api";
 import { DualDeckAudioEngine, extractDominantRgb } from "../audioEngine";
 import type {
@@ -114,6 +115,7 @@ class PlayerStore {
       onPlayStateChange: (playing) => {
         this.isPlaying = playing;
         if (playing) this.isLoadingAudio = false;
+        void this.syncSpinSnapshot();
       },
       onEnded: () => {
         void this.handleTrackEnded();
@@ -179,6 +181,82 @@ class PlayerStore {
     void this.loadHome();
     void this.loadGenres();
     void this.refreshSpinStatus();
+    void this.bindNativeEvents();
+  }
+
+  private async bindNativeEvents(): Promise<void> {
+    if (!isTauriRuntime()) return;
+    try {
+      await listen<string>("tray:action", (event) => {
+        if (event.payload === "toggle_play") void this.togglePlay();
+        else if (event.payload === "next") void this.next();
+        else if (event.payload === "prev") void this.prev();
+      });
+
+      await listen<
+        | { kind: "toggle_play_pause" }
+        | { kind: "next_track" }
+        | { kind: "prev_track" }
+        | { kind: "move_track"; from: number; to: number }
+        | { kind: "add_track"; video_id: string; guest_name: string }
+      >("spin:command", (event) => {
+        const cmd = event.payload;
+        if (cmd.kind === "toggle_play_pause") {
+          void this.togglePlay();
+        } else if (cmd.kind === "next_track") {
+          void this.next();
+        } else if (cmd.kind === "prev_track") {
+          void this.prev();
+        } else if (cmd.kind === "move_track") {
+          this.moveQueueItem(cmd.from, cmd.to);
+        } else if (cmd.kind === "add_track") {
+          void api.searchAll(cmd.video_id).then((res) => {
+            const match = res.tracks.find((t) => t.id === cmd.video_id) ?? res.tracks[0];
+            if (match) {
+              this.enqueueTrack(match);
+              this.showToast(`${cmd.guest_name} added ${match.title}`);
+            }
+          });
+        }
+      });
+
+      await listen<{
+        target: string;
+        payload?: {
+          track: Track | null;
+          position_secs: number;
+          is_playing: boolean;
+          sent_at_ms: number;
+          source_name: string;
+          host_name: string;
+        } | null;
+        error?: string | null;
+      }>("spin:remote-sync", (event) => {
+        const { payload, error } = event.payload;
+        if (error) {
+          this.showToast(error);
+          return;
+        }
+        if (!payload?.track) return;
+        const driftMs = Math.max(0, Date.now() - payload.sent_at_ms);
+        const targetPos = payload.position_secs + (payload.is_playing ? driftMs / 1000 : 0);
+        if (this.currentTrack?.id !== payload.track.id) {
+          this.queue = [payload.track];
+          this.unshuffledQueue = [payload.track];
+          this.sourceName = `SPIN · ${payload.host_name || "Host"}`;
+          void this.playIndex(0, false, targetPos);
+        } else {
+          if (Math.abs(this.positionSecs - targetPos) > 1.8) {
+            this.seek(targetPos);
+          }
+          if (payload.is_playing !== this.isPlaying) {
+            void this.engine.togglePlay();
+          }
+        }
+      });
+    } catch {
+      // Non-fatal outside Tauri event bridge
+    }
   }
 
   public applyTheme(mode: ThemeMode): void {
@@ -363,7 +441,7 @@ class PlayerStore {
     void this.persistSession();
   }
 
-  public async playIndex(index: number, useCrossfade = false): Promise<void> {
+  public async playIndex(index: number, useCrossfade = false, startPositionSecs = 0): Promise<void> {
     if (index < 0 || index >= this.queue.length) return;
     const track = this.queue[index];
     const gen = ++this.loadGen;
@@ -408,7 +486,8 @@ class PlayerStore {
       const stream = await api.resolveAudioStream(track);
       if (this.loadGen !== gen) return;
       this.qualityLabel = stream.quality_label;
-      await this.engine.loadAndPlay(stream.url, 0, useCrossfade);
+      await this.engine.loadAndPlay(stream.url, startPositionSecs, useCrossfade);
+      void this.syncSpinSnapshot();
 
       // Load lyrics & related suggestions asynchronously
       void api.getLyrics(track.title, track.artist, track.duration_secs).then((data) => {
@@ -519,9 +598,90 @@ class PlayerStore {
     if (!isTauriRuntime()) return;
     try {
       this.spinStatus = await api.spinStatus();
+      void this.syncSpinSnapshot();
     } catch {
       // ignore
     }
+  }
+
+  public async syncSpinSnapshot(): Promise<void> {
+    if (!isTauriRuntime()) return;
+    if (!this.spinStatus.local_active && this.spinStatus.remote_role !== "host") return;
+    try {
+      await api.spinSyncSnapshot({
+        isPlaying: this.isPlaying,
+        positionSecs: this.positionSecs,
+        sourceName: this.sourceName,
+        currentIndex: this.currentIndex,
+        queue: this.queue,
+      });
+    } catch {
+      // ignore
+    }
+  }
+
+  public createUserPlaylist(
+    name: string,
+    description = "",
+    colorHex: string | null = "#2190a4",
+    iconName: string | null = null,
+  ): UserPlaylist {
+    const clean = name.trim() || "New playlist";
+    const pl: UserPlaylist = {
+      id: `pl-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      name: clean,
+      description: description.trim(),
+      color_hex: colorHex,
+      icon_name: iconName,
+      cover_path: null,
+      tracks: [],
+    };
+    this.userPlaylists = [pl, ...this.userPlaylists];
+    if (isTauriRuntime()) void api.saveUserPlaylists(this.userPlaylists);
+    return pl;
+  }
+
+  public updateUserPlaylist(
+    id: string,
+    name: string,
+    description: string,
+    colorHex: string | null,
+    iconName: string | null,
+  ): void {
+    const clean = name.trim();
+    if (!clean) return;
+    this.userPlaylists = this.userPlaylists.map((p) =>
+      p.id === id
+        ? { ...p, name: clean, description: description.trim(), color_hex: colorHex, icon_name: iconName }
+        : p,
+    );
+    if (isTauriRuntime()) void api.saveUserPlaylists(this.userPlaylists);
+  }
+
+  public deleteUserPlaylist(id: string): void {
+    this.userPlaylists = this.userPlaylists.filter((p) => p.id !== id);
+    if (isTauriRuntime()) void api.saveUserPlaylists(this.userPlaylists);
+  }
+
+  public addTrackToPlaylist(playlistId: string, track: Track): void {
+    let added = false;
+    this.userPlaylists = this.userPlaylists.map((p) => {
+      if (p.id !== playlistId) return p;
+      if (p.tracks.some((t) => t.id === track.id)) return p;
+      added = true;
+      return { ...p, tracks: [...p.tracks, track] };
+    });
+    if (added) {
+      if (isTauriRuntime()) void api.saveUserPlaylists(this.userPlaylists);
+      this.showToast(`Added "${track.title}" to playlist`);
+    }
+  }
+
+  public removeTrackFromPlaylist(playlistId: string, trackId: string): void {
+    this.userPlaylists = this.userPlaylists.map((p) =>
+      p.id === playlistId ? { ...p, tracks: p.tracks.filter((t) => t.id !== trackId) } : p,
+    );
+    if (isTauriRuntime()) void api.saveUserPlaylists(this.userPlaylists);
   }
 
   public async persistSession(): Promise<void> {

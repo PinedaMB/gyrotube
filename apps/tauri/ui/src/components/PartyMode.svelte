@@ -1,6 +1,7 @@
 <script lang="ts">
   import { player } from "../lib/stores/player.svelte";
   import { formatDuration } from "../lib/types";
+  import CoverImage from "./CoverImage.svelte";
 
   let lineRefs = $state<Record<number, HTMLButtonElement>>({});
 
@@ -32,15 +33,12 @@
 
   <div class="party-split">
     <div class="party-left">
-      {#if player.currentTrack?.cover_large_url || player.currentTrack?.cover_url}
-        <img
-          class="party-cover"
-          src={player.currentTrack.cover_large_url || player.currentTrack.cover_url || ""}
-          alt={player.currentTrack.title}
-        />
-      {:else}
-        <div class="party-cover placeholder">♪</div>
-      {/if}
+      <CoverImage
+        class="party-cover"
+        src={player.currentTrack?.cover_large_url}
+        fallbackSrc={player.currentTrack?.cover_url}
+        alt={player.currentTrack?.title ?? ""}
+      />
 
       <h1 class="party-title">{player.currentTrack?.title ?? "Nothing playing"}</h1>
       <p class="party-artist muted">{player.currentTrack?.artist ?? ""}</p>
@@ -81,9 +79,7 @@
         <div class="up-next">
           <span class="up-next-kicker">UP NEXT</span>
           <div class="up-next-row">
-            {#if player.nextTrack.cover_url}
-              <img class="up-next-cover" src={player.nextTrack.cover_url} alt="" />
-            {/if}
+            <CoverImage class="up-next-cover" src={player.nextTrack.cover_url} alt="" />
             <div class="track-meta">
               <span class="track-title">{player.nextTrack.title}</span>
               <span class="track-sub">{player.nextTrack.artist}</span>
@@ -180,23 +176,6 @@
     gap: 14px;
   }
 
-  .party-cover {
-    width: 260px;
-    height: 260px;
-    border-radius: 18px;
-    object-fit: cover;
-    box-shadow: 0 20px 52px rgba(0, 0, 0, 0.52);
-    background: var(--surface);
-  }
-
-  .party-cover.placeholder {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 56px;
-    color: var(--text-muted);
-  }
-
   .party-title {
     margin: 6px 0 0;
     font-size: 24px;
@@ -265,13 +244,6 @@
     display: flex;
     align-items: center;
     gap: 10px;
-  }
-
-  .up-next-cover {
-    width: 40px;
-    height: 40px;
-    border-radius: 8px;
-    object-fit: cover;
   }
 
   .party-right {

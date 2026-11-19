@@ -2,6 +2,7 @@
   import { api, isTauriRuntime } from "../lib/api";
   import { player } from "../lib/stores/player.svelte";
   import { formatDuration, formatSubscribers, type ArtistDetails } from "../lib/types";
+  import CoverImage from "./CoverImage.svelte";
 
   let { artistId, artistName }: { artistId: string; artistName: string } = $props();
 
@@ -81,9 +82,7 @@
                 details &&
                 player.replaceQueueAndPlay(details.tracks, i, details.name)}
             >
-              {#if track.cover_url}
-                <img class="track-cover" src={track.cover_url} alt="" />
-              {/if}
+              <CoverImage class="track-cover" src={track.cover_url} alt="" />
               <div class="track-meta">
                 <span class="track-title">{track.title}</span>
                 <span class="track-sub">{track.artist}{track.album ? ` • ${track.album}` : ""}</span>
@@ -128,9 +127,7 @@
               class="media-card"
               onclick={() => player.openAlbum(album.id, album.title, album.cover_url)}
             >
-              {#if album.cover_url}
-                <img class="media-cover" src={album.cover_url} alt={album.title} />
-              {/if}
+              <CoverImage class="media-cover" src={album.cover_url} alt={album.title} />
               <strong class="media-title">{album.title}</strong>
               <span class="media-sub muted">{album.year ?? album.artist}</span>
             </button>
@@ -226,13 +223,6 @@
     display: flex;
     flex-direction: column;
     gap: 6px;
-  }
-
-  .media-cover {
-    width: 156px;
-    height: 156px;
-    border-radius: 10px;
-    object-fit: cover;
   }
 
   .media-title,

@@ -1,9 +1,10 @@
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
 use gyrotube_core::audio_cache::LocalAudio;
 use gyrotube_core::backend::{Backend, HomeFeed};
 use gyrotube_core::jam::{
-    JamRequest, JamServerHandle, JamSnapshot, generate_qr_svg, start_jam_server,
+    JamRequest, JamServerHandle, JamSnapshot, JamTrackInfo, generate_qr_svg, start_jam_server,
 };
 use gyrotube_core::models::{
     ArtistDetails, Genre, LyricsData, Playlist, SearchResults, SessionState, SyncedLyricLine,
@@ -12,8 +13,8 @@ use gyrotube_core::models::{
     save_search_history, save_session_state, save_user_playlists,
 };
 use gyrotube_core::spin_remote::{
-    GuestSession, HostPublisher, RemoteRole, RemoteUpdate, local_display_name, normalize_room_code,
-    start_guest_sync, ticket_qr_svg,
+    GuestSession, HostPublisher, RemoteRole, RemoteSyncPayload, RemoteUpdate, local_display_name,
+    normalize_room_code, now_ms, start_guest_sync, ticket_qr_svg,
 };
 use serde::Serialize;
 use tauri::State;
@@ -32,6 +33,8 @@ pub struct AppCoreState {
     pub backend: Backend,
     pub active_audio_lease: Mutex<Option<Arc<LocalAudio>>>,
     pub spin: Mutex<SpinState>,
+    pub background_playback: Arc<AtomicBool>,
+    pub quitting: Arc<AtomicBool>,
 }
 
 impl AppCoreState {
@@ -54,9 +57,33 @@ impl AppCoreState {
                 guest_session: None,
                 remote_tx,
             }),
+            background_playback: Arc::new(AtomicBool::new(true)),
+            quitting: Arc::new(AtomicBool::new(false)),
         };
         (state, cmd_rx, remote_rx)
     }
+}
+
+#[derive(Clone, Serialize)]
+#[serde(tag = "kind")]
+pub enum SpinCommandEvent {
+    #[serde(rename = "add_track")]
+    AddTrack { video_id: String, guest_name: String },
+    #[serde(rename = "toggle_play_pause")]
+    TogglePlayPause,
+    #[serde(rename = "next_track")]
+    NextTrack,
+    #[serde(rename = "prev_track")]
+    PrevTrack,
+    #[serde(rename = "move_track")]
+    MoveTrack { from: usize, to: usize },
+}
+
+#[derive(Clone, Serialize)]
+pub struct SpinRemoteSyncEvent {
+    pub target: String,
+    pub payload: Option<RemoteSyncPayload>,
+    pub error: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -127,9 +154,13 @@ fn build_spin_payload(spin: &SpinState) -> SpinStatusPayload {
 }
 
 #[tauri::command]
-pub fn load_initial_state() -> InitialAppData {
+pub fn load_initial_state(state: State<'_, AppCoreState>) -> InitialAppData {
+    let session = load_session_state();
+    state
+        .background_playback
+        .store(session.background_playback, Ordering::Relaxed);
     InitialAppData {
-        session: load_session_state(),
+        session,
         favorites: load_favorites(),
         recent_tracks: load_recent_tracks(),
         user_playlists: load_user_playlists(),
@@ -138,7 +169,10 @@ pub fn load_initial_state() -> InitialAppData {
 }
 
 #[tauri::command]
-pub fn save_session(session: SessionState) -> Result<(), String> {
+pub fn save_session(state: State<'_, AppCoreState>, session: SessionState) -> Result<(), String> {
+    state
+        .background_playback
+        .store(session.background_playback, Ordering::Relaxed);
     save_session_state(&session).map_err(|e| e.to_string())
 }
 
@@ -428,4 +462,54 @@ pub fn spin_join_remote(
     let tx = spin.remote_tx.clone();
     spin.guest_session = Some(start_guest_sync(target, tx));
     Ok(build_spin_payload(&spin))
+}
+
+#[tauri::command]
+pub fn spin_sync_snapshot(
+    state: State<'_, AppCoreState>,
+    is_playing: bool,
+    position_secs: f64,
+    source_name: String,
+    current_index: Option<usize>,
+    queue: Vec<Track>,
+) -> Result<(), String> {
+    let spin = state.spin.lock().map_err(|e| e.to_string())?;
+    let current_track = current_index.and_then(|idx| queue.get(idx)).cloned();
+    let jam_queue: Vec<JamTrackInfo> = queue
+        .iter()
+        .enumerate()
+        .map(|(i, t)| JamTrackInfo {
+            id: t.id.clone(),
+            title: t.title.clone(),
+            artist: t.artist.clone(),
+            album: t.album.clone(),
+            duration_secs: t.duration_secs,
+            cover_url: t.cover_url.clone(),
+            is_current: current_index == Some(i),
+        })
+        .collect();
+    let now_playing = current_index.and_then(|idx| jam_queue.get(idx).cloned());
+
+    let allow_controls = if let Ok(mut sn) = spin.snapshot.write() {
+        sn.is_playing = is_playing;
+        sn.position_secs = position_secs;
+        sn.now_playing = now_playing;
+        sn.queue = jam_queue;
+        sn.allow_controls
+    } else {
+        false
+    };
+
+    if let Some(publisher) = &spin.host_publisher {
+        publisher.publish(RemoteSyncPayload {
+            track: current_track,
+            position_secs,
+            is_playing,
+            sent_at_ms: now_ms(),
+            allow_controls,
+            source_name,
+            host_name: local_display_name(),
+        });
+    }
+    Ok(())
 }
