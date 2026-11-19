@@ -22,7 +22,8 @@ use crate::ui::state::{AppState, ViewRequests};
 use crate::ui::widgets::{
     begin_collection_loading, build_album_card, build_carousel_section, build_playlist_card,
     build_skeleton_box, cancel_collection_loading, clear_box,
-    highlight_active_track_in_list, load_cover_into_picture, load_cover_into_picture_if,
+    highlight_active_track_in_list, load_cover_into_picture,
+    load_cover_into_picture_with_focal_if,
     open_collection_page, populate_track_list, rail_art, spawn_bg, start_track_radio,
 };
 
@@ -254,7 +255,7 @@ pub fn build_explore_page(
     // Artist details sub-view (Spotify-inspired hero + tracks + discography)
     let artist_back_btn = Button::builder()
         .icon_name("go-previous-symbolic")
-        .tooltip_text("Volver")
+        .tooltip_text(tr("Volver", "Back"))
         .halign(Align::Start)
         .valign(Align::Start)
         .margin_top(14)
@@ -264,10 +265,10 @@ pub fn build_explore_page(
     artist_back_btn.set_cursor_from_name(Some("pointer"));
 
     let artist_banner = Picture::builder()
-        .height_request(250)
+        .height_request(340)
         .hexpand(true)
         .can_shrink(true)
-        .content_fit(ContentFit::Cover)
+        .content_fit(ContentFit::Fill)
         .visible(false)
         .build();
 
@@ -284,14 +285,14 @@ pub fn build_explore_page(
         .css_classes(["artist-verified-icon"])
         .build();
     let verified_label = Label::builder()
-        .label("Artista")
+        .label(tr("Artista", "Artist"))
         .css_classes(["artist-verified-badge"])
         .build();
     verified_row.append(&verified_icon);
     verified_row.append(&verified_label);
 
     let artist_name_label = Label::builder()
-        .label("Artista")
+        .label(tr("Artista", "Artist"))
         .xalign(0.0)
         .max_width_chars(20)
         .ellipsize(gtk4::pango::EllipsizeMode::End)
@@ -309,13 +310,13 @@ pub fn build_explore_page(
         .build();
     let play_btn_content = GtkBox::new(Orientation::Horizontal, 6);
     play_btn_content.append(&gtk4::Image::from_icon_name("play-filled"));
-    play_btn_content.append(&Label::new(Some("Reproducir")));
+    play_btn_content.append(&Label::new(Some(tr("Reproducir", "Play"))));
     artist_play_btn.set_child(Some(&play_btn_content));
     artist_play_btn.set_cursor_from_name(Some("pointer"));
 
     let artist_shuffle_btn = Button::builder()
         .icon_name("arrow-shuffle-regular")
-        .tooltip_text("Reproducción aleatoria")
+        .tooltip_text(tr("Reproducción aleatoria", "Shuffle"))
         .valign(Align::Center)
         .css_classes(["circular", "artist-secondary-btn"])
         .build();
@@ -323,7 +324,7 @@ pub fn build_explore_page(
 
     let artist_radio_btn = Button::builder()
         .icon_name("sound-wave-circle-regular")
-        .tooltip_text("Iniciar radio del artista")
+        .tooltip_text(tr("Iniciar radio del artista", "Start artist radio"))
         .valign(Align::Center)
         .css_classes(["circular", "artist-secondary-btn"])
         .build();
@@ -348,7 +349,7 @@ pub fn build_explore_page(
 
     let artist_hero_spacer = GtkBox::new(Orientation::Vertical, 0);
     let artist_hero = gtk4::Overlay::builder()
-        .height_request(250)
+        .height_request(340)
         .overflow(Overflow::Hidden)
         .css_classes(["artist-hero"])
         .child(&artist_hero_spacer)
@@ -418,7 +419,7 @@ pub fn build_explore_page(
     artist_desc_header.append(&gtk4::Image::from_icon_name("person-account-regular"));
     artist_desc_header.append(
         &Label::builder()
-            .label("Sobre el artista")
+            .label(tr("Sobre el artista", "About the artist"))
             .xalign(0.0)
             .css_classes(["title-4"])
             .build(),
@@ -488,7 +489,7 @@ pub fn build_explore_page(
 
     let artist_skeleton = GtkBox::new(Orientation::Vertical, 16);
     artist_skeleton.set_visible(false);
-    let hero_skel = build_skeleton_box(0, 250);
+    let hero_skel = build_skeleton_box(0, 340);
     hero_skel.add_css_class("artist-hero");
     artist_skeleton.append(&hero_skel);
     artist_skeleton.append(&build_skeleton_box(190, 20));
@@ -1234,9 +1235,13 @@ fn populate_artist_page(
     if let Some(url) = &details.header_url {
         ui.banner.set_paintable(None::<&gdk::Paintable>);
         let banners = ui.banners.clone();
-        load_cover_into_picture_if(&ui.banner, url, Rc::clone(&state), move || {
-            banners.is_current(banner_request)
-        });
+        load_cover_into_picture_with_focal_if(
+            &ui.banner,
+            url,
+            0.22,
+            Rc::clone(&state),
+            move || banners.is_current(banner_request),
+        );
         ui.banner.set_visible(true);
     } else {
         ui.banner.set_visible(false);
@@ -1352,7 +1357,7 @@ fn build_artist_card(
     let subs_text = artist
         .subscriber_count
         .map(format_subscribers)
-        .unwrap_or_else(|| String::from("Artista"));
+        .unwrap_or_else(|| String::from(tr("Artista", "Artist")));
     let subs_label = Label::builder()
         .label(&subs_text)
         .halign(Align::Center)

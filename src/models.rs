@@ -233,12 +233,13 @@ pub fn color_to_hex(color: u32) -> String {
 }
 
 pub fn format_subscribers(count: u64) -> String {
+    let unit = crate::i18n::tr("suscriptores", "subscribers");
     if count >= 1_000_000 {
-        format!("{:.1} M suscriptores", count as f64 / 1_000_000.0)
+        format!("{:.1} M {unit}", count as f64 / 1_000_000.0)
     } else if count >= 1_000 {
-        format!("{:.1} K suscriptores", count as f64 / 1_000.0)
+        format!("{:.1} K {unit}", count as f64 / 1_000.0)
     } else {
-        format!("{count} suscriptores")
+        format!("{count} {unit}")
     }
 }
 

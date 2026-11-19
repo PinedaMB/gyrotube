@@ -88,40 +88,14 @@ pub fn refresh_queue_ui(state: Rc<RefCell<AppState>>) {
             .css_classes(["dim-label", "caption", "numeric"])
             .build();
 
-        let move_up_btn = Button::builder()
-            .icon_name("go-up-symbolic")
-            .tooltip_text(tr("Subir en la cola", "Move up in queue"))
+        let drag_handle = Image::builder()
+            .icon_name("list-drag-handle-symbolic")
+            .pixel_size(14)
             .valign(Align::Center)
-            .sensitive(idx > 0)
-            .css_classes(["flat", "circular"])
+            .tooltip_text(tr("Arrastra para reordenar", "Drag to reorder"))
+            .css_classes(["queue-drag-handle"])
             .build();
-        {
-            let state = Rc::clone(&state);
-            move_up_btn.connect_clicked(move |_| {
-                if idx > 0 {
-                    state.borrow_mut().move_queue_item(idx, idx - 1);
-                    refresh_queue_ui(Rc::clone(&state));
-                }
-            });
-        }
-
-        let move_down_btn = Button::builder()
-            .icon_name("go-down-symbolic")
-            .tooltip_text(tr("Bajar en la cola", "Move down in queue"))
-            .valign(Align::Center)
-            .sensitive(idx + 1 < queue.len())
-            .css_classes(["flat", "circular"])
-            .build();
-        {
-            let state = Rc::clone(&state);
-            let queue_len = queue.len();
-            move_down_btn.connect_clicked(move |_| {
-                if idx + 1 < queue_len {
-                    state.borrow_mut().move_queue_item(idx, idx + 1);
-                    refresh_queue_ui(Rc::clone(&state));
-                }
-            });
-        }
+        drag_handle.set_cursor_from_name(Some("grab"));
 
         let remove_btn = Button::builder()
             .icon_name("list-remove-symbolic")
@@ -151,6 +125,7 @@ pub fn refresh_queue_ui(state: Rc<RefCell<AppState>>) {
             });
         }
 
+        row_box.append(&drag_handle);
         if is_current {
             let playing_icon = Image::builder()
                 .icon_name("speaker-2-regular")
@@ -163,8 +138,6 @@ pub fn refresh_queue_ui(state: Rc<RefCell<AppState>>) {
         row_box.append(&cover_frame);
         row_box.append(&text_box);
         row_box.append(&duration_label);
-        row_box.append(&move_up_btn);
-        row_box.append(&move_down_btn);
         row_box.append(&remove_btn);
 
         let row = ListBoxRow::builder()
@@ -175,37 +148,94 @@ pub fn refresh_queue_ui(state: Rc<RefCell<AppState>>) {
             row.add_css_class("chart-active-row");
         }
         row.set_cursor_from_name(Some("pointer"));
-        {
-            let state = Rc::clone(&state);
-            row.connect_activate(move |_| {
-                play_queue_index(Rc::clone(&state), idx);
-            });
-        }
 
         let drag_source = gtk4::DragSource::builder()
             .actions(gtk4::gdk::DragAction::MOVE)
             .build();
-        drag_source.connect_prepare(move |_, _, _| {
-            Some(gtk4::gdk::ContentProvider::for_value(
-                &idx.to_string().to_value(),
-            ))
-        });
+        let drag_start = Rc::new(std::cell::Cell::new((0.0_f64, 0.0_f64)));
+        {
+            let drag_start = Rc::clone(&drag_start);
+            drag_source.connect_prepare(move |_, x, y| {
+                drag_start.set((x, y));
+                Some(gtk4::gdk::ContentProvider::for_value(
+                    &(idx as u32).to_value(),
+                ))
+            });
+        }
+        {
+            let row_for_begin = row.clone();
+            let drag_start = Rc::clone(&drag_start);
+            drag_source.connect_drag_begin(move |source, _| {
+                let paintable = gtk4::WidgetPaintable::new(Some(&row_for_begin));
+                let (hot_x, hot_y) = drag_start.get();
+                source.set_icon(Some(&paintable), hot_x as i32, hot_y as i32);
+                row_for_begin.add_css_class("queue-row-dragging");
+            });
+        }
+        {
+            let row_for_end = row.clone();
+            drag_source.connect_drag_end(move |_, _, _| {
+                row_for_end.remove_css_class("queue-row-dragging");
+            });
+        }
         row.add_controller(drag_source);
 
-        let drop_target = gtk4::DropTarget::new(String::static_type(), gtk4::gdk::DragAction::MOVE);
+        let drop_target = gtk4::DropTarget::new(u32::static_type(), gtk4::gdk::DragAction::MOVE);
+        {
+            let row_for_enter = row.clone();
+            drop_target.connect_enter(move |_, _, y| {
+                let below = y >= (row_for_enter.height() as f64) * 0.5;
+                if below {
+                    row_for_enter.remove_css_class("queue-drop-above");
+                    row_for_enter.add_css_class("queue-drop-below");
+                } else {
+                    row_for_enter.remove_css_class("queue-drop-below");
+                    row_for_enter.add_css_class("queue-drop-above");
+                }
+                gtk4::gdk::DragAction::MOVE
+            });
+        }
+        {
+            let row_for_motion = row.clone();
+            drop_target.connect_motion(move |_, _, y| {
+                let below = y >= (row_for_motion.height() as f64) * 0.5;
+                if below {
+                    row_for_motion.remove_css_class("queue-drop-above");
+                    row_for_motion.add_css_class("queue-drop-below");
+                } else {
+                    row_for_motion.remove_css_class("queue-drop-below");
+                    row_for_motion.add_css_class("queue-drop-above");
+                }
+                gtk4::gdk::DragAction::MOVE
+            });
+        }
+        {
+            let row_for_leave = row.clone();
+            drop_target.connect_leave(move |_| {
+                row_for_leave.remove_css_class("queue-drop-above");
+                row_for_leave.remove_css_class("queue-drop-below");
+            });
+        }
         {
             let state = Rc::clone(&state);
-            drop_target.connect_drop(move |_, value, _, _| {
-                if let Ok(from_str) = value.get::<String>() {
-                    if let Ok(from) = from_str.parse::<usize>() {
-                        if from != idx {
-                            state.borrow_mut().move_queue_item(from, idx);
-                            let state_for_refresh = Rc::clone(&state);
-                            glib::idle_add_local_once(move || {
-                                refresh_queue_ui(state_for_refresh);
-                            });
-                            return true;
-                        }
+            let row_for_drop = row.clone();
+            drop_target.connect_drop(move |_, value, _, y| {
+                row_for_drop.remove_css_class("queue-drop-above");
+                row_for_drop.remove_css_class("queue-drop-below");
+                if let Ok(from_u32) = value.get::<u32>() {
+                    let from = from_u32 as usize;
+                    let insert_after = y >= (row_for_drop.height() as f64) * 0.5;
+                    let mut to = if insert_after { idx + 1 } else { idx };
+                    if from < to {
+                        to = to.saturating_sub(1);
+                    }
+                    if from != to {
+                        state.borrow_mut().move_queue_item(from, to);
+                        let state_for_refresh = Rc::clone(&state);
+                        glib::idle_add_local_once(move || {
+                            refresh_queue_ui(state_for_refresh);
+                        });
+                        return true;
                     }
                 }
                 false
@@ -309,7 +339,8 @@ pub fn load_current_lyrics(state: Rc<RefCell<AppState>>) {
                 s.active_lyric_idx = None;
                 match result {
                     Ok(LyricsData::Synced(lines)) => {
-                        s.lyrics_sync_badge.set_label("● Sincronizada");
+                        s.lyrics_sync_badge
+                            .set_label(tr("● Sincronizada", "● Synced"));
                         s.lyrics_sync_badge.remove_css_class("lyrics-badge-plain");
                         s.lyrics_sync_badge.add_css_class("lyrics-badge-synced");
                         s.lyrics_sync_badge.set_visible(true);
@@ -342,7 +373,7 @@ pub fn load_current_lyrics(state: Rc<RefCell<AppState>>) {
                         });
                     }
                     Ok(LyricsData::Plain(text)) => {
-                        s.lyrics_sync_badge.set_label("Estática");
+                        s.lyrics_sync_badge.set_label(tr("Estática", "Static"));
                         s.lyrics_sync_badge.remove_css_class("lyrics-badge-synced");
                         s.lyrics_sync_badge.add_css_class("lyrics-badge-plain");
                         s.lyrics_sync_badge.set_visible(true);

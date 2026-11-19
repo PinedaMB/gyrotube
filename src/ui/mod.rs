@@ -690,6 +690,15 @@ pub fn build_ui(app: &adw::Application) {
 fn wire_sidebar_actions(state: &Rc<RefCell<AppState>>, sb: &sidebar_player::SidebarPlayerWidgets) {
     {
         let state = Rc::clone(state);
+        sb.queue_list.connect_row_activated(move |_, row| {
+            let idx = row.index();
+            if idx >= 0 {
+                play_queue_index(Rc::clone(&state), idx as usize);
+            }
+        });
+    }
+    {
+        let state = Rc::clone(state);
         sb.queue_save_btn.connect_clicked(move |btn| {
             let (tracks, suggested_name) = {
                 let s = state.borrow();

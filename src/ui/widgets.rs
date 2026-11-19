@@ -1279,8 +1279,122 @@ pub fn clamped_cover(min_size: i32, max_size: i32, css_class: &str) -> (adw::Cla
     (h_clamp, picture)
 }
 
+mod focal_paintable {
+    use std::cell::{Cell, RefCell};
+
+    use gtk4::gdk;
+    use gtk4::glib;
+    use gtk4::graphene;
+    use gtk4::prelude::*;
+    use gtk4::subclass::prelude::*;
+
+    #[derive(Default)]
+    pub struct FocalCoverPaintableImp {
+        pub texture: RefCell<Option<gdk::Texture>>,
+        pub focal_y: Cell<f64>,
+    }
+
+    #[glib::object_subclass]
+    impl ObjectSubclass for FocalCoverPaintableImp {
+        const NAME: &'static str = "GyroTubeFocalCoverPaintable";
+        type Type = super::FocalCoverPaintable;
+        type Interfaces = (gdk::Paintable,);
+    }
+
+    impl ObjectImpl for FocalCoverPaintableImp {}
+
+    impl PaintableImpl for FocalCoverPaintableImp {
+        fn snapshot(&self, snapshot: &gdk::Snapshot, width: f64, height: f64) {
+            if width <= 0.0 || height <= 0.0 {
+                return;
+            }
+            let Some(gtk_snap) = snapshot.downcast_ref::<gtk4::Snapshot>() else {
+                return;
+            };
+            let Some(tex) = self.texture.borrow().clone() else {
+                return;
+            };
+            let tw = tex.width() as f64;
+            let th = tex.height() as f64;
+            if tw <= 0.0 || th <= 0.0 {
+                return;
+            }
+            let scale = (width / tw).max(height / th);
+            let draw_w = tw * scale;
+            let draw_h = th * scale;
+            let x = (width - draw_w) * 0.5;
+            let y = (height - draw_h) * self.focal_y.get().clamp(0.0, 1.0);
+
+            let clip = graphene::Rect::new(0.0, 0.0, width as f32, height as f32);
+            let target = graphene::Rect::new(x as f32, y as f32, draw_w as f32, draw_h as f32);
+            gtk_snap.push_clip(&clip);
+            gtk_snap.append_texture(&tex, &target);
+            gtk_snap.pop();
+        }
+    }
+}
+
+glib::wrapper! {
+    pub struct FocalCoverPaintable(ObjectSubclass<focal_paintable::FocalCoverPaintableImp>)
+        @implements gdk::Paintable;
+}
+
+impl FocalCoverPaintable {
+    pub fn new(texture: gdk::Texture, focal_y: f64) -> Self {
+        use gtk4::subclass::prelude::ObjectSubclassIsExt;
+        let obj: Self = glib::Object::new();
+        let imp = obj.imp();
+        *imp.texture.borrow_mut() = Some(texture);
+        imp.focal_y.set(focal_y.clamp(0.0, 1.0));
+        obj
+    }
+}
+
 pub fn load_cover_into_picture(picture: &Picture, url: &str, state: Rc<RefCell<AppState>>) {
     load_cover_into_picture_if(picture, url, state, || true);
+}
+
+pub fn load_cover_into_picture_with_focal_if(
+    picture: &Picture,
+    url: &str,
+    focal_y: f64,
+    state: Rc<RefCell<AppState>>,
+    is_current: impl FnOnce() -> bool + 'static,
+) {
+    if let Some(texture) = state.borrow().cover_cache.get(url).cloned() {
+        if is_current() {
+            let paintable = FocalCoverPaintable::new(texture, focal_y);
+            picture.set_paintable(Some(&paintable));
+        }
+        return;
+    }
+
+    let backend = state.borrow().backend.clone();
+    let url_owned = url.to_string();
+    let (tx, rx) = async_channel::bounded(1);
+
+    runtime().spawn(async move {
+        let res = backend.fetch_image_bytes(&url_owned).await;
+        let _ = tx.send(res).await;
+    });
+
+    let picture = picture.clone();
+    let url_key = url.to_string();
+    glib::spawn_future_local(async move {
+        if let Ok(Ok(bytes)) = rx.recv().await {
+            let glib_bytes = glib::Bytes::from_owned(bytes);
+            if let Ok(texture) = gdk::Texture::from_bytes(&glib_bytes) {
+                state
+                    .borrow_mut()
+                    .cover_cache
+                    .insert(url_key, texture.clone());
+                if is_current() {
+                    let paintable = FocalCoverPaintable::new(texture, focal_y);
+                    picture.set_paintable(Some(&paintable));
+                }
+            }
+        }
+    });
 }
 
 pub fn load_cover_into_picture_if(

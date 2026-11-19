@@ -317,7 +317,7 @@ pub fn build_sidebar_player() -> SidebarPlayerWidgets {
         .css_classes(["lyrics-plain"])
         .build();
     let lyrics_lines_box = GtkBox::new(Orientation::Vertical, 2);
-    lyrics_lines_box.add_css_class("lyrics-card");
+    lyrics_lines_box.set_margin_top(4);
     lyrics_lines_box.append(&lyrics_body_label);
 
     let lyrics_box = GtkBox::new(Orientation::Vertical, 12);
