@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { PanelLeft, PartyPopper, Search, Settings, Users } from "lucide-svelte";
   import { api, isTauriRuntime } from "../lib/api";
   import { player } from "../lib/stores/player.svelte";
 
@@ -80,10 +81,7 @@
         void player.persistSession();
       }}
     >
-      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
-        <rect x="3" y="4" width="18" height="16" rx="3" />
-        <line x1="9" y1="4" x2="9" y2="20" />
-      </svg>
+      <PanelLeft size={18} />
     </button>
     <span
       class="w-4 h-4 rounded-full bg-gradient-to-br from-[#2eb0c7] to-[#2190a4] shadow-[0_0_12px_rgba(33,144,164,0.55)] shrink-0"
@@ -101,18 +99,7 @@
     <div
       class="flex items-center gap-2.5 h-9 px-3.5 rounded-full bg-[var(--surface)] border border-[var(--border)] focus-within:border-[var(--accent-border)] focus-within:bg-[var(--surface-hover)] transition-colors"
     >
-      <svg
-        class="text-[var(--text-muted)] shrink-0"
-        viewBox="0 0 24 24"
-        width="15"
-        height="15"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="2"
-      >
-        <circle cx="11" cy="11" r="7" />
-        <line x1="20" y1="20" x2="16.65" y2="16.65" />
-      </svg>
+      <Search size={15} class="text-[var(--text-muted)] shrink-0" />
       <input
         type="search"
         class="w-full bg-transparent outline-none text-[13.5px] placeholder:text-[var(--text-muted)]"
@@ -151,18 +138,7 @@
               : 'hover:bg-[var(--surface-hover)]'}"
             onmousedown={() => submitSearch(term)}
           >
-            <svg
-              class="text-[var(--text-muted)] shrink-0"
-              viewBox="0 0 24 24"
-              width="14"
-              height="14"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-            >
-              <circle cx="11" cy="11" r="7" />
-              <line x1="20" y1="20" x2="16.65" y2="16.65" />
-            </svg>
+            <Search size={14} class="text-[var(--text-muted)] shrink-0" />
             <span class="truncate">
               {#if prefix}<span class="text-[var(--text-muted)]">{prefix}</span><strong>{rest}</strong>{:else}{term}{/if}
             </span>
@@ -182,12 +158,7 @@
         if (player.spinOpen) void player.refreshSpinStatus();
       }}
     >
-      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
-        <circle cx="9" cy="7" r="3" />
-        <path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6" />
-        <circle cx="17" cy="9" r="2.5" />
-        <path d="M16 14.5c2.5.4 4.5 2.5 4.5 5.5" />
-      </svg>
+      <Users size={18} />
     </button>
     <button
       class="icon-btn"
@@ -195,9 +166,7 @@
       title="Party Mode (F11)"
       onclick={() => (player.partyMode = !player.partyMode)}
     >
-      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
-        <path d="M12 3l2.2 6.2L20.5 12l-6.3 2.8L12 21l-2.2-6.2L3.5 12l6.3-2.8L12 3z" />
-      </svg>
+      <PartyPopper size={18} />
     </button>
     <span class="w-px h-5 bg-[var(--border-strong)] mx-0.5" aria-hidden="true"></span>
     <button
@@ -206,12 +175,7 @@
       title="Settings"
       onclick={() => (player.settingsOpen = true)}
     >
-      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
-        <circle cx="12" cy="12" r="3" />
-        <path
-          d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.01a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.01a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"
-        />
-      </svg>
+      <Settings size={18} />
     </button>
   </div>
 </header>

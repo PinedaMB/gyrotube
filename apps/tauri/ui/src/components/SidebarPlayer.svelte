@@ -1,4 +1,26 @@
 <script lang="ts">
+  import {
+    ChevronLeft,
+    GripVertical,
+    Heart,
+    ListMusic,
+    MessageSquareQuote,
+    Music,
+    PartyPopper,
+    Pause,
+    Play,
+    Plus,
+    Radio,
+    Repeat,
+    Shuffle,
+    SkipBack,
+    SkipForward,
+    Timer,
+    Volume1,
+    Volume2,
+    VolumeX,
+    X,
+  } from "lucide-svelte";
   import { player } from "../lib/stores/player.svelte";
   import { formatDuration } from "../lib/types";
   import CoverImage from "./CoverImage.svelte";
@@ -14,7 +36,6 @@
   let prevVolume = $state(1);
   let startingRadio = $state(false);
 
-  // Sleep timer state
   let sleepRemainingSecs = $state<number | null>(null);
   let sleepInterval: number | undefined;
 
@@ -37,6 +58,20 @@
 
   function togglePopover(kind: Exclude<ActionPopover, null>) {
     openPopover = openPopover === kind ? null : kind;
+  }
+
+  function lyricOpacity(idx: number): number {
+    if (player.activeLyricIndex == null) return 0.65;
+    if (idx === player.activeLyricIndex) return 1.0;
+    const diff = Math.abs(idx - player.activeLyricIndex);
+    if (diff === 1) return 0.42;
+    if (diff === 2) return 0.24;
+    return 0.14;
+  }
+
+  function isFarLyric(idx: number): boolean {
+    if (player.activeLyricIndex == null) return false;
+    return Math.abs(idx - player.activeLyricIndex) >= 2;
   }
 
   function toggleMute() {
@@ -80,9 +115,7 @@
   <!-- Top context bar -->
   <div class="shrink-0 flex items-center justify-between gap-2 px-6 pt-4 pb-2">
     <div class="min-w-0 flex flex-col leading-tight">
-      <span class="text-[11.5px] font-medium text-[var(--text-muted)]">
-        Playing from
-      </span>
+      <span class="text-[11.5px] font-medium text-[var(--text-muted)]">Playing from</span>
       <span class="text-[13px] font-semibold truncate">{player.sourceName}</span>
     </div>
     <button
@@ -93,9 +126,7 @@
         void player.persistSession();
       }}
     >
-      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-        <polyline points="15 18 9 12 15 6" />
-      </svg>
+      <ChevronLeft size={19} />
     </button>
   </div>
 
@@ -132,7 +163,6 @@
 
           <!-- 5-icon minimalist action row (Volume, Favorite, Start Radio, Sleep Timer, Party Mode) -->
           <div class="relative w-full flex items-center justify-center gap-5 py-0.5">
-            <!-- Volume popover trigger -->
             <button
               class="icon-btn !w-9 !h-9 {openPopover === 'volume' || player.volume === 0
                 ? 'active'
@@ -141,26 +171,14 @@
               onclick={() => togglePopover("volume")}
             >
               {#if player.volume === 0}
-                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
-                  <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
-                  <line x1="23" y1="9" x2="17" y2="15" />
-                  <line x1="17" y1="9" x2="23" y2="15" />
-                </svg>
+                <VolumeX size={18} />
               {:else if player.volume < 0.5}
-                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
-                  <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
-                  <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
-                </svg>
+                <Volume1 size={18} />
               {:else}
-                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
-                  <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
-                  <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
-                  <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
-                </svg>
+                <Volume2 size={18} />
               {/if}
             </button>
 
-            <!-- Favorite toggle -->
             <button
               class="icon-btn !w-9 !h-9 transition-transform active:scale-90 {isFav
                 ? 'text-[var(--coral)]'
@@ -169,21 +187,9 @@
               title={isFav ? "Remove from favorites" : "Add to favorites"}
               onclick={() => player.currentTrack && player.toggleFavorite(player.currentTrack)}
             >
-              <svg
-                viewBox="0 0 24 24"
-                width="18"
-                height="18"
-                fill={isFav ? "currentColor" : "none"}
-                stroke="currentColor"
-                stroke-width="1.9"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-              >
-                <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
-              </svg>
+              <Heart size={18} fill={isFav ? "currentColor" : "none"} />
             </button>
 
-            <!-- Start radio from this song -->
             <button
               class="icon-btn !w-9 !h-9 {startingRadio
                 ? 'active'
@@ -203,35 +209,25 @@
               {#if startingRadio}
                 <span class="w-4 h-4 rounded-full border-2 border-current/30 border-t-current animate-spin"></span>
               {:else}
-                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round">
-                  <circle cx="12" cy="12" r="9" />
-                  <line x1="8" y1="10" x2="8" y2="14" />
-                  <line x1="12" y1="8" x2="12" y2="16" />
-                  <line x1="16" y1="10" x2="16" y2="14" />
-                </svg>
+                <Radio size={18} />
               {/if}
             </button>
 
-            <!-- Sleep timer popover trigger -->
             <button
               class="icon-btn !w-9 !h-9 relative {openPopover === 'timer' || sleepRemainingSecs != null
                 ? 'active'
                 : 'text-[var(--text-muted)] hover:text-[var(--text)]'}"
-              title={sleepRemainingSecs != null ? `Sleep timer: ${formatDuration(sleepRemainingSecs)}` : "Sleep timer"}
+              title={sleepRemainingSecs != null
+                ? `Sleep timer: ${formatDuration(sleepRemainingSecs)}`
+                : "Sleep timer"}
               onclick={() => togglePopover("timer")}
             >
-              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
-                <circle cx="12" cy="13" r="8" />
-                <path d="M12 9v4l2 2" />
-                <path d="M9 2h6" />
-                <path d="M12 2v3" />
-              </svg>
+              <Timer size={18} />
               {#if sleepRemainingSecs != null}
                 <span class="w-1.5 h-1.5 rounded-full bg-[var(--accent-bright)] absolute top-1 right-1"></span>
               {/if}
             </button>
 
-            <!-- Party Mode trigger -->
             <button
               class="icon-btn !w-9 !h-9 {player.partyMode
                 ? 'active'
@@ -242,13 +238,9 @@
                 player.partyMode = true;
               }}
             >
-              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M12 3l1.9 5.3L19.2 10l-5.3 1.9L12 17.2l-1.9-5.3L4.8 10l5.3-1.7L12 3z" />
-                <path d="M18 16l.8 2.2L21 19l-2.2.8L18 22l-.8-2.2L15 19l2.2-.8L18 16z" />
-              </svg>
+              <PartyPopper size={18} />
             </button>
 
-            <!-- Click-away backdrop for popovers -->
             {#if openPopover !== null}
               <button
                 type="button"
@@ -258,7 +250,6 @@
               ></button>
             {/if}
 
-            <!-- Floating popover for Volume / Sleep Timer -->
             {#if openPopover === "volume"}
               <div
                 class="absolute bottom-12 left-1/2 -translate-x-1/2 w-[272px] p-3.5 rounded-2xl bg-[var(--bg-elevated)]/95 backdrop-blur-md border border-[var(--border-strong)] shadow-[0_16px_40px_rgba(0,0,0,0.5)] z-30 space-y-2.5"
@@ -269,27 +260,18 @@
                 </div>
                 <div class="flex items-center gap-3">
                   <button
-                    class="icon-btn !w-8 !h-8 shrink-0 bg-[var(--surface)] hover:bg-[var(--surface-hover)] {player.volume === 0 ? 'text-[var(--coral)]' : 'text-[var(--text)]'}"
+                    class="icon-btn !w-8 !h-8 shrink-0 bg-[var(--surface)] hover:bg-[var(--surface-hover)] {player.volume === 0
+                      ? 'text-[var(--coral)]'
+                      : 'text-[var(--text)]'}"
                     onclick={toggleMute}
                     title={player.volume === 0 ? "Unmute" : "Mute"}
                   >
                     {#if player.volume === 0}
-                      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
-                        <line x1="23" y1="9" x2="17" y2="15" />
-                        <line x1="17" y1="9" x2="23" y2="15" />
-                      </svg>
+                      <VolumeX size={16} />
                     {:else if player.volume < 0.5}
-                      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
-                        <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
-                      </svg>
+                      <Volume1 size={16} />
                     {:else}
-                      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
-                        <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
-                        <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
-                      </svg>
+                      <Volume2 size={16} />
                     {/if}
                   </button>
                   <input
@@ -312,7 +294,9 @@
                 <div class="flex items-center justify-between text-[12px]">
                   <span class="font-semibold text-[var(--text-muted)]">Sleep timer</span>
                   {#if sleepRemainingSecs != null}
-                    <span class="font-bold text-[var(--accent-bright)] numeric">{formatDuration(sleepRemainingSecs)}</span>
+                    <span class="font-bold text-[var(--accent-bright)] numeric">
+                      {formatDuration(sleepRemainingSecs)}
+                    </span>
                   {/if}
                 </div>
                 <div class="grid grid-cols-5 gap-1.5">
@@ -356,9 +340,7 @@
             />
             <div class="flex items-center justify-between text-[12px] text-[var(--text-muted)] numeric">
               <span>{formatDuration(displayPos)}</span>
-              <span
-                class="px-3 py-0.5 rounded-full text-[11px] font-bold bg-[var(--accent-soft)] text-[var(--accent-bright)]"
-              >
+              <span class="px-3 py-0.5 rounded-full text-[11px] font-bold bg-[var(--accent-soft)] text-[var(--accent-bright)]">
                 {player.qualityLabel}
               </span>
               <span>{formatDuration(player.durationSecs)}</span>
@@ -368,17 +350,13 @@
           <!-- Transport controls -->
           <div class="w-full flex items-center justify-center gap-4 pt-1 pb-1">
             <button
-              class="icon-btn relative {player.shuffle ? 'active' : 'text-[var(--text-muted)] hover:text-[var(--text)]'}"
+              class="icon-btn relative {player.shuffle
+                ? 'active'
+                : 'text-[var(--text-muted)] hover:text-[var(--text)]'}"
               title="Shuffle"
               onclick={() => player.toggleShuffle()}
             >
-              <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <polyline points="16 3 21 3 21 8" />
-                <line x1="4" y1="20" x2="21" y2="3" />
-                <polyline points="21 16 21 21 16 21" />
-                <line x1="15" y1="15" x2="21" y2="21" />
-                <line x1="4" y1="4" x2="9" y2="9" />
-              </svg>
+              <Shuffle size={17} />
               {#if player.shuffle}
                 <span class="w-1 h-1 rounded-full bg-[var(--accent-bright)] absolute bottom-0.5"></span>
               {/if}
@@ -390,9 +368,7 @@
               title="Previous"
               onclick={() => void player.prev()}
             >
-              <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
-                <path d="M6 6h2v12H6zm3.5 6l8.5 6V6z" />
-              </svg>
+              <SkipBack size={20} fill="currentColor" />
             </button>
 
             <button
@@ -404,14 +380,9 @@
               {#if player.isLoadingAudio}
                 <span class="w-5 h-5 rounded-full border-2 border-white/30 border-t-white animate-spin"></span>
               {:else if player.isPlaying}
-                <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
-                  <rect x="6" y="5" width="4" height="14" rx="1.2" />
-                  <rect x="14" y="5" width="4" height="14" rx="1.2" />
-                </svg>
+                <Pause size={22} fill="currentColor" />
               {:else}
-                <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor" class="translate-x-[1.5px]">
-                  <polygon points="6 4 20 12 6 20 6 4" />
-                </svg>
+                <Play size={22} fill="currentColor" class="translate-x-[1.5px]" />
               {/if}
             </button>
 
@@ -421,22 +392,17 @@
               title="Next"
               onclick={() => void player.next()}
             >
-              <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
-                <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z" />
-              </svg>
+              <SkipForward size={20} fill="currentColor" />
             </button>
 
             <button
-              class="icon-btn relative {player.repeat ? 'active' : 'text-[var(--text-muted)] hover:text-[var(--text)]'}"
+              class="icon-btn relative {player.repeat
+                ? 'active'
+                : 'text-[var(--text-muted)] hover:text-[var(--text)]'}"
               title="Repeat"
               onclick={() => player.toggleRepeat()}
             >
-              <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <polyline points="17 1 21 5 17 9" />
-                <path d="M3 11V9a4 4 0 0 1 4-4h14" />
-                <polyline points="7 23 3 19 7 15" />
-                <path d="M21 13v2a4 4 0 0 1-4 4H3" />
-              </svg>
+              <Repeat size={17} />
               {#if player.repeat}
                 <span class="w-1 h-1 rounded-full bg-[var(--accent-bright)] absolute bottom-0.5"></span>
               {/if}
@@ -471,12 +437,15 @@
         </div>
 
         {#if player.lyrics.type === "Synced"}
-          <div class="lyrics-fade flex flex-col gap-1 py-4">
+          <div class="lyrics-fade flex-1 min-h-0 overflow-y-auto pt-28 pb-36 flex flex-col gap-4">
             {#each player.lyrics.lines as line, i}
+              {@const active = player.activeLyricIndex === i}
+              {@const prevLine = i > 0 ? player.lyrics.lines[i - 1] : null}
+              {@const stanzaBreak = prevLine != null && line.time_secs - prevLine.time_secs >= 5.5}
               <button
                 bind:this={lyricRefs[i]}
-                class="lyric-line"
-                class:active={player.activeLyricIndex === i}
+                class="sb-lyric-line text-left origin-left {active ? 'active-line' : ''} {isFarLyric(i) ? 'far-line' : ''} {stanzaBreak ? 'mt-3' : ''}"
+                style="opacity: {lyricOpacity(i)};"
                 onclick={() => player.seek(line.time_secs)}
               >
                 {line.text}
@@ -487,7 +456,7 @@
           <pre class="whitespace-pre-wrap font-sans text-[14px] leading-relaxed text-[var(--text)]/85 py-2">{player.lyrics.text}</pre>
         {:else}
           <div class="flex-1 flex flex-col items-center justify-center text-center gap-2 py-12 text-[var(--text-muted)]">
-            <span class="text-3xl opacity-40">♪</span>
+            <Music size={28} class="opacity-40" />
             <p class="text-[13px]">
               {player.currentTrack ? "No lyrics available for this track." : "Play a song to view its lyrics."}
             </p>
@@ -513,7 +482,7 @@
 
         {#if player.queue.length === 0}
           <div class="flex flex-col items-center justify-center text-center gap-2 py-10 text-[var(--text-muted)]">
-            <span class="text-2xl opacity-40">☰</span>
+            <ListMusic size={26} class="opacity-40" />
             <p class="text-[13px]">The queue is empty.</p>
           </div>
         {:else}
@@ -547,9 +516,7 @@
                 onclick={() => void player.playIndex(i)}
                 onkeydown={(e) => e.key === "Enter" && void player.playIndex(i)}
               >
-                <span class="text-[11px] text-[var(--text-muted)]/50 cursor-grab select-none shrink-0" aria-hidden="true">
-                  ⋮⋮
-                </span>
+                <GripVertical size={13} class="text-[var(--text-muted)]/45 cursor-grab shrink-0" />
                 <CoverImage class="track-cover !w-9 !h-9 !rounded-md" src={track.cover_url} alt="" />
                 <div class="track-meta">
                   <span class="track-title !text-[12.5px] {isCurrent ? '!text-[var(--accent-bright)] !font-bold' : ''}">
@@ -567,21 +534,20 @@
                   </span>
                 {/if}
                 <button
-                  class="icon-btn !w-6 !h-6 text-[12px] opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
+                  class="icon-btn !w-6 !h-6 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
                   title="Remove from queue"
                   onclick={(e) => {
                     e.stopPropagation();
                     player.removeQueueIndex(i);
                   }}
                 >
-                  ✕
+                  <X size={13} />
                 </button>
               </div>
             {/each}
           </div>
         {/if}
 
-        <!-- Autoplay switch card -->
         <div class="flex items-center justify-between gap-3 p-3 rounded-xl bg-[var(--surface)] border border-[var(--border)]">
           <div class="min-w-0">
             <div class="text-[13px] font-bold">Autoplay</div>
@@ -624,10 +590,7 @@
                   title="Add to queue"
                   onclick={() => player.enqueueTrack(track)}
                 >
-                  <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2">
-                    <line x1="12" y1="5" x2="12" y2="19" />
-                    <line x1="5" y1="12" x2="19" y2="12" />
-                  </svg>
+                  <Plus size={15} />
                 </button>
               </div>
             {/each}
@@ -637,7 +600,7 @@
     {/if}
   </div>
 
-  <!-- Bottom tab bar matching GTK4 pill-outline style -->
+  <!-- Bottom tab bar -->
   <nav class="shrink-0 grid grid-cols-3 gap-1.5 px-3 py-2.5 border-t border-[var(--border)] bg-[var(--bg-sidebar)]">
     <button
       class="flex items-center justify-center gap-1.5 py-2 rounded-xl text-[13px] font-semibold border transition-colors {player.sidebarTab === 'player'
@@ -645,11 +608,7 @@
         : 'border-transparent text-[var(--text-muted)] hover:bg-[var(--surface)] hover:text-[var(--text)]'}"
       onclick={() => (player.sidebarTab = "player")}
     >
-      <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2">
-        <path d="M9 18V5l12-2v13" />
-        <circle cx="6" cy="18" r="3" />
-        <circle cx="18" cy="16" r="3" />
-      </svg>
+      <Music size={15} />
       Player
     </button>
     <button
@@ -658,9 +617,7 @@
         : 'border-transparent text-[var(--text-muted)] hover:bg-[var(--surface)] hover:text-[var(--text)]'}"
       onclick={() => (player.sidebarTab = "lyrics")}
     >
-      <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2">
-        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-      </svg>
+      <MessageSquareQuote size={15} />
       Lyrics
     </button>
     <button
@@ -669,14 +626,7 @@
         : 'border-transparent text-[var(--text-muted)] hover:bg-[var(--surface)] hover:text-[var(--text)]'}"
       onclick={() => (player.sidebarTab = "queue")}
     >
-      <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2">
-        <line x1="8" y1="6" x2="21" y2="6" />
-        <line x1="8" y1="12" x2="21" y2="12" />
-        <line x1="8" y1="18" x2="21" y2="18" />
-        <line x1="3" y1="6" x2="3.01" y2="6" />
-        <line x1="3" y1="12" x2="3.01" y2="12" />
-        <line x1="3" y1="18" x2="3.01" y2="18" />
-      </svg>
+      <ListMusic size={15} />
       Queue
     </button>
   </nav>
@@ -704,46 +654,97 @@
   }
 
   .lyrics-fade {
-    mask-image: linear-gradient(to bottom, transparent 0%, black 7%, black 93%, transparent 100%);
-    -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 7%, black 93%, transparent 100%);
+    scrollbar-width: none;
+    mask-image: linear-gradient(to bottom, transparent 0%, black 12%, black 88%, transparent 100%);
+    -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 12%, black 88%, transparent 100%);
+  }
+
+  .lyrics-fade::-webkit-scrollbar {
+    display: none;
+  }
+
+  .sb-lyric-line {
+    font-size: 15.5px;
+    font-weight: 650;
+    line-height: 1.42;
+    letter-spacing: -0.015em;
+    color: var(--text);
+    padding: 2px 0;
+    transition:
+      opacity 360ms cubic-bezier(0.22, 1, 0.36, 1),
+      transform 360ms cubic-bezier(0.22, 1, 0.36, 1),
+      font-size 360ms cubic-bezier(0.22, 1, 0.36, 1),
+      color 360ms cubic-bezier(0.22, 1, 0.36, 1),
+      filter 360ms cubic-bezier(0.22, 1, 0.36, 1),
+      text-shadow 360ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  .sb-lyric-line.far-line {
+    filter: blur(0.45px);
+  }
+
+  .sb-lyric-line:hover {
+    opacity: 0.92 !important;
+    filter: none;
+  }
+
+  .sb-lyric-line.active-line {
+    font-size: 20.5px;
+    font-weight: 850;
+    line-height: 1.3;
+    letter-spacing: -0.02em;
+    color: #ffffff;
+    transform: translateX(4px);
+    filter: none;
+    text-shadow:
+      0 0 24px rgba(var(--ambient-rgb), 0.65),
+      0 2px 14px rgba(0, 0, 0, 0.4);
   }
 
   .eq-bars {
     display: inline-flex;
     align-items: flex-end;
-    gap: 2px;
-    height: 12px;
+    gap: 2.5px;
+    height: 14px;
+    padding-bottom: 1px;
   }
 
   .eq-bars span {
-    width: 2.5px;
+    width: 3px;
+    height: 100%;
     border-radius: 2px;
     background: var(--accent-bright);
-    animation: eq-bounce 0.9s ease-in-out infinite;
+    transform-origin: bottom center;
+    will-change: transform;
   }
 
   .eq-bars span:nth-child(1) {
-    height: 55%;
-    animation-delay: 0s;
+    animation: eq-bar-1 0.85s ease-in-out infinite;
   }
 
   .eq-bars span:nth-child(2) {
-    height: 100%;
-    animation-delay: 0.2s;
+    animation: eq-bar-2 0.72s ease-in-out infinite;
   }
 
   .eq-bars span:nth-child(3) {
-    height: 70%;
-    animation-delay: 0.4s;
+    animation: eq-bar-3 0.95s ease-in-out infinite;
   }
 
-  @keyframes eq-bounce {
-    0%,
-    100% {
-      transform: scaleY(0.35);
-    }
-    50% {
-      transform: scaleY(1);
-    }
+  @keyframes eq-bar-1 {
+    0%, 100% { transform: scaleY(0.25); }
+    45% { transform: scaleY(0.95); }
+    75% { transform: scaleY(0.45); }
+  }
+
+  @keyframes eq-bar-2 {
+    0%, 100% { transform: scaleY(0.9); }
+    35% { transform: scaleY(0.3); }
+    68% { transform: scaleY(1); }
+  }
+
+  @keyframes eq-bar-3 {
+    0%, 100% { transform: scaleY(0.4); }
+    50% { transform: scaleY(0.85); }
+    80% { transform: scaleY(0.22); }
   }
 </style>

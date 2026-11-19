@@ -1,9 +1,28 @@
 <script lang="ts">
+  import {
+    Heart,
+    Music,
+    PartyPopper,
+    Pause,
+    Play,
+    Repeat,
+    Shuffle,
+    SkipBack,
+    SkipForward,
+    X,
+  } from "lucide-svelte";
   import { player } from "../lib/stores/player.svelte";
   import { formatDuration } from "../lib/types";
   import CoverImage from "./CoverImage.svelte";
 
   let lineRefs = $state<Record<number, HTMLButtonElement>>({});
+
+  let isFav = $derived(player.currentTrack ? player.isFavorite(player.currentTrack.id) : false);
+  let progressPct = $derived(
+    player.durationSecs > 0
+      ? Math.max(0, Math.min(100, (player.positionSecs / player.durationSecs) * 100))
+      : 0,
+  );
 
   $effect(() => {
     const idx = player.activeLyricIndex;
@@ -13,266 +32,245 @@
   });
 
   function lineOpacity(idx: number): number {
-    if (player.activeLyricIndex == null) return 0.72;
+    if (player.activeLyricIndex == null) return 0.6;
     if (idx === player.activeLyricIndex) return 1.0;
     const diff = Math.abs(idx - player.activeLyricIndex);
-    if (diff === 1) return 0.66;
-    if (diff === 2) return 0.42;
-    return 0.24;
+    if (diff === 1) return 0.36;
+    if (diff === 2) return 0.2;
+    return 0.11;
+  }
+
+  function isFarLine(idx: number): boolean {
+    if (player.activeLyricIndex == null) return false;
+    return Math.abs(idx - player.activeLyricIndex) >= 2;
+  }
+
+  function handleProgressClick(e: MouseEvent) {
+    if (!player.currentTrack || player.durationSecs <= 0) return;
+    const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
+    const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    player.seek(ratio * player.durationSecs);
   }
 </script>
 
-<div class="party-root">
-  <div class="party-top">
-    <div class="party-badge-row">
-      <span class="party-pill">✦ Party Mode</span>
-      <span class="muted">{player.sourceName}</span>
+<div
+  class="fixed inset-0 z-50 flex flex-col bg-[var(--bg)] text-[var(--text)] select-none overflow-hidden"
+  style="background-image: radial-gradient(ellipse at 26% 36%, rgba(var(--ambient-rgb), 0.34) 0%, rgba(var(--ambient-rgb), 0.1) 42%, transparent 74%);"
+>
+  <!-- Top bar -->
+  <header class="shrink-0 flex items-center justify-between px-7 py-5">
+    <div class="flex items-center gap-3 min-w-0">
+      <span
+        class="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[12px] font-bold tracking-wide bg-[var(--accent-soft)] text-[var(--accent-bright)] border border-[var(--accent-border)]/50"
+      >
+        <PartyPopper size={14} />
+        Party Mode
+      </span>
+      <span class="text-[13.5px] font-medium text-[var(--text-muted)] truncate">
+        {player.sourceName}
+      </span>
     </div>
-    <button class="pill-btn" onclick={() => (player.partyMode = false)}>Exit</button>
-  </div>
 
-  <div class="party-split">
-    <div class="party-left">
+    <button
+      class="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full text-[13px] font-semibold bg-white/8 hover:bg-white/14 border border-white/10 transition-colors"
+      onclick={() => (player.partyMode = false)}
+    >
+      <X size={15} />
+      Exit
+    </button>
+  </header>
+
+  <!-- Main 2-column stage -->
+  <div class="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-[440px_minmax(0,1fr)] gap-10 px-10 pb-8 max-w-[1440px] w-full mx-auto">
+    <!-- Left column: Art + Info + Controls + Up Next -->
+    <div class="flex flex-col items-center justify-center gap-5">
       <CoverImage
-        class="party-cover"
+        class="party-cover !w-[292px] !h-[292px] !rounded-[22px] border border-white/12 shadow-[0_26px_64px_rgba(0,0,0,0.58)]"
         src={player.currentTrack?.cover_large_url}
         fallbackSrc={player.currentTrack?.cover_url}
         alt={player.currentTrack?.title ?? ""}
       />
 
-      <h1 class="party-title">{player.currentTrack?.title ?? "Nothing playing"}</h1>
-      <p class="party-artist muted">{player.currentTrack?.artist ?? ""}</p>
+      <div class="w-[340px] text-center space-y-1">
+        <h1 class="text-[28px] font-black tracking-[-0.03em] leading-tight line-clamp-2">
+          {player.currentTrack?.title ?? "Nothing playing"}
+        </h1>
+        <p class="text-[16px] font-medium text-[var(--text-muted)] truncate">
+          {player.currentTrack?.artist ?? ""}
+        </p>
+      </div>
 
-      <div class="party-progress-wrap">
-        <div class="party-progress-bar">
+      <!-- Interactive progress bar -->
+      <div class="w-[340px] space-y-2.5">
+        <div
+          class="h-1.5 w-full rounded-full bg-white/15 cursor-pointer overflow-hidden group"
+          role="slider"
+          tabindex="0"
+          aria-label="Seek"
+          aria-valuemin={0}
+          aria-valuemax={Math.round(player.durationSecs)}
+          aria-valuenow={Math.round(player.positionSecs)}
+          onclick={handleProgressClick}
+          onkeydown={(e) => {
+            if (e.key === "ArrowRight") player.seek(player.positionSecs + 5);
+            else if (e.key === "ArrowLeft") player.seek(Math.max(0, player.positionSecs - 5));
+          }}
+        >
           <div
-            class="party-progress-fill"
-            style="width: {player.durationSecs > 0 ? Math.min(100, (player.positionSecs / player.durationSecs) * 100) : 0}%"
+            class="h-full rounded-full bg-[var(--accent-bright)] transition-[width] duration-150 ease-linear"
+            style="width: {progressPct}%"
           ></div>
         </div>
-        <div class="party-times numeric">
-          <span class="muted">{formatDuration(player.positionSecs)}</span>
+
+        <div class="flex items-center justify-between text-[12.5px] font-medium text-[var(--text-muted)] numeric">
+          <span>{formatDuration(player.positionSecs)}</span>
           <button
-            class="icon-btn"
-            class:fav-active={player.currentTrack ? player.isFavorite(player.currentTrack.id) : false}
+            class="icon-btn !w-9 !h-9 transition-transform active:scale-90 {isFav
+              ? 'text-[var(--coral)]'
+              : 'text-[var(--text-muted)] hover:text-[var(--text)]'}"
             disabled={!player.currentTrack}
-            title="Favorite"
+            title={isFav ? "Remove from favorites" : "Add to favorites"}
             onclick={() => player.currentTrack && player.toggleFavorite(player.currentTrack)}
           >
-            ♥
+            <Heart size={18} fill={isFav ? "currentColor" : "none"} />
           </button>
-          <span class="muted">{formatDuration(player.durationSecs)}</span>
+          <span>{formatDuration(player.durationSecs)}</span>
         </div>
       </div>
 
-      <div class="party-controls">
-        <button class="icon-btn" class:active={player.shuffle} onclick={() => player.toggleShuffle()}>⇄</button>
-        <button class="icon-btn" onclick={() => void player.prev()}>⏮</button>
-        <button class="play-circle" onclick={() => void player.togglePlay()}>
-          {#if player.isPlaying}❚❚{:else}▶{/if}
+      <!-- Transport controls -->
+      <div class="flex items-center justify-center gap-4">
+        <button
+          class="icon-btn !w-10 !h-10 relative {player.shuffle
+            ? 'active'
+            : 'text-[var(--text-muted)] hover:text-[var(--text)]'}"
+          title="Shuffle"
+          onclick={() => player.toggleShuffle()}
+        >
+          <Shuffle size={18} />
+          {#if player.shuffle}
+            <span class="w-1 h-1 rounded-full bg-[var(--accent-bright)] absolute bottom-1"></span>
+          {/if}
         </button>
-        <button class="icon-btn" onclick={() => void player.next()}>⏭</button>
-        <button class="icon-btn" class:active={player.repeat} onclick={() => player.toggleRepeat()}>↻</button>
+
+        <button
+          class="icon-btn !w-11 !h-11"
+          disabled={!player.currentTrack}
+          title="Previous"
+          onclick={() => void player.prev()}
+        >
+          <SkipBack size={22} fill="currentColor" />
+        </button>
+
+        <button
+          class="play-circle !w-[62px] !h-[62px]"
+          disabled={!player.currentTrack}
+          title="Play / Pause"
+          onclick={() => void player.togglePlay()}
+        >
+          {#if player.isPlaying}
+            <Pause size={24} fill="currentColor" />
+          {:else}
+            <Play size={24} fill="currentColor" class="translate-x-[1.5px]" />
+          {/if}
+        </button>
+
+        <button
+          class="icon-btn !w-11 !h-11"
+          disabled={!player.currentTrack}
+          title="Next"
+          onclick={() => void player.next()}
+        >
+          <SkipForward size={22} fill="currentColor" />
+        </button>
+
+        <button
+          class="icon-btn !w-10 !h-10 relative {player.repeat
+            ? 'active'
+            : 'text-[var(--text-muted)] hover:text-[var(--text)]'}"
+          title="Repeat"
+          onclick={() => player.toggleRepeat()}
+        >
+          <Repeat size={18} />
+          {#if player.repeat}
+            <span class="w-1 h-1 rounded-full bg-[var(--accent-bright)] absolute bottom-1"></span>
+          {/if}
+        </button>
       </div>
 
+      <!-- Up Next card -->
       {#if player.nextTrack}
-        <div class="up-next">
-          <span class="up-next-kicker">UP NEXT</span>
-          <div class="up-next-row">
-            <CoverImage class="up-next-cover" src={player.nextTrack.cover_url} alt="" />
-            <div class="track-meta">
-              <span class="track-title">{player.nextTrack.title}</span>
-              <span class="track-sub">{player.nextTrack.artist}</span>
-            </div>
+        <button
+          class="w-[340px] flex items-center gap-3 p-3 rounded-2xl bg-white/[0.05] hover:bg-white/[0.08] border border-white/10 text-left transition-colors"
+          onclick={() => void player.next()}
+        >
+          <CoverImage class="up-next-cover !w-11 !h-11 !rounded-lg" src={player.nextTrack.cover_url} alt="" />
+          <div class="min-w-0 flex-1">
+            <span class="block text-[10px] font-extrabold uppercase tracking-[0.1em] text-[var(--text-muted)]">
+              Up Next
+            </span>
+            <span class="block text-[13.5px] font-bold truncate">{player.nextTrack.title}</span>
+            <span class="block text-[12px] text-[var(--text-muted)] truncate">{player.nextTrack.artist}</span>
           </div>
-        </div>
+        </button>
       {/if}
     </div>
 
-    <div class="party-right">
-      <div class="party-lyrics-head">
-        <h2>Lyrics</h2>
+    <!-- Right column: Cinema-grade lyrics -->
+    <div class="min-h-0 flex flex-col">
+      <div class="shrink-0 flex items-center gap-2.5 pb-2">
+        <span class="text-[13px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">
+          Lyrics
+        </span>
         {#if player.lyrics.type === "Synced"}
-          <span class="sync-pill">● Synced</span>
+          <span
+            class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-[var(--accent-soft)] text-[var(--accent-bright)]"
+          >
+            <span class="w-1.5 h-1.5 rounded-full bg-[var(--accent-bright)]"></span>
+            Synced
+          </span>
+        {:else if player.lyrics.type === "Plain"}
+          <span class="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-white/8 text-[var(--text-muted)]">
+            Static
+          </span>
         {/if}
       </div>
 
-      <div class="party-lyrics-scroll">
-        {#if player.lyrics.type === "Synced"}
+      {#if player.lyrics.type === "Synced"}
+        <div class="party-lyrics-scroll flex-1 min-h-0 overflow-y-auto py-[36vh] pr-8 pl-4 flex flex-col gap-8">
           {#each player.lyrics.lines as line, i}
+            {@const active = player.activeLyricIndex === i}
+            {@const prevLine = i > 0 ? player.lyrics.lines[i - 1] : null}
+            {@const stanzaBreak = prevLine != null && line.time_secs - prevLine.time_secs >= 5.5}
             <button
               bind:this={lineRefs[i]}
-              class="party-line"
-              class:active={player.activeLyricIndex === i}
-              style="opacity: {lineOpacity(i)}"
+              class="party-line text-left origin-left {active ? 'active-line' : ''} {isFarLine(i) ? 'far-line' : ''} {stanzaBreak ? 'mt-5' : ''}"
+              style="opacity: {lineOpacity(i)};"
               onclick={() => player.seek(line.time_secs)}
             >
               {line.text}
             </button>
           {/each}
-        {:else if player.lyrics.type === "Plain"}
-          <pre class="party-plain">{player.lyrics.text}</pre>
-        {:else}
-          <p class="muted">Play a song to view its lyrics.</p>
-        {/if}
-      </div>
+        </div>
+      {:else if player.lyrics.type === "Plain"}
+        <div class="party-lyrics-scroll flex-1 min-h-0 overflow-y-auto py-12 pr-6">
+          <pre class="whitespace-pre-wrap font-sans text-[24px] font-bold leading-[1.6] tracking-[-0.02em] text-white/80">{player.lyrics.text}</pre>
+        </div>
+      {:else}
+        <div class="flex-1 flex flex-col items-center justify-center text-center gap-3 text-[var(--text-muted)]">
+          <Music size={40} class="opacity-30" />
+          <p class="text-[18px] font-semibold">No lyrics available for this track</p>
+        </div>
+      {/if}
     </div>
   </div>
 </div>
 
 <style>
-  .party-root {
-    position: fixed;
-    inset: 0;
-    z-index: 60;
-    background: var(--bg);
-    background-image: radial-gradient(
-      circle at 30% 35%,
-      rgba(var(--ambient-rgb), 0.30),
-      transparent 72%
-    );
-    display: flex;
-    flex-direction: column;
-  }
-
-  .party-top {
-    padding: 16px 28px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-  }
-
-  .party-badge-row {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    font-size: 13px;
-  }
-
-  .party-pill,
-  .sync-pill {
-    font-size: 11.5px;
-    font-weight: 700;
-    padding: 4px 11px;
-    border-radius: 999px;
-    background: var(--accent-soft);
-    color: var(--accent-bright);
-  }
-
-  .party-split {
-    flex: 1;
-    min-height: 0;
-    display: grid;
-    grid-template-columns: 380px minmax(0, 1fr);
-    gap: 44px;
-    padding: 8px 40px 32px;
-  }
-
-  .party-left {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 14px;
-  }
-
-  .party-title {
-    margin: 6px 0 0;
-    font-size: 24px;
-    font-weight: 850;
-    text-align: center;
-  }
-
-  .party-artist {
-    margin: 0;
-    font-size: 15px;
-  }
-
-  .party-progress-wrap {
-    width: 320px;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-
-  .party-progress-bar {
-    height: 5px;
-    border-radius: 999px;
-    background: var(--surface-hover);
-    overflow: hidden;
-  }
-
-  .party-progress-fill {
-    height: 100%;
-    border-radius: 999px;
-    background: var(--accent);
-    transition: width 150ms linear;
-  }
-
-  .party-times {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    font-size: 12px;
-  }
-
-  .party-controls {
-    display: flex;
-    align-items: center;
-    gap: 14px;
-  }
-
-  .up-next {
-    width: 320px;
-    padding: 12px 14px;
-    border-radius: 14px;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
-
-  .up-next-kicker {
-    font-size: 10.5px;
-    font-weight: 800;
-    letter-spacing: 0.08em;
-    color: var(--text-muted);
-  }
-
-  .up-next-row {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-  }
-
-  .party-right {
-    min-height: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-  }
-
-  .party-lyrics-head {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-  }
-
-  .party-lyrics-head h2 {
-    margin: 0;
-    font-size: 18px;
-    color: var(--text-muted);
-  }
-
   .party-lyrics-scroll {
-    flex: 1;
-    overflow-y: auto;
-    padding: 36px 12px 140px;
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
     scrollbar-width: none;
+    mask-image: linear-gradient(to bottom, transparent 0%, black 14%, black 86%, transparent 100%);
+    -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 14%, black 86%, transparent 100%);
   }
 
   .party-lyrics-scroll::-webkit-scrollbar {
@@ -280,36 +278,40 @@
   }
 
   .party-line {
-    text-align: left;
-    font-size: 28px;
-    line-height: 1.4;
-    padding: 10px 16px;
-    border-radius: 14px;
+    position: relative;
+    font-size: clamp(22px, 2.1vw, 29px);
+    font-weight: 700;
+    line-height: 1.38;
+    letter-spacing: -0.025em;
+    color: var(--text);
+    padding: 6px 0;
     transition:
-      opacity 340ms cubic-bezier(0.22, 1, 0.36, 1),
-      transform 340ms cubic-bezier(0.22, 1, 0.36, 1),
-      background-color 340ms cubic-bezier(0.22, 1, 0.36, 1);
+      opacity 380ms cubic-bezier(0.22, 1, 0.36, 1),
+      transform 380ms cubic-bezier(0.22, 1, 0.36, 1),
+      font-size 380ms cubic-bezier(0.22, 1, 0.36, 1),
+      color 380ms cubic-bezier(0.22, 1, 0.36, 1),
+      filter 380ms cubic-bezier(0.22, 1, 0.36, 1),
+      text-shadow 380ms cubic-bezier(0.22, 1, 0.36, 1);
   }
 
-  .party-line.active {
-    font-size: 34px;
-    font-weight: 800;
-    background: var(--accent-soft);
+  .party-line.far-line {
+    filter: blur(0.6px);
+  }
+
+  .party-line:hover {
+    opacity: 0.92 !important;
+    filter: none;
+  }
+
+  .party-line.active-line {
+    font-size: clamp(32px, 3.2vw, 44px);
+    font-weight: 900;
+    line-height: 1.24;
+    color: #ffffff;
     transform: translateX(6px);
-  }
-
-  .party-plain {
-    margin: 0;
-    white-space: pre-wrap;
-    font: inherit;
-    font-size: 20px;
-    line-height: 1.7;
-  }
-
-  @media (max-width: 900px) {
-    .party-split {
-      grid-template-columns: 1fr;
-      overflow-y: auto;
-    }
+    filter: none;
+    text-shadow:
+      0 0 36px rgba(var(--ambient-rgb), 0.72),
+      0 4px 24px rgba(0, 0, 0, 0.45);
   }
 </style>

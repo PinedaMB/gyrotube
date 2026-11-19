@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { Compass, Disc3, Heart, Play, Plus, RefreshCw, TrendingUp, Volume2 } from "lucide-svelte";
   import { player } from "../lib/stores/player.svelte";
   import { formatDuration } from "../lib/types";
   import CoverImage from "./CoverImage.svelte";
@@ -32,24 +33,26 @@
       <h1 class="greeting">{greeting}</h1>
       <p class="muted caption">Your music ready to play</p>
     </div>
-    <button class="icon-btn" title="Reload home" onclick={() => void player.loadHome(true)}>↻</button>
+    <button class="icon-btn" title="Reload home" onclick={() => void player.loadHome(true)}>
+      <RefreshCw size={16} class={player.homeLoading ? "animate-spin" : ""} />
+    </button>
   </div>
 
   <section class="quick-grid">
     <button class="quick-card q1" onclick={() => document.getElementById("new-releases")?.scrollIntoView({ behavior: "smooth" })}>
-      <span class="q-badge">◎</span>
+      <span class="q-badge"><Disc3 size={18} /></span>
       <span class="q-text"><strong>New releases</strong><small class="muted">Recent albums &amp; singles</small></span>
     </button>
     <button class="quick-card q2" onclick={() => document.getElementById("trending-hits")?.scrollIntoView({ behavior: "smooth" })}>
-      <span class="q-badge">☰</span>
+      <span class="q-badge"><TrendingUp size={18} /></span>
       <span class="q-text"><strong>Top charts</strong><small class="muted">Trending &amp; Top Music</small></span>
     </button>
     <button class="quick-card q3" onclick={() => player.navigateTab("explore")}>
-      <span class="q-badge">⌕</span>
+      <span class="q-badge"><Compass size={18} /></span>
       <span class="q-text"><strong>Moods</strong><small class="muted">Explore genres &amp; vibes</small></span>
     </button>
     <button class="quick-card q4" onclick={() => player.navigateTab("collection")}>
-      <span class="q-badge">♥</span>
+      <span class="q-badge"><Heart size={18} /></span>
       <span class="q-text"><strong>Collection</strong><small class="muted">Your favorite songs</small></span>
     </button>
   </section>
@@ -70,7 +73,13 @@
               <span class="track-title">{track.title}</span>
               <span class="track-sub">{track.artist}</span>
             </div>
-            <span class="play-badge" aria-hidden="true">{active ? "🔊" : "▶"}</span>
+            <span class="play-badge" aria-hidden="true">
+              {#if active}
+                <Volume2 size={14} />
+              {:else}
+                <Play size={13} fill="currentColor" class="translate-x-[1px]" />
+              {/if}
+            </span>
           </button>
         {/each}
       </div>
@@ -90,7 +99,8 @@
               class="pill-btn primary"
               onclick={() => player.openAlbum(featuredAlbum.id, featuredAlbum.title, featuredAlbum.cover_url)}
             >
-              ▶ Play
+              <Play size={14} fill="currentColor" />
+              Play
             </button>
             <button
               class="pill-btn"
@@ -148,7 +158,13 @@
             onclick={() => player.replaceQueueAndPlay(chartTracks, i, "Trending hits")}
             onkeydown={(e) => e.key === "Enter" && player.replaceQueueAndPlay(chartTracks, i, "Trending hits")}
           >
-            <span class="rank numeric">{active ? "🔊" : String(i + 1).padStart(2, "0")}</span>
+            <span class="rank numeric">
+              {#if active}
+                <Volume2 size={15} class="text-[var(--accent-bright)] mx-auto" />
+              {:else}
+                {String(i + 1).padStart(2, "0")}
+              {/if}
+            </span>
             <CoverImage class="track-cover" src={track.cover_url} alt="" />
             <div class="track-meta">
               <span class="track-title">{track.title}</span>
@@ -164,7 +180,7 @@
                 player.toggleFavorite(track);
               }}
             >
-              ♥
+              <Heart size={16} fill={player.isFavorite(track.id) ? "currentColor" : "none"} />
             </button>
             <button
               class="icon-btn"
@@ -174,7 +190,7 @@
                 player.enqueueTrack(track);
               }}
             >
-              +
+              <Plus size={16} />
             </button>
           </div>
         {/each}

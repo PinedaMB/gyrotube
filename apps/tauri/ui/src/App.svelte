@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { Compass, Heart, Home, Library, Pause, Play, SkipBack, SkipForward } from "lucide-svelte";
   import { onMount } from "svelte";
   import AlbumView from "./components/AlbumView.svelte";
   import ArtistView from "./components/ArtistView.svelte";
@@ -37,28 +38,31 @@
     <main class="flex-1 min-w-0 h-full overflow-y-auto ambient-surface scroll-y">
       <nav class="flex items-center justify-center gap-2 pt-3.5 pb-1 px-4">
         <button
-          class="px-4 py-1.5 rounded-full text-[13px] font-semibold transition-colors {player.activeTab === 'home'
+          class="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full text-[13px] font-semibold transition-colors {player.activeTab === 'home'
             ? 'bg-[var(--surface-hover)] text-[var(--text)] shadow-sm'
             : 'text-[var(--text-muted)] hover:bg-[var(--surface)] hover:text-[var(--text)]'}"
           onclick={() => player.navigateTab("home")}
         >
-          ⌂ Home
+          <Home size={15} />
+          Home
         </button>
         <button
-          class="px-4 py-1.5 rounded-full text-[13px] font-semibold transition-colors {player.activeTab === 'explore'
+          class="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full text-[13px] font-semibold transition-colors {player.activeTab === 'explore'
             ? 'bg-[var(--surface-hover)] text-[var(--text)] shadow-sm'
             : 'text-[var(--text-muted)] hover:bg-[var(--surface)] hover:text-[var(--text)]'}"
           onclick={() => player.navigateTab("explore")}
         >
-          ⌕ Explore
+          <Compass size={15} />
+          Explore
         </button>
         <button
-          class="px-4 py-1.5 rounded-full text-[13px] font-semibold transition-colors {player.activeTab === 'collection'
+          class="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full text-[13px] font-semibold transition-colors {player.activeTab === 'collection'
             ? 'bg-[var(--surface-hover)] text-[var(--text)] shadow-sm'
             : 'text-[var(--text-muted)] hover:bg-[var(--surface)] hover:text-[var(--text)]'}"
           onclick={() => player.navigateTab("collection")}
         >
-          ▤ Collection
+          <Library size={15} />
+          Collection
         </button>
       </nav>
 
@@ -112,17 +116,28 @@
         title="Favorite"
         onclick={() => player.currentTrack && player.toggleFavorite(player.currentTrack)}
       >
-        ♥
+        <Heart
+          size={17}
+          fill={player.isFavorite(player.currentTrack.id) ? "currentColor" : "none"}
+        />
       </button>
-      <button class="icon-btn" title="Previous" onclick={() => void player.prev()}>⏮</button>
+      <button class="icon-btn" title="Previous" onclick={() => void player.prev()}>
+        <SkipBack size={17} fill="currentColor" />
+      </button>
       <button
         class="play-circle !w-10 !h-10"
         title="Play / Pause"
         onclick={() => void player.togglePlay()}
       >
-        {#if player.isPlaying}❚❚{:else}▶{/if}
+        {#if player.isPlaying}
+          <Pause size={17} fill="currentColor" />
+        {:else}
+          <Play size={17} fill="currentColor" class="translate-x-[1px]" />
+        {/if}
       </button>
-      <button class="icon-btn" title="Next" onclick={() => void player.next()}>⏭</button>
+      <button class="icon-btn" title="Next" onclick={() => void player.next()}>
+        <SkipForward size={17} fill="currentColor" />
+      </button>
     </div>
   {/if}
 
