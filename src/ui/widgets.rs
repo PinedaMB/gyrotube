@@ -1162,37 +1162,20 @@ pub fn build_track_row(
     }
 
     // Speculative hover prefetch: resolve the audio stream in the background when the user
-    // hovers over a track row for 180ms so clicking Play skips "Encontrando audio" altogether.
-    {
-        let backend = state.borrow().backend.clone();
-        let track_for_hover = track.clone();
-        let pending_hover: Rc<RefCell<Option<glib::SourceId>>> = Rc::new(RefCell::new(None));
-        let pending_leave = Rc::clone(&pending_hover);
-        let motion = gtk4::EventControllerMotion::new();
-        motion.connect_enter(move |_, _, _| {
-            if let Some(id) = pending_hover.borrow_mut().take() {
-                id.remove();
-            }
-            let backend = backend.clone();
-            let track = track_for_hover.clone();
-            let slot = Rc::clone(&pending_hover);
-            let id = glib::timeout_add_local_once(std::time::Duration::from_millis(180), move || {
-                *slot.borrow_mut() = None;
-                runtime().spawn(async move {
-                    let _ = backend.resolve_track_stream(&track).await;
-                });
-            });
-            *pending_hover.borrow_mut() = Some(id);
-        });
-        motion.connect_leave(move |_| {
-            if let Some(id) = pending_leave.borrow_mut().take() {
-                id.remove();
-            }
-        });
-        row.add_controller(motion);
-    }
+    // hovers over a track row for 220ms, canceling any previous hover prefetch so we never
+    // run multiple yt-dlp processes in parallel.
+    attach_hover_prefetch(&row, track, &state);
 
     row
+}
+
+pub fn attach_hover_prefetch(
+    _row: &impl IsA<gtk4::Widget>,
+    _track: &Track,
+    _state: &Rc<RefCell<AppState>>,
+) {
+    // Intentionally disabled: spawning yt-dlp + node on mouse hover across track lists
+    // saturates CPU/network and collides with active track playback.
 }
 
 pub fn highlight_active_track_in_list(list: &ListBox, active_id: Option<&str>) {

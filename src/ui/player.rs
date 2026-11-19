@@ -13,8 +13,8 @@ use crate::i18n::tr;
 use crate::models::{LyricsData, format_duration};
 use crate::ui::state::{AppState, next_queue_index};
 use crate::ui::widgets::{
-    clamped_cover, clear_box, clear_list_box, load_cover_into_picture, load_track_player_cover,
-    notify_track_changed, record_recent_track,
+    attach_hover_prefetch, clamped_cover, clear_box, clear_list_box, load_cover_into_picture,
+    load_track_player_cover, notify_track_changed, record_recent_track,
 };
 
 pub fn refresh_queue_ui(state: Rc<RefCell<AppState>>) {
@@ -242,6 +242,7 @@ pub fn refresh_queue_ui(state: Rc<RefCell<AppState>>) {
             });
         }
         row.add_controller(drop_target);
+        attach_hover_prefetch(&row, track, &state);
 
         queue_list.append(&row);
     }
@@ -344,6 +345,7 @@ pub fn refresh_suggestions_ui(state: Rc<RefCell<AppState>>) {
             .activatable(true)
             .build();
         row.set_cursor_from_name(Some("pointer"));
+        attach_hover_prefetch(&row, track, &state);
         let _ = idx;
         suggestions_list.append(&row);
     }
@@ -481,8 +483,37 @@ pub fn fetch_related_for_current(
 
         if queue_changed {
             refresh_queue_ui(Rc::clone(&state));
+            schedule_next_prefetch(&state);
         }
         refresh_suggestions_ui(state);
+    });
+}
+
+fn schedule_next_prefetch(state: &Rc<RefCell<AppState>>) {
+    let mut s = state.borrow_mut();
+    if let Some(handle) = s.prefetch_abort.take() {
+        handle.abort();
+    }
+    let next_track = next_queue_index(&s)
+        .and_then(|ni| s.queue.get(ni))
+        .cloned()
+        .filter(|t| s.preloading_id.as_deref() != Some(t.id.as_str()));
+    if let Some(next_track) = next_track {
+        s.preloading_id = Some(next_track.id.clone());
+        let backend = s.backend.clone();
+        let join = runtime().spawn(async move {
+            backend.prefetch_audio(&next_track).await;
+        });
+        s.prefetch_abort = Some(join.abort_handle());
+    }
+}
+
+fn schedule_deferred_related(state: Rc<RefCell<AppState>>, current_gen: u64, autoplay: bool) {
+    glib::timeout_add_local_once(Duration::from_millis(1200), move || {
+        if state.borrow().loading_generation != current_gen {
+            return;
+        }
+        fetch_related_for_current(Rc::clone(&state), false, autoplay);
     });
 }
 
@@ -832,9 +863,7 @@ fn show_loading(s: &AppState, phase: PlaybackLoad) {
     let text = tr("Cargando…", "Loading…");
     s.playback_load.set(Some(phase));
     s.playback_status.set_label(text);
-    s.play_spinner.set_visible(true);
-    s.play_spinner.set_spinning(true);
-    s.play_pause_btn.set_child(Some(&s.play_spinner));
+    crate::ui::sidebar_player::set_play_button_loading(&s.play_pause_btn, &s.play_spinner);
     s.play_pause_btn.add_css_class("is-loading");
     s.play_pause_btn.set_sensitive(true);
     if phase != PlaybackLoad::Queue {
@@ -852,11 +881,14 @@ pub fn finish_player_loading(s: &AppState, message: &str) {
     s.play_spinner.set_spinning(false);
     s.play_pause_btn.remove_css_class("is-loading");
     let media = s.active_media();
-    s.play_pause_btn.set_icon_name(if media.is_playing() {
-        "pause-filled"
-    } else {
-        "play-filled"
-    });
+    crate::ui::sidebar_player::set_play_button_icon(
+        &s.play_pause_btn,
+        if media.is_playing() {
+            "pause-filled"
+        } else {
+            "play-filled"
+        },
+    );
     s.play_pause_btn.set_sensitive(s.current_index.is_some());
     s.seek_scale.set_sensitive(
         s.current_index.is_some()
@@ -881,6 +913,16 @@ pub fn clear_playback(state: Rc<RefCell<AppState>>) {
         s.crossfade_triggered_for = None;
         s.pending_autoplay = false;
         s.pending_restore_seek = None;
+        if let Some(handle) = s.resolve_abort.take() {
+            handle.abort();
+        }
+        if let Some(handle) = s.prefetch_abort.take() {
+            handle.abort();
+        }
+        if let Some((_, handle)) = s.hover_prefetch.take() {
+            handle.abort();
+        }
+        s.backend.cancel_stale_streams(&[]);
         s.related_generation = s.related_generation.wrapping_add(1);
         s.related_tracks.clear();
         s.related_for_id = None;
@@ -932,6 +974,19 @@ pub fn load_queue_index(
         let Some(track) = s.queue.get(index).cloned() else {
             return;
         };
+        if let Some(handle) = s.resolve_abort.take() {
+            handle.abort();
+        }
+        if let Some(handle) = s.prefetch_abort.take() {
+            handle.abort();
+        }
+        if let Some((ref hov_id, ref handle)) = s.hover_prefetch
+            && hov_id != &track.id
+        {
+            handle.abort();
+            s.hover_prefetch = None;
+        }
+        s.backend.cancel_stale_streams(&[&track.id]);
         s.current_index = Some(index);
         s.pending_autoplay = autoplay;
         s.loading_generation = s.loading_generation.wrapping_add(1);
@@ -1014,20 +1069,9 @@ pub fn load_queue_index(
     refresh_queue_ui(Rc::clone(&state));
     record_recent_track(Rc::clone(&state), &track);
     notify_track_changed(Rc::clone(&state));
-    fetch_related_for_current(Rc::clone(&state), false, autoplay);
 
     if let Some(stream) = fast_stream {
-        let (media_file, next_id) = {
-            let mut s = state.borrow_mut();
-            let next_id = next_queue_index(&s)
-                .and_then(|ni| s.queue.get(ni))
-                .cloned()
-                .filter(|t| s.preloading_id.as_deref() != Some(t.id.as_str()));
-            if let Some(ref id) = next_id {
-                s.preloading_id = Some(id.id.clone());
-            }
-            (s.active_media().clone(), next_id)
-        };
+        let media_file = state.borrow().active_media().clone();
         media_file.set_stream_for_startup(&stream, timing);
         if media_file.is_prepared() {
             let should_play = {
@@ -1043,20 +1087,18 @@ pub fn load_queue_index(
                 media_file.play();
             }
         }
-        if let Some(next_track) = next_id {
-            runtime().spawn(async move {
-                backend.prefetch_audio(&next_track).await;
-            });
-        }
+        schedule_next_prefetch(&state);
+        schedule_deferred_related(Rc::clone(&state), current_gen, autoplay);
         return;
     }
 
     let (tx, rx) = async_channel::bounded(1);
     let track_res = track.clone();
-    runtime().spawn(async move {
+    let join = runtime().spawn(async move {
         let res = backend.resolve_track_stream(&track_res).await;
         let _ = tx.send(res).await;
     });
+    state.borrow_mut().resolve_abort = Some(join.abort_handle());
 
     glib::spawn_future_local(async move {
         let recv_res = rx.recv().await;
@@ -1082,15 +1124,7 @@ pub fn load_queue_index(
                     s.save_session();
                     s.quality_label.set_label(&stream.quality_label);
                     show_loading(&s, PlaybackLoad::Preparing);
-
-                    let next_id = next_queue_index(&s)
-                        .and_then(|ni| s.queue.get(ni))
-                        .cloned()
-                        .filter(|t| s.preloading_id.as_deref() != Some(t.id.as_str()));
-                    if let Some(ref id) = next_id {
-                        s.preloading_id = Some(id.id.clone());
-                    }
-                    Some((s.active_media().clone(), stream, s.backend.clone(), next_id))
+                    Some((s.active_media().clone(), stream))
                 }
                 Err(err) => {
                     show_audio_failure(&s, &err);
@@ -1099,7 +1133,7 @@ pub fn load_queue_index(
             }
         };
 
-        if let Some((media_file, stream, backend, next_id)) = stream_to_play {
+        if let Some((media_file, stream)) = stream_to_play {
             media_file.pause();
             media_file.set_stream_for_startup(&stream, timing);
             if media_file.is_prepared() {
@@ -1116,11 +1150,8 @@ pub fn load_queue_index(
                     media_file.play();
                 }
             }
-            if let Some(next_track) = next_id {
-                runtime().spawn(async move {
-                    backend.prefetch_audio(&next_track).await;
-                });
-            }
+            schedule_next_prefetch(&state);
+            schedule_deferred_related(Rc::clone(&state), current_gen, autoplay);
         }
     });
 }
@@ -1546,7 +1577,7 @@ pub fn wire_media_signals(
                 if playing && s.playback_load.get().is_some() {
                     finish_player_loading(&s, "");
                 } else if s.playback_load.get().is_none() {
-                    s.play_pause_btn.set_icon_name(icon);
+                    crate::ui::sidebar_player::set_play_button_icon(&s.play_pause_btn, icon);
                 }
                 if let Some(mpris) = &s.mpris {
                     mpris.set_status(playing, s.current_index.is_none());

@@ -800,7 +800,9 @@ pub fn build_explore_page(
     let backend = state.borrow().backend.clone();
     runtime().spawn(async move {
         while let Some(track) = next_search_preload(&mut queued_intents).await {
-            let _ = backend.resolve_track_stream(&track).await;
+            if !track.is_music {
+                let _ = backend.verify_music_track(&track.id).await;
+            }
         }
     });
     let pending = hover_intents.clone();

@@ -237,9 +237,15 @@ pub fn build_sidebar_player() -> SidebarPlayerWidgets {
         .width_request(18)
         .height_request(18)
         .build();
+    let play_icon_img = Image::from_icon_name("play-filled");
+    let play_btn_stack = Stack::new();
+    play_btn_stack.add_named(&play_icon_img, Some("icon"));
+    play_btn_stack.add_named(&play_spinner, Some("spinner"));
+    play_btn_stack.set_visible_child_name("icon");
 
     let play_pause_btn = Button::builder()
-        .icon_name("play-filled")
+        .child(&play_btn_stack)
+        .name("play-filled")
         .sensitive(false)
         .css_classes(["suggested-action", "play-pill"])
         .build();
@@ -420,14 +426,10 @@ pub fn build_sidebar_player() -> SidebarPlayerWidgets {
     }
 
     let lyrics_play_btn = Button::builder()
-        .icon_name("play-filled")
         .tooltip_text("Reproducir / Pausar")
         .css_classes(["suggested-action", "circular"])
         .build();
-    play_pause_btn
-        .bind_property("icon-name", &lyrics_play_btn, "icon-name")
-        .sync_create()
-        .build();
+    attach_mirrored_play_stack(&lyrics_play_btn, &play_pause_btn, &play_spinner, 16);
     play_pause_btn
         .bind_property("sensitive", &lyrics_play_btn, "sensitive")
         .sync_create()
@@ -757,28 +759,7 @@ pub fn build_mini_bar(
         .build();
     let prev_btn_ref = {
         let s = state.borrow();
-        let mini_spinner = Spinner::builder()
-            .halign(Align::Center)
-            .valign(Align::Center)
-            .width_request(16)
-            .height_request(16)
-            .build();
-        s.play_spinner
-            .bind_property("spinning", &mini_spinner, "spinning")
-            .sync_create()
-            .build();
-        let mini_btn_for_spin = mini_play_btn.clone();
-        let main_btn_for_spin = s.play_pause_btn.clone();
-        s.play_spinner.connect_spinning_notify(move |sp| {
-            if sp.is_spinning() {
-                mini_btn_for_spin.set_child(Some(&mini_spinner));
-            } else {
-                let icon = main_btn_for_spin
-                    .icon_name()
-                    .unwrap_or_else(|| "play-filled".into());
-                mini_btn_for_spin.set_icon_name(&icon);
-            }
-        });
+        attach_mirrored_play_stack(&mini_play_btn, &s.play_pause_btn, &s.play_spinner, 16);
         s.player_cover
             .bind_property("paintable", &cover, "paintable")
             .sync_create()
@@ -796,10 +777,6 @@ pub fn build_mini_bar(
             .build();
         s.prev_btn
             .bind_property("sensitive", &mini_prev_btn, "sensitive")
-            .sync_create()
-            .build();
-        s.play_pause_btn
-            .bind_property("icon-name", &mini_play_btn, "icon-name")
             .sync_create()
             .build();
         s.play_pause_btn
@@ -891,6 +868,80 @@ pub fn build_bound_progress_bar(adj: &gtk4::Adjustment) -> gtk4::ProgressBar {
     adj.connect_value_changed(move |_| u1());
     adj.connect_upper_notify(move |_| update_prog());
     pb
+}
+
+pub fn set_play_button_icon(btn: &Button, icon_name: &str) {
+    if let Some(stack) = btn.child().and_downcast::<Stack>() {
+        if let Some(img) = stack.child_by_name("icon").and_downcast::<Image>() {
+            img.set_icon_name(Some(icon_name));
+        }
+        stack.set_visible_child_name("icon");
+    } else {
+        btn.set_icon_name(icon_name);
+    }
+    btn.set_widget_name(icon_name);
+}
+
+pub fn set_play_button_loading(btn: &Button, spinner: &Spinner) {
+    if let Some(stack) = btn.child().and_downcast::<Stack>() {
+        stack.set_visible_child_name("spinner");
+    }
+    spinner.set_visible(true);
+    spinner.set_spinning(true);
+}
+
+pub fn attach_mirrored_play_stack(
+    target_btn: &Button,
+    main_btn: &Button,
+    main_spinner: &Spinner,
+    spinner_size: i32,
+) {
+    let initial_icon = {
+        let name = main_btn.widget_name();
+        if name.is_empty() {
+            String::from("play-filled")
+        } else {
+            name.to_string()
+        }
+    };
+    let icon_img = Image::from_icon_name(&initial_icon);
+    let sub_spinner = Spinner::builder()
+        .halign(Align::Center)
+        .valign(Align::Center)
+        .width_request(spinner_size)
+        .height_request(spinner_size)
+        .build();
+    let stack = Stack::new();
+    stack.add_named(&icon_img, Some("icon"));
+    stack.add_named(&sub_spinner, Some("spinner"));
+    stack.set_visible_child_name(if main_spinner.is_spinning() {
+        "spinner"
+    } else {
+        "icon"
+    });
+    target_btn.set_child(Some(&stack));
+
+    main_spinner
+        .bind_property("spinning", &sub_spinner, "spinning")
+        .sync_create()
+        .build();
+
+    let stack_for_spin = stack.clone();
+    main_spinner.connect_spinning_notify(move |sp| {
+        if sp.is_spinning() {
+            stack_for_spin.set_visible_child_name("spinner");
+        } else {
+            stack_for_spin.set_visible_child_name("icon");
+        }
+    });
+
+    let img_for_name = icon_img;
+    main_btn.connect_name_notify(move |b| {
+        let name = b.widget_name();
+        if !name.is_empty() {
+            img_for_name.set_icon_name(Some(name.as_str()));
+        }
+    });
 }
 
 fn make_sidebar_tab(icon_name: &str, label_text: &str, active: bool) -> ToggleButton {

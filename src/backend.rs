@@ -707,6 +707,19 @@ impl Backend {
         self.cached_url(video_id).or_else(|| self.cached_stream(video_id))
     }
 
+    pub fn cancel_stale_streams(&self, keep_ids: &[&str]) {
+        if let Some(streamer) = crate::audio_streamer::AudioStreamer::try_global() {
+            let aborted = streamer.abort_downloads_except(keep_ids);
+            if !aborted.is_empty()
+                && let Ok(mut cache) = self.stream_cache.write()
+            {
+                for vid in aborted {
+                    cache.remove(&vid);
+                }
+            }
+        }
+    }
+
     fn cached_url(&self, video_id: &str) -> Option<StreamInfo> {
         let cache = self.stream_cache.read().ok()?;
         let (created, stream) = cache.get(video_id)?;
@@ -791,6 +804,47 @@ impl Backend {
         self.resolve_audio_stream(&track.id).await
     }
 
+    async fn extract_fast_ios_stream(
+        &self,
+        video_id: &str,
+    ) -> Option<(StreamInfo, &'static str, Option<u64>)> {
+        use rustypipe::client::ClientType;
+        use rustypipe::model::AudioFormat;
+        let started = Instant::now();
+        let player = tokio::time::timeout(
+            Duration::from_millis(2500),
+            self.rp.query().player_from_client(video_id, ClientType::Ios),
+        )
+        .await
+        .ok()?
+        .ok()?;
+        // Require itag 251 (Opus WebM ~160kbps) for the fast-start iOS path so byte offsets
+        // match the background visionos handover identically to the single byte.
+        let stream = player.audio_streams.iter().find(|s| s.itag == 251)?;
+        let ext = match stream.format {
+            AudioFormat::M4a => "m4a",
+            _ => "webm",
+        };
+        let kbps = (stream.bitrate / 1000).max(128);
+        let quality_label = format!("{kbps}kbps ({})", ext.to_uppercase());
+        let ua = self.rp.query().user_agent(ClientType::Ios).into_owned();
+        let mut headers = HashMap::new();
+        headers.insert("User-Agent".to_string(), ua.clone());
+        let size = (stream.size > 0).then_some(stream.size);
+        log_audio_timing(video_id, "extraccion-ios-rapida", started);
+        Some((
+            StreamInfo {
+                url: stream.url.clone(),
+                quality_label,
+                user_agent: Some(ua),
+                headers,
+                local_audio: None,
+            },
+            ext,
+            size,
+        ))
+    }
+
     async fn resolve_audio_stream(&self, video_id: &str) -> Result<StreamInfo, String> {
         validate_video_id(video_id)?;
         let cached = || self.cached_stream(video_id).or_else(|| self.cached_url(video_id));
@@ -806,8 +860,23 @@ impl Backend {
         let streams_dir = Self::streams_dir()?;
         let streamer = crate::audio_streamer::AudioStreamer::global().await?;
 
-        // Extract validated stream URL via yt-dlp (with full n-signature & po_token JS solver)
-        // so YouTube's CDN never throttles or cuts off the stream after the first ~1 MB.
+        // Fast-path: extract stream via pure-Rust iOS client (~140-250ms, no Python/Node startup)
+        // to serve the initial audio blocks immediately while AudioStreamer transparently refreshes
+        // the URL via visionos in the background before the 1 MB iOS limit.
+        if let Some((fast_remote, ext, size_hint)) = self.extract_fast_ios_stream(video_id).await
+            && let Ok(local_stream) = streamer
+                .start_chunked_http_stream(video_id, fast_remote, ext, size_hint, &streams_dir)
+                .await
+        {
+            if let Ok(mut cache) = self.stream_cache.write() {
+                cache.retain(|_, (ts, s)| stream_url_is_fresh(*ts, s));
+                cache.insert(video_id.to_string(), (Instant::now(), local_stream.clone()));
+            }
+            return Ok(local_stream);
+        }
+
+        // Fallback: extract stream URL via yt-dlp excluding tv_samsung (which triggers 6s ad / 403)
+        // and skipping HLS/DASH manifest downloads.
         let mut cmd = tokio::process::Command::new("yt-dlp");
         cmd.kill_on_drop(true)
             .args([
@@ -820,6 +889,8 @@ impl Backend {
                 "1",
                 "--dump-single-json",
                 "--skip-download",
+                "--extractor-args",
+                "youtube:player_client=default,-tv_samsung;skip=hls,dash",
                 "--js-runtimes",
                 "node",
                 "--remote-components",
@@ -915,6 +986,8 @@ impl Backend {
                 "1",
                 "--concurrent-fragments",
                 "4",
+                "--extractor-args",
+                "youtube:player_client=default,-tv_samsung;skip=hls,dash",
                 "--js-runtimes",
                 "node",
                 "--remote-components",
@@ -959,7 +1032,7 @@ impl Backend {
     }
 
     pub async fn prefetch_audio(&self, track: &Track) {
-        tokio::time::sleep(Duration::from_millis(150)).await;
+        tokio::time::sleep(Duration::from_secs(5)).await;
         let _ = self.resolve_track_stream(track).await;
     }
 

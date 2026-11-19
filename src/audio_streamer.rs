@@ -35,6 +35,7 @@ struct StreamSession {
 pub struct AudioStreamer {
     port: u16,
     sessions: Arc<RwLock<HashMap<String, Arc<StreamSession>>>>,
+    in_flight: Arc<RwLock<HashMap<String, (String, tokio::task::AbortHandle)>>>,
     client: reqwest::Client,
     next_id: AtomicU64,
 }
@@ -42,6 +43,10 @@ pub struct AudioStreamer {
 static GLOBAL_STREAMER: OnceLock<Arc<AudioStreamer>> = OnceLock::new();
 
 impl AudioStreamer {
+    pub fn try_global() -> Option<Arc<Self>> {
+        GLOBAL_STREAMER.get().cloned()
+    }
+
     pub async fn global() -> Result<Arc<Self>, String> {
         if let Some(s) = GLOBAL_STREAMER.get() {
             return Ok(s.clone());
@@ -84,9 +89,37 @@ impl AudioStreamer {
         Ok(Arc::new(Self {
             port,
             sessions,
+            in_flight: Arc::new(RwLock::new(HashMap::new())),
             client,
             next_id: AtomicU64::new(1),
         }))
+    }
+
+    /// Aborts any in-flight background download whose `video_id` is not in `keep_ids`,
+    /// returning the video IDs that were aborted so `Backend` can evict them from `stream_cache`.
+    pub fn abort_downloads_except(&self, keep_ids: &[&str]) -> Vec<String> {
+        let mut aborted_ids = Vec::new();
+        let mut aborted_keys = Vec::new();
+        if let Ok(mut map) = self.in_flight.write() {
+            map.retain(|session_key, (vid, handle)| {
+                if keep_ids.contains(&vid.as_str()) {
+                    true
+                } else {
+                    handle.abort();
+                    aborted_ids.push(vid.clone());
+                    aborted_keys.push(session_key.clone());
+                    false
+                }
+            });
+        }
+        if !aborted_keys.is_empty()
+            && let Ok(mut sessions) = self.sessions.write()
+        {
+            for key in aborted_keys {
+                sessions.remove(&key);
+            }
+        }
+        aborted_ids
     }
 
     fn allocate_session_key(&self, video_id: &str) -> String {
@@ -173,9 +206,12 @@ impl AudioStreamer {
         let streams_dir_owned = streams_dir.to_path_buf();
         let remote_clone = remote.clone();
         let sessions_map = self.sessions.clone();
+        let in_flight_map = self.in_flight.clone();
         let session_key_for_cleanup = session_key.clone();
+        let session_key_for_inflight = session_key.clone();
+        let video_id_for_inflight = video_id.to_string();
 
-        tokio::spawn(async move {
+        let join = tokio::spawn(async move {
             let mut written: u64 = 0;
             let mut fatal_err: Option<String> = None;
 
@@ -212,6 +248,7 @@ impl AudioStreamer {
                 let mut known_total = total_bytes;
                 let mut active_url = remote_clone.url.clone();
                 let mut active_remote = remote_clone.clone();
+                let mut ios_refreshed = !active_url.contains("c=IOS");
                 loop {
                     if let Some(total) = known_total {
                         if written >= total {
@@ -223,6 +260,45 @@ impl AudioStreamer {
                         Some(total) => (start + SUBSEQUENT_HTTP_BLOCK_BYTES - 1).min(total - 1),
                         None => start + SUBSEQUENT_HTTP_BLOCK_BYTES - 1,
                     };
+
+                    // If we fast-started with a c=IOS URL (which serves up to 1 MB before 403),
+                    // fetch Block 1 (256KB..768KB) concurrently with refreshing the full visionos URL
+                    // so we switch URLs before hitting 1 MB with zero pause or 403 retry!
+                    if !ios_refreshed {
+                        ios_refreshed = true;
+                        let (block_res, fresh_opt) = tokio::join!(
+                            fetch_range_block_url(&client, &active_url, &active_remote, start, end),
+                            refresh_ytdlp_audio_stream(
+                                &video_id_owned,
+                                itag_hint.as_deref(),
+                                &ext_owned
+                            )
+                        );
+                        if let Some(fresh_remote) = fresh_opt {
+                            active_url = fresh_remote.url.clone();
+                            active_remote = fresh_remote;
+                        }
+                        if let Ok((bytes, discovered_total)) = block_res
+                            && !bytes.is_empty()
+                        {
+                            if known_total.is_none() {
+                                known_total = discovered_total;
+                            }
+                            if let Err(e) = file.write_all(&bytes).await {
+                                fatal_err = Some(format!("Failed writing audio block: {e}"));
+                                break;
+                            }
+                            written += bytes.len() as u64;
+                            let _ = progress_tx.send(ChunkProgress {
+                                written,
+                                total_bytes: known_total,
+                                done: false,
+                                error: None,
+                            });
+                            continue;
+                        }
+                    }
+
                     match fetch_range_block_url(&client, &active_url, &active_remote, start, end).await {
                         Ok((bytes, discovered_total)) => {
                             if known_total.is_none() {
@@ -298,6 +374,10 @@ impl AudioStreamer {
                 },
             });
 
+            if let Ok(mut inflight) = in_flight_map.write() {
+                inflight.remove(&session_key_for_cleanup);
+            }
+
             if completed_cleanly {
                 // Copy into final cache file while keeping the staging file readable for active localhost clients
                 let final_cache_path =
@@ -312,6 +392,12 @@ impl AudioStreamer {
             }
             drop(staging);
         });
+        if let Ok(mut inflight) = self.in_flight.write() {
+            inflight.insert(
+                session_key_for_inflight,
+                (video_id_for_inflight, join.abort_handle()),
+            );
+        }
 
         wait_until_initial_chunk_ready(&mut progress_rx).await?;
 
@@ -360,6 +446,8 @@ impl AudioStreamer {
                 "5",
                 "--retries",
                 "1",
+                "--extractor-args",
+                "youtube:player_client=default,-tv_samsung;skip=hls,dash",
                 "--js-runtimes",
                 "node",
                 "--remote-components",
@@ -405,9 +493,12 @@ impl AudioStreamer {
         let ext_owned = ext.clone();
         let streams_dir_owned = streams_dir.to_path_buf();
         let sessions_map = self.sessions.clone();
+        let in_flight_map = self.in_flight.clone();
         let session_key_for_cleanup = session_key.clone();
+        let session_key_for_inflight = session_key.clone();
+        let video_id_for_inflight = video_id.to_string();
 
-        tokio::spawn(async move {
+        let join = tokio::spawn(async move {
             let mut buf = vec![0u8; 32 * 1024];
             let mut written: u64 = 0;
             let mut fatal_err: Option<String> = None;
@@ -453,6 +544,10 @@ impl AudioStreamer {
                 error: fatal_err.clone(),
             });
 
+            if let Ok(mut inflight) = in_flight_map.write() {
+                inflight.remove(&session_key_for_cleanup);
+            }
+
             if fatal_err.is_none() && status_ok && written > 0 {
                 let final_cache_path =
                     streams_dir_owned.join(format!("{video_id_owned}.ytdlp.{ext_owned}"));
@@ -465,6 +560,12 @@ impl AudioStreamer {
             }
             drop(staging);
         });
+        if let Ok(mut inflight) = self.in_flight.write() {
+            inflight.insert(
+                session_key_for_inflight,
+                (video_id_for_inflight, join.abort_handle()),
+            );
+        }
 
         wait_until_initial_chunk_ready(&mut progress_rx).await?;
 
@@ -550,6 +651,8 @@ async fn refresh_ytdlp_audio_stream(
                 "1",
                 "--dump-single-json",
                 "--skip-download",
+                "--extractor-args",
+                "youtube:player_client=default,-tv_samsung;skip=hls,dash",
                 "--js-runtimes",
                 "node",
                 "--remote-components",
