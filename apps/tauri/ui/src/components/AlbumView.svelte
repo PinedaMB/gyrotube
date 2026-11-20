@@ -1,8 +1,10 @@
 <script lang="ts">
   import { api, isTauriRuntime } from "../lib/api";
+  import { extractDominantRgb } from "../lib/audioEngine";
   import { player } from "../lib/stores/player.svelte";
-  import { formatDuration, type Track } from "../lib/types";
-  import CoverImage from "./CoverImage.svelte";
+  import type { Track } from "../lib/types";
+  import AlbumSidebarHero from "./album/AlbumSidebarHero.svelte";
+  import AlbumTrackList from "./album/AlbumTrackList.svelte";
 
   let {
     id,
@@ -14,12 +16,21 @@
   let tracks = $state<Track[]>([]);
   let resolvedTitle = $state("");
   let loading = $state(false);
+  let albumRgb = $state<[number, number, number] | null>(null);
 
   $effect(() => {
     const targetId = id;
     const isPl = isPlaylist;
     resolvedTitle = title;
     tracks = [];
+    albumRgb = null;
+
+    if (coverUrl) {
+      void extractDominantRgb(coverUrl).then((rgb) => {
+        if (id === targetId) albumRgb = rgb;
+      });
+    }
+
     if (!isTauriRuntime()) return;
     loading = true;
     const req = isPl ? api.getPlaylistTracks(targetId) : api.getAlbumTracks(targetId);
@@ -28,6 +39,11 @@
         if (id === targetId) {
           if (name) resolvedTitle = name;
           tracks = list;
+          if (!coverUrl && list[0]?.cover_url) {
+            void extractDominantRgb(list[0].cover_url).then((rgb) => {
+              if (id === targetId) albumRgb = rgb;
+            });
+          }
         }
       })
       .catch((err) => player.showToast(String(err)))
@@ -36,187 +52,29 @@
       });
   });
 
-  let totalMins = $derived(
-    Math.round(tracks.reduce((sum, t) => sum + (t.duration_secs ?? 0), 0) / 60),
+  let glowStyle = $derived(
+    albumRgb
+      ? `background-image: radial-gradient(ellipse 75% 48% at 24% 26%, rgba(${albumRgb[0]}, ${albumRgb[1]}, ${albumRgb[2]}, 0.22) 0%, rgba(${albumRgb[0]}, ${albumRgb[1]}, ${albumRgb[2]}, 0.07) 48%, transparent 78%);`
+      : "",
   );
 </script>
 
-<div class="page-clamp">
-  <div class="album-hero">
-    <button
-      class="icon-btn back-btn"
-      title="Back"
-      onclick={() => player.navigateTab(player.activeTab)}
-    >
-      ←
-    </button>
-    <div class="hero-row">
-      <CoverImage class="album-cover" src={coverUrl} fallbackSrc={tracks[0]?.cover_url} alt={resolvedTitle} />
-      <div class="album-meta">
-        <span class="type-pill">{isPlaylist ? "PLAYLIST" : "ALBUM"}</span>
-        <h1>{resolvedTitle}</h1>
-        {#if tracks[0]?.artist}
-          <p class="artist">{tracks[0].artist}</p>
-        {/if}
-        <p class="muted small">{tracks.length} songs{totalMins ? ` • ${totalMins} min` : ""}</p>
-      </div>
+<div class="w-full min-h-full transition-all duration-500" style={glowStyle}>
+  <div class="w-full max-w-[1280px] mx-auto px-8 pt-6 pb-28">
+    <div class="grid grid-cols-1 lg:grid-cols-[320px_minmax(0,1fr)] gap-12 items-start">
+      <AlbumSidebarHero
+        title={resolvedTitle}
+        {coverUrl}
+        {isPlaylist}
+        {tracks}
+      />
+
+      <AlbumTrackList
+        title={resolvedTitle}
+        {isPlaylist}
+        {tracks}
+        {loading}
+      />
     </div>
   </div>
-
-  <div class="album-actions">
-    <button
-      class="play-circle"
-      disabled={tracks.length === 0}
-      title="Play all"
-      onclick={() => player.replaceQueueAndPlay(tracks, 0, resolvedTitle)}
-    >
-      ▶
-    </button>
-    <button
-      class="pill-btn"
-      disabled={tracks.length === 0}
-      onclick={() => {
-        const shuffled = [...tracks].sort(() => Math.random() - 0.5);
-        player.replaceQueueAndPlay(shuffled, 0, resolvedTitle);
-      }}
-    >
-      ⇄ Shuffle
-    </button>
-  </div>
-
-  {#if loading}
-    <p class="muted">Loading tracks…</p>
-  {:else if tracks.length > 0}
-    <div class="track-list">
-      {#each tracks as track, i (track.id + ":" + i)}
-        {@const active = player.currentTrack?.id === track.id}
-        <div
-          class="track-row"
-          class:active
-          role="button"
-          tabindex="0"
-          onclick={() => player.replaceQueueAndPlay(tracks, i, resolvedTitle)}
-          onkeydown={(e) =>
-            e.key === "Enter" && player.replaceQueueAndPlay(tracks, i, resolvedTitle)}
-        >
-          <span class="num numeric" class:active-num={active}>{i + 1}</span>
-          <div class="track-meta">
-            <span class="track-title">{track.title}</span>
-            <span class="track-sub">{track.artist}</span>
-          </div>
-          <span class="muted numeric dur">{formatDuration(track.duration_secs)}</span>
-          <button
-            class="icon-btn"
-            class:fav-active={player.isFavorite(track.id)}
-            onclick={(e) => {
-              e.stopPropagation();
-              player.toggleFavorite(track);
-            }}
-          >
-            ♥
-          </button>
-          <button
-            class="icon-btn"
-            onclick={(e) => {
-              e.stopPropagation();
-              player.enqueueTrack(track);
-            }}
-          >
-            +
-          </button>
-        </div>
-      {/each}
-    </div>
-  {/if}
 </div>
-
-<style>
-  .album-hero {
-    padding: 20px 24px 22px;
-    border-radius: 18px;
-    border: 1px solid var(--border);
-    background: linear-gradient(180deg, rgba(var(--ambient-rgb), 0.28), rgba(var(--ambient-rgb), 0.08));
-    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.28);
-    display: flex;
-    flex-direction: column;
-    gap: 14px;
-  }
-
-  .back-btn {
-    background: rgba(0, 0, 0, 0.35);
-    color: #ffffff;
-  }
-
-  .hero-row {
-    display: flex;
-    align-items: flex-end;
-    gap: 22px;
-  }
-
-  .album-meta {
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-
-  .type-pill {
-    align-self: flex-start;
-    font-size: 11px;
-    font-weight: 800;
-    letter-spacing: 0.08em;
-    padding: 3px 10px;
-    border-radius: 999px;
-    background: var(--surface-hover);
-  }
-
-  .album-meta h1 {
-    margin: 0;
-    font-size: 32px;
-    font-weight: 850;
-  }
-
-  .artist {
-    margin: 0;
-    font-weight: 600;
-  }
-
-  .small {
-    margin: 0;
-    font-size: 12.5px;
-  }
-
-  .album-actions {
-    margin: 16px 0;
-    display: flex;
-    align-items: center;
-    gap: 12px;
-  }
-
-  .num {
-    width: 24px;
-    text-align: right;
-    font-size: 12.5px;
-    color: var(--text-muted);
-  }
-
-  .active-num {
-    color: var(--accent-bright);
-    font-weight: 800;
-  }
-
-  .dur {
-    font-size: 12px;
-  }
-
-  @media (max-width: 600px) {
-    .hero-row {
-      flex-direction: column;
-      align-items: center;
-      text-align: center;
-    }
-    .type-pill {
-      align-self: center;
-    }
-  }
-</style>

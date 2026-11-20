@@ -1,11 +1,13 @@
 <script lang="ts">
-  import { Compass, Disc3, Heart, Play, Plus, RefreshCw, TrendingUp, Volume2 } from "lucide-svelte";
+  import { RefreshCw } from "lucide-svelte";
   import { player } from "../lib/stores/player.svelte";
-  import { formatDuration } from "../lib/types";
   import Carousel from "./Carousel.svelte";
   import CoverImage from "./CoverImage.svelte";
-
-  let chartTab = $state<"trending" | "top">("trending");
+  import HomeFeaturedHero from "./home/HomeFeaturedHero.svelte";
+  import HomeListenAgain from "./home/HomeListenAgain.svelte";
+  import HomeQuickCards from "./home/HomeQuickCards.svelte";
+  import HomeStationsGrid from "./home/HomeStationsGrid.svelte";
+  import HomeTrendingCharts from "./home/HomeTrendingCharts.svelte";
 
   let greeting = $derived.by(() => {
     const h = new Date().getHours();
@@ -21,490 +23,55 @@
       ? player.homeFeed.new_albums.slice(player.homeFeed.new_albums.length > 1 ? 1 : 0, 16)
       : [],
   );
-  let chartTracks = $derived(
-    chartTab === "top"
-      ? (player.homeFeed?.top ?? [])
-      : (player.homeFeed?.trending ?? []),
-  );
+  let stations = $derived(player.genres.slice(0, 6));
 </script>
 
 <div class="page-clamp">
-  <div class="home-head">
+  <div class="flex items-center justify-between mb-4">
     <div>
-      <h1 class="greeting">{greeting}</h1>
-      <p class="muted caption">Your music ready to play</p>
+      <h1 class="text-[28px] font-extrabold tracking-[-0.025em] leading-tight">{greeting}</h1>
+      <p class="text-[13px] text-[var(--text-muted)] mt-0.5">Your music ready to play</p>
     </div>
     <button class="icon-btn" title="Reload home" onclick={() => void player.loadHome(true)}>
       <RefreshCw size={16} class={player.homeLoading ? "animate-spin" : ""} />
     </button>
   </div>
 
-  <section class="quick-grid">
-    <button class="quick-card q1" onclick={() => document.getElementById("new-releases")?.scrollIntoView({ behavior: "smooth" })}>
-      <span class="q-badge"><Disc3 size={18} /></span>
-      <span class="q-text"><strong>New releases</strong><small class="muted">Recent albums &amp; singles</small></span>
-    </button>
-    <button class="quick-card q2" onclick={() => document.getElementById("trending-hits")?.scrollIntoView({ behavior: "smooth" })}>
-      <span class="q-badge"><TrendingUp size={18} /></span>
-      <span class="q-text"><strong>Top charts</strong><small class="muted">Trending &amp; Top Music</small></span>
-    </button>
-    <button
-      class="quick-card q3"
-      onclick={() => {
-        player.clearSearch();
-        player.navigateTab("explore");
-      }}
-    >
-      <span class="q-badge"><Compass size={18} /></span>
-      <span class="q-text"><strong>Moods</strong><small class="muted">Explore genres &amp; vibes</small></span>
-    </button>
-    <button class="quick-card q4" onclick={() => player.navigateTab("collection")}>
-      <span class="q-badge"><Heart size={18} /></span>
-      <span class="q-text"><strong>Collection</strong><small class="muted">Your favorite songs</small></span>
-    </button>
-  </section>
+  <HomeQuickCards />
 
-  {#if listenAgain.length > 0}
-    <section class="section">
-      <h2 class="section-title">Listen again</h2>
-      <div class="listen-grid">
-        {#each listenAgain as track, i (track.id)}
-          {@const active = player.currentTrack?.id === track.id}
-          <button
-            class="listen-tile"
-            class:playing={active}
-            onclick={() => player.replaceQueueAndPlay(listenAgain, i, "Listen again")}
-          >
-            <CoverImage class="tile-cover" src={track.cover_url} alt="" />
-            <div class="track-meta">
-              <span class="track-title">{track.title}</span>
-              <span class="track-sub">{track.artist}</span>
-            </div>
-            <span class="play-badge" aria-hidden="true">
-              {#if active}
-                <Volume2 size={14} />
-              {:else}
-                <Play size={13} fill="currentColor" class="translate-x-[1px]" />
-              {/if}
-            </span>
-          </button>
-        {/each}
-      </div>
-    </section>
-  {/if}
+  <HomeListenAgain tracks={listenAgain} />
 
   {#if featuredAlbum}
-    <section class="section">
-      <div class="hero-card">
-        <CoverImage class="hero-cover" src={featuredAlbum.cover_url} alt={featuredAlbum.title} />
-        <div class="hero-info">
-          <span class="hero-badge">FEATURED</span>
-          <h2 class="hero-title">{featuredAlbum.title}</h2>
-          <p class="muted">{featuredAlbum.artist}</p>
-          <div class="hero-actions">
-            <button
-              class="pill-btn primary"
-              onclick={() => player.openAlbum(featuredAlbum.id, featuredAlbum.title, featuredAlbum.cover_url)}
-            >
-              <Play size={14} fill="currentColor" />
-              Play
-            </button>
-            <button
-              class="pill-btn"
-              onclick={() => player.openAlbum(featuredAlbum.id, featuredAlbum.title, featuredAlbum.cover_url)}
-            >
-              Open album
-            </button>
-          </div>
-        </div>
-      </div>
-    </section>
+    <HomeFeaturedHero album={featuredAlbum} />
   {/if}
 
   {#if releaseAlbums.length > 0}
-    <div class="section">
+    <div class="mt-6">
       <Carousel title="New releases" id="new-releases">
         {#each releaseAlbums as album (album.id)}
           <button
-            class="media-card"
+            class="p-2.5 rounded-2xl bg-[var(--surface)] border border-[var(--border)] hover:bg-[var(--surface-hover)] hover:border-[var(--border-strong)] text-left flex flex-col gap-1.5 transition-colors"
             onclick={() => player.openAlbum(album.id, album.title, album.cover_url)}
           >
-            <div class="media-cover-wrap">
+            <div class="relative w-full">
               <CoverImage class="media-cover" src={album.cover_url} alt={album.title} />
               {#if album.year}
-                <span class="year-badge numeric">{album.year}</span>
+                <span
+                  class="absolute top-2 left-2 px-2 py-0.5 rounded-md text-[11px] font-bold bg-black/65 text-white numeric"
+                >
+                  {album.year}
+                </span>
               {/if}
             </div>
-            <strong class="media-title">{album.title}</strong>
-            <span class="media-sub muted">{album.artist}</span>
+            <strong class="text-[13.5px] truncate w-full">{album.title}</strong>
+            <span class="text-[12px] text-[var(--text-muted)] truncate w-full">{album.artist}</span>
           </button>
         {/each}
       </Carousel>
     </div>
   {/if}
 
-  {#if chartTracks.length > 0}
-    <section class="section" id="trending-hits">
-      <div class="section-head">
-        <h2 class="section-title">Trending hits</h2>
-        <div class="pill-group">
-          <button class:active={chartTab === "trending"} onclick={() => (chartTab = "trending")}>Trending</button>
-          <button class:active={chartTab === "top"} onclick={() => (chartTab = "top")}>Top Music</button>
-        </div>
-      </div>
+  <HomeTrendingCharts />
 
-      <div class="track-list">
-        {#each chartTracks as track, i (track.id)}
-          {@const active = player.currentTrack?.id === track.id}
-          <div
-            class="track-row"
-            class:active
-            role="button"
-            tabindex="0"
-            onclick={() => player.replaceQueueAndPlay(chartTracks, i, "Trending hits")}
-            onkeydown={(e) => e.key === "Enter" && player.replaceQueueAndPlay(chartTracks, i, "Trending hits")}
-          >
-            <span class="rank numeric">
-              {#if active}
-                <Volume2 size={15} class="text-[var(--accent-bright)] mx-auto" />
-              {:else}
-                {String(i + 1).padStart(2, "0")}
-              {/if}
-            </span>
-            <CoverImage class="track-cover" src={track.cover_url} alt="" />
-            <div class="track-meta">
-              <span class="track-title">{track.title}</span>
-              <span class="track-sub">{track.artist}</span>
-            </div>
-            <span class="muted numeric dur">{formatDuration(track.duration_secs)}</span>
-            <button
-              class="icon-btn"
-              class:fav-active={player.isFavorite(track.id)}
-              title="Favorite"
-              onclick={(e) => {
-                e.stopPropagation();
-                player.toggleFavorite(track);
-              }}
-            >
-              <Heart size={16} fill={player.isFavorite(track.id) ? "currentColor" : "none"} />
-            </button>
-            <button
-              class="icon-btn"
-              title="Add to queue"
-              onclick={(e) => {
-                e.stopPropagation();
-                player.enqueueTrack(track);
-              }}
-            >
-              <Plus size={16} />
-            </button>
-          </div>
-        {/each}
-      </div>
-    </section>
-  {:else if !player.homeLoading}
-    <div class="empty-home">
-      <p class="muted">Connect Tauri runtime (`cargo tauri dev`) to load live YouTube Music feeds.</p>
-    </div>
-  {/if}
+  <HomeStationsGrid {stations} />
 </div>
-
-<style>
-  .home-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 18px;
-  }
-
-  .greeting {
-    margin: 0;
-    font-size: 28px;
-    font-weight: 850;
-    letter-spacing: -0.025em;
-  }
-
-  .caption {
-    margin: 3px 0 0;
-    font-size: 13px;
-  }
-
-  .quick-grid {
-    display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 10px;
-    margin-bottom: 24px;
-  }
-
-  .quick-card {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 12px 14px;
-    border-radius: 14px;
-    border: 1px solid var(--border);
-    text-align: left;
-    transition: transform 140ms ease, border-color 140ms ease;
-  }
-
-  .quick-card:hover {
-    transform: translateY(-1px);
-  }
-
-  .q1 { background: linear-gradient(135deg, rgba(224, 27, 36, 0.16), var(--surface) 70%); }
-  .q2 { background: linear-gradient(135deg, rgba(53, 132, 228, 0.16), var(--surface) 70%); }
-  .q3 { background: linear-gradient(135deg, rgba(192, 97, 203, 0.16), var(--surface) 70%); }
-  .q4 { background: linear-gradient(135deg, rgba(46, 194, 126, 0.16), var(--surface) 70%); }
-
-  .q-badge {
-    width: 36px;
-    height: 36px;
-    border-radius: 10px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 16px;
-    flex-shrink: 0;
-    background: var(--surface-hover);
-  }
-
-  .q-text {
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
-
-  .q-text strong,
-  .q-text small {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .q-text strong {
-    font-size: 14px;
-  }
-
-  .q-text small {
-    font-size: 11.5px;
-  }
-
-  .section {
-    margin-top: 24px;
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-  }
-
-  .section-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-  }
-
-  .listen-grid {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 10px;
-  }
-
-  .listen-tile {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 8px 10px;
-    border-radius: 12px;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    text-align: left;
-    transition: background-color 140ms ease, border-color 140ms ease;
-  }
-
-  .listen-tile:hover {
-    background: var(--surface-hover);
-    border-color: var(--border-strong);
-  }
-
-  .listen-tile.playing {
-    background: var(--accent-soft);
-    border-color: var(--accent-border);
-  }
-
-  .listen-tile.playing .track-title {
-    color: var(--accent-bright);
-  }
-
-  .play-badge {
-    width: 30px;
-    height: 30px;
-    border-radius: 999px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 11px;
-    color: var(--text-muted);
-    flex-shrink: 0;
-    transition: background-color 140ms ease, color 140ms ease, box-shadow 140ms ease;
-  }
-
-  .listen-tile:hover .play-badge {
-    background: var(--accent);
-    color: #ffffff;
-    box-shadow: 0 4px 12px rgba(33, 144, 164, 0.42);
-  }
-
-  .listen-tile.playing .play-badge {
-    background: var(--accent-soft);
-    color: var(--accent-bright);
-  }
-
-  .hero-card {
-    display: flex;
-    align-items: center;
-    gap: 24px;
-    padding: 20px 24px;
-    border-radius: 18px;
-    background: linear-gradient(135deg, rgba(var(--ambient-rgb), 0.24), var(--surface) 65%);
-    border: 1px solid var(--border);
-    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.28);
-  }
-
-  .hero-info {
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-
-  .hero-badge {
-    align-self: flex-start;
-    font-size: 11px;
-    font-weight: 800;
-    letter-spacing: 0.08em;
-    padding: 3px 10px;
-    border-radius: 999px;
-    background: var(--accent-soft);
-    color: var(--accent-bright);
-  }
-
-  .hero-title {
-    margin: 0;
-    font-size: 24px;
-    font-weight: 850;
-  }
-
-  .hero-actions {
-    display: flex;
-    gap: 10px;
-    margin-top: 6px;
-  }
-
-  .media-card {
-    width: 176px;
-    flex-shrink: 0;
-    padding: 10px;
-    border-radius: 14px;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    text-align: left;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    transition: background-color 140ms ease, border-color 140ms ease;
-  }
-
-  .media-card:hover {
-    background: var(--surface-hover);
-    border-color: var(--border-strong);
-  }
-
-  .media-cover-wrap {
-    position: relative;
-  }
-
-  .year-badge {
-    position: absolute;
-    top: 8px;
-    left: 8px;
-    padding: 2px 8px;
-    border-radius: 6px;
-    font-size: 11px;
-    font-weight: 700;
-    background: rgba(0, 0, 0, 0.65);
-    color: #ffffff;
-  }
-
-  .media-title,
-  .media-sub {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .media-title {
-    font-size: 13.5px;
-  }
-
-  .media-sub {
-    font-size: 12px;
-  }
-
-  .pill-group {
-    display: flex;
-    gap: 4px;
-    padding: 3px;
-    border-radius: 999px;
-    background: var(--surface);
-    border: 1px solid var(--border);
-  }
-
-  .pill-group button {
-    padding: 5px 12px;
-    border-radius: 999px;
-    font-size: 12.5px;
-    font-weight: 600;
-    color: var(--text-muted);
-  }
-
-  .pill-group button.active {
-    background: var(--accent-soft);
-    color: var(--accent-bright);
-  }
-
-  .rank {
-    width: 24px;
-    text-align: center;
-    font-size: 12.5px;
-    color: var(--text-muted);
-  }
-
-  .dur {
-    font-size: 12px;
-  }
-
-  .empty-home {
-    padding: 32px 0;
-    text-align: center;
-  }
-
-  @media (max-width: 900px) {
-    .quick-grid {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-    .listen-grid {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-  }
-
-  @media (max-width: 560px) {
-    .listen-grid {
-      grid-template-columns: 1fr;
-    }
-    .hero-card {
-      flex-direction: column;
-      align-items: flex-start;
-    }
-  }
-</style>

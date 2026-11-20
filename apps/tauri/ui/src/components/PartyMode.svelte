@@ -116,6 +116,7 @@
             src={player.currentTrack?.cover_large_url}
             fallbackSrc={player.currentTrack?.cover_url}
             alt={player.currentTrack?.title ?? ""}
+            eager={true}
           />
         </div>
       {/key}

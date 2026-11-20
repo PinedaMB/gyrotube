@@ -464,6 +464,17 @@ class PlayerStore {
   }
 
   public clearQueue(): void {
+    const current = this.currentTrack;
+    if (current) {
+      this.queue = [current];
+      this.unshuffledQueue = [current];
+      this.currentIndex = 0;
+      this.shuffle = false;
+      void this.persistSession();
+      void this.syncSpinSnapshot();
+      this.showToast("Queue cleared");
+      return;
+    }
     this.queue = [];
     this.unshuffledQueue = [];
     this.currentIndex = null;
@@ -526,9 +537,18 @@ class PlayerStore {
         if (this.loadGen === gen) this.lyrics = data;
       });
       void api.getRadioTracks(track.id).then((tracks) => {
-        if (this.loadGen === gen) {
-          const existing = new Set(this.queue.map((t) => t.id));
-          this.suggestedTracks = tracks.filter((t) => !existing.has(t.id)).slice(0, 12);
+        if (this.loadGen !== gen) return;
+        const existing = new Set(this.queue.map((t) => t.id));
+        const related = tracks.filter((t) => !existing.has(t.id));
+        if (this.autoplayRelated && this.queue.length === 1 && related.length > 0) {
+          const autoQueued = related.slice(0, 12);
+          this.queue = [...this.queue, ...autoQueued];
+          this.unshuffledQueue = [...this.queue];
+          this.suggestedTracks = related.slice(12, 24);
+          void this.persistSession();
+          void this.syncSpinSnapshot();
+        } else {
+          this.suggestedTracks = related.slice(0, 12);
         }
       });
     } catch (err) {
