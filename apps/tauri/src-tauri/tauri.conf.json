@@ -28,12 +28,26 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "category": "Music",
+    "shortDescription": "Fast, modern YouTube Music client with lyrics, crossfade, and SPIN Mode",
+    "longDescription": "GyroTube is a cross-platform music streaming client built with Rust, Tauri v2, and Svelte 5, featuring synced lyrics, dual-deck crossfade, local playlists, and collaborative SPIN sessions.",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "linux": {
+      "deb": {
+        "depends": ["libwebkit2gtk-4.1-0", "libayatana-appindicator3-1"]
+      },
+      "appimage": {
+        "bundleMediaFramework": true
+      }
+    },
+    "android": {
+      "minSdkVersion": 26
+    }
   }
 }

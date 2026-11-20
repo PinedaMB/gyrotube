@@ -1,12 +1,15 @@
 mod commands;
 
+#[cfg(desktop)]
 use std::sync::atomic::Ordering;
 
 use gyrotube_core::backend::Backend;
 use gyrotube_core::jam::JamCommand;
 use gyrotube_core::models::init_storage_dirs;
 use gyrotube_core::spin_remote::RemoteRole;
-use tauri::{Emitter, Manager, WindowEvent};
+#[cfg(desktop)]
+use tauri::WindowEvent;
+use tauri::{Emitter, Manager};
 
 use commands::{AppCoreState, SpinCommandEvent, SpinRemoteSyncEvent};
 
@@ -141,6 +144,7 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
+            #[cfg(desktop)]
             if let WindowEvent::CloseRequested { api, .. } = event {
                 let core = window.state::<AppCoreState>();
                 let quitting = core.quitting.load(Ordering::SeqCst);
@@ -150,6 +154,8 @@ pub fn run() {
                     let _ = window.hide();
                 }
             }
+            #[cfg(not(desktop))]
+            let _ = (window, event);
         })
         .manage(core_state)
         .invoke_handler(tauri::generate_handler![

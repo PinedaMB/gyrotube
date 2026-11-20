@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+#[cfg(not(target_os = "android"))]
 use std::process::Stdio;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock, RwLock};
@@ -7,6 +8,7 @@ use std::time::Duration;
 
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncSeekExt, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
+#[cfg(not(target_os = "android"))]
 use tokio::process::Command;
 use tokio::sync::watch;
 
@@ -461,6 +463,17 @@ impl AudioStreamer {
         })
     }
 
+    #[cfg(target_os = "android")]
+    pub async fn start_ytdlp_pipe_stream(
+        &self,
+        _video_id: &str,
+        _expected_total_bytes: Option<u64>,
+        _streams_dir: &Path,
+    ) -> Result<StreamInfo, String> {
+        Err("yt-dlp progressive pipe is not available on Android".to_string())
+    }
+
+    #[cfg(not(target_os = "android"))]
     pub async fn start_ytdlp_pipe_stream(
         &self,
         video_id: &str,
@@ -678,6 +691,16 @@ async fn fetch_range_block_url(
     Err(last_err)
 }
 
+#[cfg(target_os = "android")]
+async fn refresh_ytdlp_audio_stream(
+    _video_id: &str,
+    _itag: Option<&str>,
+    _ext: &str,
+) -> Option<StreamInfo> {
+    None
+}
+
+#[cfg(not(target_os = "android"))]
 async fn refresh_ytdlp_audio_stream(
     video_id: &str,
     itag: Option<&str>,

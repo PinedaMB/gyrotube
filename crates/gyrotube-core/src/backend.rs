@@ -875,8 +875,15 @@ impl Backend {
             return Ok(local_stream);
         }
 
+        #[cfg(target_os = "android")]
+        {
+            return Err("No se pudo resolver el flujo de audio (Android).".to_string());
+        }
+
         // Fallback: extract stream URL via yt-dlp excluding tv_samsung (which triggers 6s ad / 403)
         // and skipping HLS/DASH manifest downloads.
+        #[cfg(not(target_os = "android"))]
+        {
         let mut cmd = tokio::process::Command::new("yt-dlp");
         cmd.kill_on_drop(true)
             .args([
@@ -944,6 +951,7 @@ impl Backend {
             cache.insert(video_id.to_string(), (Instant::now(), resolved.clone()));
         }
         Ok(resolved)
+        }
     }
 
     pub async fn download_with_ytdlp_fallback(&self, video_id: &str) -> Result<StreamInfo, String> {
@@ -961,6 +969,16 @@ impl Backend {
         self.run_ytdlp_download(video_id, &streams_dir).await
     }
 
+    #[cfg(target_os = "android")]
+    async fn run_ytdlp_download(
+        &self,
+        _video_id: &str,
+        _streams_dir: &std::path::Path,
+    ) -> Result<StreamInfo, String> {
+        Err("La descarga de respaldo con yt-dlp no está disponible en Android.".to_string())
+    }
+
+    #[cfg(not(target_os = "android"))]
     async fn run_ytdlp_download(
         &self,
         video_id: &str,
