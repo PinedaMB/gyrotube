@@ -37,6 +37,22 @@ cargo build --release
 
 Para medir el arranque en la aplicación, ejecuta `GYROTUBE_AUDIO_TIMINGS=1 cargo run`. Las líneas `[audio]` en la terminal registran por ID la verificación del catálogo, la extracción, la descarga de respaldo cuando se usa, la preparación en GStreamer y el tiempo desde la selección hasta que GStreamer entra en reproducción. Las etapas ya resueltas por caché o precarga pueden no aparecer después del clic.
 
+## Instaladores Tauri (escritorio)
+
+Desde la raíz del repositorio:
+
+```bash
+bash scripts/build-desktop.sh
+```
+
+Requiere Rust, Node.js, pnpm, Tauri CLI v2 (`cargo install tauri-cli --version '^2' --locked`) y las dependencias nativas de Tauri del sistema. El script instala las dependencias de la interfaz, compila en release y copia los instaladores a `build/`, conservando sus nombres. Reemplaza los archivos del mismo nombre y conserva los demás, incluidos los APK.
+
+En Linux, AppImage requiere `patchelf` en el sistema: `sudo dnf install patchelf` en Fedora o `sudo apt install patchelf` en Debian/Ubuntu. El script comprueba que esté disponible antes de compilar.
+
+Las rutas de plugins y helpers de GStreamer se consultan con `pkg-config` para admitir tanto Fedora como Debian/Ubuntu. Se pueden usar las variables `GSTREAMER_PLUGINS_DIR` y `GSTREAMER_HELPERS_DIR` si ya están definidas.
+
+Genera todos los formatos configurados para el sistema donde se ejecuta: `.deb`, `.rpm` y `.AppImage` en Linux; `.msi` y `.exe` en Windows (desde Git Bash); `.dmg` en macOS. No compila Android ni genera los paquetes de otros sistemas desde Linux. Para compilar las tres plataformas, usa `.github/workflows/release-tauri.yml`.
+
 ## Paquetes Linux (x86_64)
 
 - **Debian 13** · Habilita [Trixie Backports](https://backports.debian.org/Instructions/) para obtener un `yt-dlp` compatible, luego ejecuta `sudo apt install ./dist/gyrotube_0.1.0-1_amd64.deb`. Instala [Node.js 22 o posterior](https://nodejs.org/en/download) y asegúrate de que `node` esté en el `PATH` de la sesión gráfica.
