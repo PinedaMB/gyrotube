@@ -1257,6 +1257,10 @@ fn stream_url_is_fresh(created: Instant, stream: &StreamInfo) -> bool {
         .unwrap_or_default()
         .as_secs();
     reqwest::Url::parse(&stream.url).ok().is_some_and(|url| {
+        if url.host_str() == Some("127.0.0.1") && url.path().starts_with("/stream/") {
+            return crate::audio_streamer::AudioStreamer::try_global()
+                .is_some_and(|streamer| streamer.can_reuse_url(&url));
+        }
         url.query_pairs()
             .find(|(key, _)| key == "expire")
             .map(|(_, value)| value.parse::<u64>().is_ok_and(|expires| expires > now + 30))

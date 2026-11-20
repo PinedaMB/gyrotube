@@ -134,6 +134,22 @@ impl AudioStreamer {
         format!("http://127.0.0.1:{}/stream/{session_key}.{ext}", self.port)
     }
 
+    pub(crate) fn can_reuse_url(&self, url: &reqwest::Url) -> bool {
+        if url.port() != Some(self.port) {
+            return false;
+        }
+        let Some(key) = stream_session_key(url.path()) else {
+            return false;
+        };
+        self.sessions.read().is_ok_and(|sessions| {
+            sessions.get(key).is_some_and(|session| {
+                let progress = session.progress_rx.borrow();
+                progress.error.is_none()
+                    && (progress.done || session.progress_rx.has_changed().is_ok())
+            })
+        })
+    }
+
     /// Registers an already-downloaded local audio file on disk so WebViews
     /// (which block `file://` URLs) can stream it over `http://127.0.0.1` with
     /// full HTTP Range and CORS support.
@@ -235,8 +251,7 @@ impl AudioStreamer {
             .or_else(|| parse_clen_from_url(&remote.url))
             .or(expected_total_bytes);
 
-        #[cfg(target_os = "android")]
-        {
+        if cfg!(target_os = "android") {
             let total = total_bytes.filter(|&total| total > 0)
                 .ok_or_else(|| "Audio source did not report its total size".to_string())?;
             if parse_clen_from_url(&remote.url).or(expected_total_bytes).is_some_and(|size| size != total) {
@@ -613,8 +628,12 @@ impl AudioStreamer {
                 .map(|s| s.success())
                 .unwrap_or(false);
 
-            if written == 0 && fatal_err.is_none() {
-                fatal_err = Some("yt-dlp pipe produced 0 bytes".to_string());
+            if fatal_err.is_none() {
+                if !status_ok {
+                    fatal_err = Some("yt-dlp pipe exited unsuccessfully".to_string());
+                } else if written == 0 {
+                    fatal_err = Some("yt-dlp pipe produced 0 bytes".to_string());
+                }
             }
 
             let _ = progress_tx.send(ChunkProgress {
@@ -721,8 +740,11 @@ fn response_byte_range(headers: &reqwest::header::HeaderMap) -> Option<(u64, u64
     Some((first.parse().ok()?, last.parse().ok()?))
 }
 
-#[cfg(any(target_os = "android", test))]
-async fn verify_audio_tail(client: &reqwest::Client, remote: &StreamInfo, total: u64) -> Result<(), String> {
+async fn verify_audio_tail(
+    client: &reqwest::Client,
+    remote: &StreamInfo,
+    total: u64,
+) -> Result<(), String> {
     let last = total - 1;
     let (bytes, reported_total) = tokio::time::timeout(
         Duration::from_secs(4),
@@ -828,27 +850,23 @@ async fn wait_until_initial_chunk_ready(
     loop {
         {
             let state = progress_rx.borrow();
-            if state.written >= READY_THRESHOLD_BYTES || (state.done && state.written > 0) {
-                return Ok(());
-            }
             if let Some(err) = &state.error {
                 return Err(err.clone());
+            }
+            if state.written >= READY_THRESHOLD_BYTES || (state.done && state.written > 0) {
+                return Ok(());
             }
             if state.done && state.written == 0 {
                 return Err("Audio stream ended with 0 bytes".to_string());
             }
         }
-        if progress_rx.changed().await.is_err() {
-            let state = progress_rx.borrow();
-            if state.written > 0 {
-                return Ok(());
-            }
-            return Err(state
-                .error
-                .clone()
-                .unwrap_or_else(|| "Audio stream channel closed early".to_string()));
-        }
+        progress_rx.changed().await.map_err(|_| "Audio stream channel closed early".to_string())?;
     }
+}
+
+fn stream_session_key(path: &str) -> Option<&str> {
+    let raw_key = path.split('?').next()?.strip_prefix("/stream/")?;
+    Some(raw_key.rsplit_once('.').map_or(raw_key, |(key, _)| key))
 }
 
 async fn handle_client(
@@ -894,21 +912,8 @@ async fn handle_client(
         return Ok(());
     }
 
-    let raw_key = path
-        .strip_prefix("/stream/")
-        .unwrap_or("")
-        .split('?')
-        .next()
-        .unwrap_or("");
-    let session_key = raw_key
-        .rsplit_once('.')
-        .map(|(prefix, _)| prefix)
-        .unwrap_or(raw_key);
-
-    let session = {
-        let map = sessions.read().ok();
-        map.and_then(|m| m.get(session_key).cloned())
-    };
+    let session = stream_session_key(path)
+        .and_then(|key| sessions.read().ok()?.get(key).cloned());
 
     let Some(session) = session else {
         let hdr = format!(
@@ -919,10 +924,16 @@ async fn handle_client(
     };
 
     let mut progress_rx = session.progress_rx.clone();
-    let (known_total, is_done) = {
+    let (known_total, is_done, failed) = {
         let p = progress_rx.borrow();
-        (p.total_bytes, p.done)
+        (p.total_bytes, p.done, p.error.is_some())
     };
+    if failed {
+        write_half.write_all(format!(
+            "HTTP/1.1 502 Bad Gateway\r\n{CORS_HEADERS}Content-Length: 0\r\nConnection: close\r\n\r\n"
+        ).as_bytes()).await?;
+        return Ok(());
+    }
 
     let requested_range = range_header.as_deref().and_then(parse_range_header);
 
@@ -1271,5 +1282,34 @@ mod tests {
     fn extracts_clen_query_param_from_googlevideo_url() {
         let url = "https://rr2---sn-abc.googlevideo.com/videoplayback?expire=1700000000&clen=3845120&mime=audio%2Fwebm";
         assert_eq!(parse_clen_from_url(url), Some(3_845_120));
+    }
+
+    #[tokio::test]
+    async fn a_stream_that_fails_after_buffering_cannot_be_reused() {
+        let streamer = AudioStreamer::start_new().await.unwrap();
+        let key = "test-1";
+        let url = reqwest::Url::parse(&streamer.local_url(key, "webm")).unwrap();
+        let progress = ChunkProgress {
+            written: READY_THRESHOLD_BYTES,
+            total_bytes: Some(2 * READY_THRESHOLD_BYTES),
+            done: false,
+            error: None,
+        };
+        let (tx, mut rx) = watch::channel(progress.clone());
+        streamer.sessions.write().unwrap().insert(key.into(), Arc::new(StreamSession {
+            file_path: PathBuf::new(),
+            mime_type: "audio/webm".into(),
+            progress_rx: rx.clone(),
+        }));
+        assert!(streamer.can_reuse_url(&url));
+        tx.send_replace(ChunkProgress {
+            done: true,
+            error: Some("network interrupted".into()),
+            ..progress
+        });
+        assert!(!streamer.can_reuse_url(&url));
+        assert_eq!(wait_until_initial_chunk_ready(&mut rx).await.unwrap_err(), "network interrupted");
+        let response = reqwest::Client::new().get(url).send().await.unwrap();
+        assert_eq!(response.status(), reqwest::StatusCode::BAD_GATEWAY);
     }
 }
