@@ -2247,11 +2247,13 @@ dependencies = [
  "reqwest 0.13.5",
  "ring",
  "rquickjs-sys",
+ "rustls",
  "rustypipe",
  "serde",
  "serde_json",
  "tempfile",
  "tokio",
+ "webpki-roots",
  "ytmapi-rs",
 ]
 

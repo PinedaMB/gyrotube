@@ -77,6 +77,7 @@ pub struct Backend {
 
 impl Backend {
     pub fn new() -> Self {
+        crate::tls::ensure_crypto_provider();
         let mut rp_builder = RustyPipe::builder()
             .timeout(Duration::from_secs(8))
             .n_http_retries(1);
@@ -88,7 +89,7 @@ impl Backend {
         Self {
             ytm: Arc::new(tokio::sync::OnceCell::new()),
             rp: rp_builder.build().unwrap_or_else(|_| RustyPipe::new()),
-            http: reqwest::Client::builder()
+            http: crate::tls::http_client_builder()
                 .http2_max_header_list_size(64 * 1024)
                 .connect_timeout(Duration::from_secs(5))
                 .timeout(Duration::from_secs(10))

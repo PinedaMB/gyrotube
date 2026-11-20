@@ -20,6 +20,9 @@ KOTLIN_DEST="${GEN_MAIN}/java/com/github/gyrotube/GyroTube"
 mkdir -p "${KOTLIN_DEST}"
 cp "${SCRIPT_DIR}/kotlin/com/github/gyrotube/GyroTube/PlaybackForegroundService.kt" \
    "${KOTLIN_DEST}/PlaybackForegroundService.kt"
+# Safe-area aware MainActivity (status bar / nav bar / keyboard insets)
+cp "${SCRIPT_DIR}/kotlin/com/github/gyrotube/GyroTube/MainActivity.kt" \
+   "${KOTLIN_DEST}/MainActivity.kt"
 
 python3 - "${MANIFEST}" <<'PY'
 import sys

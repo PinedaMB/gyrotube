@@ -69,7 +69,7 @@ impl AudioStreamer {
             .port();
         let sessions: Arc<RwLock<HashMap<String, Arc<StreamSession>>>> =
             Arc::new(RwLock::new(HashMap::new()));
-        let client = reqwest::Client::builder()
+        let client = crate::tls::http_client_builder()
             .connect_timeout(Duration::from_secs(4))
             .read_timeout(Duration::from_secs(12))
             .pool_idle_timeout(Duration::from_secs(30))

@@ -15,7 +15,7 @@ use commands::{AppCoreState, SpinCommandEvent, SpinRemoteSyncEvent};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let (core_state, jam_cmd_rx, remote_rx) = AppCoreState::new();
+    gyrotube_core::tls::ensure_crypto_provider();
 
     tauri::Builder::default()
         .setup(move |app| {
@@ -25,6 +25,10 @@ pub fn run() {
                 init_storage_dirs(data_dir, cache_dir);
             }
             Backend::trim_audio_cache_on_startup();
+
+            // Construct core state AFTER init_storage_dirs so Android has valid writable dirs
+            let (core_state, jam_cmd_rx, remote_rx) = AppCoreState::new();
+            app.manage(core_state);
 
             // Bridge SPIN LAN & Remote host commands to the frontend via Tauri events
             let handle_for_jam = app.handle().clone();
@@ -157,7 +161,6 @@ pub fn run() {
             #[cfg(not(desktop))]
             let _ = (window, event);
         })
-        .manage(core_state)
         .invoke_handler(tauri::generate_handler![
             commands::load_initial_state,
             commands::save_session,

@@ -5,3 +5,4 @@ pub mod i18n;
 pub mod jam;
 pub mod models;
 pub mod spin_remote;
+pub mod tls;

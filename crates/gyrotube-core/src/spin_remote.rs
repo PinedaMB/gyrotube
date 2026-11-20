@@ -137,7 +137,7 @@ fn client() -> reqwest::Client {
     static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
     CLIENT
         .get_or_init(|| {
-            reqwest::Client::builder()
+            crate::tls::http_client_builder()
                 .connect_timeout(Duration::from_secs(5))
                 .build()
                 .expect("SPIN HTTP client")

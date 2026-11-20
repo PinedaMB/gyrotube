@@ -119,6 +119,10 @@
     <input
       bind:this={searchInput}
       type="text"
+      enterkeyhint="search"
+      autocomplete="off"
+      autocapitalize="off"
+      spellcheck="false"
       class="w-full bg-transparent outline-none text-[13.5px] placeholder:text-[var(--text-muted)]"
       bind:value={query}
       placeholder={t("header.search_placeholder")}
