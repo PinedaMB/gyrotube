@@ -12,6 +12,7 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::process::Command;
 use tokio::sync::watch;
 
+#[cfg(not(target_os = "android"))]
 use crate::audio_cache;
 use crate::models::StreamInfo;
 

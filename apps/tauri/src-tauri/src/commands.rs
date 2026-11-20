@@ -34,6 +34,7 @@ pub struct AppCoreState {
     pub active_audio_lease: Mutex<Option<Arc<LocalAudio>>>,
     pub spin: Mutex<SpinState>,
     pub background_playback: Arc<AtomicBool>,
+    #[cfg_attr(not(desktop), allow(dead_code))]
     pub quitting: Arc<AtomicBool>,
 }
 

@@ -82,10 +82,15 @@ jobs:
 
       - uses: android-actions/setup-android@v3
 
-      - name: Install Android NDK
+      - name: Install Android NDK & bindgen env
         run: |
           sdkmanager "ndk;26.3.11579264" "platforms;android-34" "build-tools;34.0.0"
-          echo "NDK_HOME=${ANDROID_HOME}/ndk/26.3.11579264" >> "$GITHUB_ENV"
+          NDK_ROOT="${ANDROID_HOME}/ndk/26.3.11579264"
+          LLVM_PREBUILT="${NDK_ROOT}/toolchains/llvm/prebuilt/linux-x86_64"
+          CLANG_INC="$(find "${LLVM_PREBUILT}/lib/clang" -maxdepth 2 -name include -type d | head -n 1)"
+          echo "NDK_HOME=${NDK_ROOT}" >> "$GITHUB_ENV"
+          echo "LIBCLANG_PATH=${LLVM_PREBUILT}/lib64" >> "$GITHUB_ENV"
+          echo "BINDGEN_EXTRA_CLANG_ARGS_aarch64_linux_android=--sysroot=${LLVM_PREBUILT}/sysroot -isystem ${CLANG_INC}" >> "$GITHUB_ENV"
 
       - uses: pnpm/action-setup@v4
         with:

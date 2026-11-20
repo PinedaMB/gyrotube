@@ -1,3 +1,4 @@
+import { invoke } from "@tauri-apps/api/core";
 import type {
   ArtistDetails,
   Genre,
@@ -27,7 +28,6 @@ async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> 
   if (!isTauriRuntime()) {
     throw new Error(`Tauri runtime not available for command "${cmd}"`);
   }
-  const { invoke } = await import("@tauri-apps/api/core");
   return invoke<T>(cmd, args);
 }
 

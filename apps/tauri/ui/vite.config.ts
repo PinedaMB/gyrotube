@@ -14,5 +14,13 @@ export default defineConfig({
   },
   build: {
     target: "esnext",
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          "vendor-lucide": ["lucide-svelte"],
+          "vendor-tauri": ["@tauri-apps/api/core", "@tauri-apps/api/event"],
+        },
+      },
+    },
   },
 });

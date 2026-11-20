@@ -1231,6 +1231,7 @@ pub(crate) fn validate_video_id(video_id: &str) -> Result<(), String> {
     }
 }
 
+#[cfg(not(target_os = "android"))]
 fn filesize_from_ytdlp_json(raw: &[u8]) -> Option<u64> {
     let val: serde_json::Value = serde_json::from_slice(raw).ok()?;
     val.get("filesize")
@@ -1239,6 +1240,7 @@ fn filesize_from_ytdlp_json(raw: &[u8]) -> Option<u64> {
         .filter(|&sz| sz > 0)
 }
 
+#[cfg(not(target_os = "android"))]
 fn stream_from_ytdlp_json(raw: &[u8]) -> Result<StreamInfo, String> {
     #[derive(serde::Deserialize)]
     struct Audio {
