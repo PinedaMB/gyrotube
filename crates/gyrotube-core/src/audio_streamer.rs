@@ -235,6 +235,21 @@ impl AudioStreamer {
             .or_else(|| parse_clen_from_url(&remote.url))
             .or(expected_total_bytes);
 
+        #[cfg(target_os = "android")]
+        {
+            let total = total_bytes.filter(|&total| total > 0)
+                .ok_or_else(|| "Audio source did not report its total size".to_string())?;
+            if parse_clen_from_url(&remote.url).or(expected_total_bytes).is_some_and(|size| size != total) {
+                return Err("Audio source reported a different file size".into());
+            }
+            if is_partial && response_byte_range(resp.headers()) != Some((0, first_end.min(total - 1))) {
+                return Err("Audio source did not deliver the requested initial range".into());
+            }
+            if is_partial && total > INITIAL_HTTP_BLOCK_BYTES {
+                verify_audio_tail(&self.client, &remote, total).await?;
+            }
+        }
+
         let itag_hint = parse_itag_from_url(&remote.url);
 
         let (progress_tx, mut progress_rx) = watch::channel(ChunkProgress {
@@ -315,7 +330,7 @@ impl AudioStreamer {
                         None => start + SUBSEQUENT_HTTP_BLOCK_BYTES - 1,
                     };
 
-                    // If we fast-started with a c=IOS URL (which serves up to 1 MB before 403),
+                    // If we fast-started with a c=IOS URL (which can stop serving ranges),
                     // fetch Block 1 (256KB..768KB) concurrently with refreshing the full visionos URL
                     // so we switch URLs before hitting 1 MB with zero pause or 403 retry!
                     if !ios_refreshed {
@@ -665,13 +680,20 @@ async fn fetch_range_block_url(
             }
         }
         match r.send().await {
-            Ok(resp) if resp.status().is_success() => {
+            Ok(resp) if resp.status() == reqwest::StatusCode::PARTIAL_CONTENT => {
+                let Some((first, last)) = response_byte_range(resp.headers()) else {
+                    return Err(format!("Missing Content-Range for audio block {start}-{end}"));
+                };
+                if first != start || last < first || last > end {
+                    return Err(format!("Unexpected Content-Range for audio block {start}-{end}"));
+                }
                 let total = parse_total_bytes_from_headers(
                     resp.headers(),
-                    resp.status() == reqwest::StatusCode::PARTIAL_CONTENT,
+                    true,
                 );
                 match resp.bytes().await {
-                    Ok(b) => return Ok((b.to_vec(), total)),
+                    Ok(b) if b.len() as u64 == last - first + 1 => return Ok((b.to_vec(), total)),
+                    Ok(_) => last_err = format!("Incomplete audio block {start}-{end}"),
                     Err(e) => last_err = format!("Error reading block {start}-{end}: {e}"),
                 }
             }
@@ -690,6 +712,28 @@ async fn fetch_range_block_url(
         }
     }
     Err(last_err)
+}
+
+fn response_byte_range(headers: &reqwest::header::HeaderMap) -> Option<(u64, u64)> {
+    let value = headers.get(reqwest::header::CONTENT_RANGE)?.to_str().ok()?;
+    let (range, _) = value.strip_prefix("bytes ")?.split_once('/')?;
+    let (first, last) = range.split_once('-')?;
+    Some((first.parse().ok()?, last.parse().ok()?))
+}
+
+#[cfg(any(target_os = "android", test))]
+async fn verify_audio_tail(client: &reqwest::Client, remote: &StreamInfo, total: u64) -> Result<(), String> {
+    let last = total - 1;
+    let (bytes, reported_total) = tokio::time::timeout(
+        Duration::from_secs(4),
+        fetch_range_block_url(client, &remote.url, remote, last, last),
+    )
+    .await
+    .map_err(|_| "Timed out checking the end of the audio".to_string())??;
+    if bytes.len() != 1 || reported_total != Some(total) {
+        return Err("Audio source did not deliver the requested last byte".into());
+    }
+    Ok(())
 }
 
 #[cfg(target_os = "android")]
@@ -1058,7 +1102,7 @@ fn mime_for_ext(ext: &str) -> &'static str {
 mod tests {
     use super::*;
 
-    async fn spawn_slow_range_origin(payload: Arc<Vec<u8>>) -> u16 {
+    async fn spawn_slow_range_origin(payload: Arc<Vec<u8>>, cutoff: Option<u64>) -> u16 {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
         tokio::spawn(async move {
@@ -1093,6 +1137,11 @@ mod tests {
                         .map(|(s, e)| (s, e.unwrap_or(total - 1).min(total - 1)))
                         .unwrap_or((0, total - 1));
 
+                    if cutoff.is_some_and(|limit| end >= limit) {
+                        let _ = write_half.write_all(b"HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n").await;
+                        return;
+                    }
+
                     if start >= total {
                         let _ = write_half
                             .write_all(b"HTTP/1.1 416 Range Not Satisfiable\r\nContent-Length: 0\r\n\r\n")
@@ -1123,7 +1172,7 @@ mod tests {
         let total_size = 900 * 1024; // 900 KB (> 256 KB initial block + 512 KB second block)
         let payload: Arc<Vec<u8>> =
             Arc::new((0..total_size).map(|i| (i % 251) as u8).collect());
-        let origin_port = spawn_slow_range_origin(payload.clone()).await;
+        let origin_port = spawn_slow_range_origin(payload.clone(), None).await;
 
         let temp = tempfile::tempdir().unwrap();
         let streamer = AudioStreamer::start_new().await.unwrap();
@@ -1167,7 +1216,7 @@ mod tests {
         let total_size = 512 * 1024;
         let payload: Arc<Vec<u8>> =
             Arc::new((0..total_size).map(|i| (i % 239) as u8).collect());
-        let origin_port = spawn_slow_range_origin(payload.clone()).await;
+        let origin_port = spawn_slow_range_origin(payload.clone(), None).await;
 
         let temp = tempfile::tempdir().unwrap();
         let streamer = AudioStreamer::start_new().await.unwrap();
@@ -1196,6 +1245,26 @@ mod tests {
         let body = resp.bytes().await.unwrap();
         assert_eq!(body.len(), 4000);
         assert_eq!(&body[..], &payload[1000..5000]);
+    }
+
+    #[tokio::test]
+    async fn rejects_sources_that_serve_the_start_but_block_the_rest() {
+        let total = 900 * 1024;
+        let payload = Arc::new(vec![0; total as usize]);
+        let limited = spawn_slow_range_origin(payload.clone(), Some(768 * 1024)).await;
+        let complete = spawn_slow_range_origin(payload, None).await;
+        let mut remote = StreamInfo {
+            url: format!("http://127.0.0.1:{limited}/audio.webm"),
+            quality_label: "WEBM".into(),
+            user_agent: None,
+            headers: HashMap::new(),
+            local_audio: None,
+        };
+        let client = reqwest::Client::new();
+        assert!(fetch_range_block_url(&client, &remote.url, &remote, 0, INITIAL_HTTP_BLOCK_BYTES - 1).await.is_ok());
+        assert!(verify_audio_tail(&client, &remote, total).await.unwrap_err().contains("403"));
+        remote.url = format!("http://127.0.0.1:{complete}/audio.webm");
+        verify_audio_tail(&client, &remote, total).await.unwrap();
     }
 
     #[test]

@@ -846,6 +846,49 @@ impl Backend {
         ))
     }
 
+    #[cfg(target_os = "android")]
+    async fn extract_visionos_stream(
+        &self,
+        video_id: &str,
+    ) -> Option<(StreamInfo, &'static str, Option<u64>)> {
+        const USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 15_7_3) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15";
+        let response: serde_json::Value = self.http
+            .post("https://www.youtube.com/youtubei/v1/player?prettyPrint=false")
+            .timeout(Duration::from_secs(5))
+            .header("User-Agent", USER_AGENT)
+            .header("X-YouTube-Client-Name", "101")
+            .header("X-YouTube-Client-Version", "1.02")
+            .json(&serde_json::json!({
+                "context": { "client": {
+                    "clientName": "VISIONOS", "clientVersion": "1.02",
+                    "deviceMake": "Apple", "deviceModel": "RealityDevice17,1",
+                    "osName": "visionOS", "osVersion": "26.5.23O471"
+                } },
+                "videoId": video_id,
+            }))
+            .send().await.ok()?.error_for_status().ok()?.json().await.ok()?;
+        let formats = response["streamingData"]["adaptiveFormats"].as_array()?;
+        for (itag, extension) in [(251, "webm"), (140, "m4a")] {
+            let Some(format) = formats.iter().find(|f| f["itag"].as_u64() == Some(itag) && f["url"].is_string()) else {
+                continue;
+            };
+            let url = reqwest::Url::parse(format["url"].as_str()?).ok()?;
+            if url.scheme() != "https" || !url.host_str().is_some_and(|host| host.ends_with(".googlevideo.com")) {
+                continue;
+            }
+            let size = format["contentLength"].as_str().and_then(|v| v.parse().ok());
+            let kbps = format["bitrate"].as_u64().unwrap_or(128_000) / 1000;
+            return Some((StreamInfo {
+                url: url.into(),
+                quality_label: format!("{kbps}kbps ({})", extension.to_uppercase()),
+                user_agent: Some(USER_AGENT.into()),
+                headers: HashMap::new(),
+                local_audio: None,
+            }, extension, size));
+        }
+        None
+    }
+
     async fn resolve_audio_stream(&self, video_id: &str) -> Result<StreamInfo, String> {
         validate_video_id(video_id)?;
         let cached = || self.cached_stream(video_id).or_else(|| self.cached_url(video_id));
@@ -860,6 +903,19 @@ impl Backend {
 
         let streams_dir = Self::streams_dir()?;
         let streamer = crate::audio_streamer::AudioStreamer::global().await?;
+
+        #[cfg(target_os = "android")]
+        if let Some((remote, ext, size_hint)) = self.extract_visionos_stream(video_id).await
+            && let Ok(local_stream) = streamer
+                .start_chunked_http_stream(video_id, remote, ext, size_hint, &streams_dir)
+                .await
+        {
+            if let Ok(mut cache) = self.stream_cache.write() {
+                cache.retain(|_, (ts, s)| stream_url_is_fresh(*ts, s));
+                cache.insert(video_id.to_owned(), (Instant::now(), local_stream.clone()));
+            }
+            return Ok(local_stream);
+        }
 
         // Fast-path: extract stream via pure-Rust iOS client (~140-250ms, no Python/Node startup)
         // to serve the initial audio blocks immediately while AudioStreamer transparently refreshes
