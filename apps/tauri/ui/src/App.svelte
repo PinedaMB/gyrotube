@@ -10,6 +10,7 @@
   import ExploreView from "./components/ExploreView.svelte";
   import HeaderBar from "./components/HeaderBar.svelte";
   import HomeView from "./components/HomeView.svelte";
+  import MobileNav from "./components/MobileNav.svelte";
   import NavSidebar from "./components/NavSidebar.svelte";
   import PartyMode from "./components/PartyMode.svelte";
   import SettingsModal from "./components/SettingsModal.svelte";
@@ -20,6 +21,17 @@
   onMount(() => {
     void player.bootstrap();
   });
+
+  function playerFly(node: Element) {
+    const phone = window.matchMedia("(width < 48rem)").matches;
+    const reducedMotion = phone && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    return fly(node, {
+      x: phone ? 0 : 28,
+      y: phone ? "100%" : 0,
+      duration: reducedMotion ? 0 : 220,
+      easing: cubicOut,
+    });
+  }
 
   let viewKey = $derived(
     player.activeView.kind === "artist"
@@ -42,11 +54,11 @@
   <HeaderBar />
 
   <div class="flex-1 min-h-0 flex overflow-hidden relative">
-    <!-- Left navigation sidebar (+ mobile bottom bar) -->
+    <!-- Left navigation sidebar -->
     <NavSidebar />
 
     <!-- Center scrollable main view -->
-    <main class="flex-1 min-w-0 h-full overflow-y-auto overflow-x-hidden ambient-surface scroll-y max-md:pb-24">
+    <main class="flex-1 min-w-0 h-full overflow-y-auto overflow-x-hidden ambient-surface scroll-y">
       {#key viewKey}
         <div in:fly={{ y: 10, duration: 220, easing: cubicOut }}>
           {#if player.activeView.kind === "home"}
@@ -85,7 +97,7 @@
       ></div>
       <div
         class="h-full shrink-0 max-lg:fixed max-lg:inset-y-0 max-lg:right-0 max-lg:z-50 max-md:inset-0"
-        transition:fly={{ x: 28, duration: 220, easing: cubicOut }}
+        transition:playerFly
       >
         <SidebarPlayer />
       </div>
@@ -95,7 +107,7 @@
   {#if !player.sidebarOpen && player.currentTrack}
     <div
       transition:fly={{ y: 24, duration: 240, easing: cubicOut }}
-      class="fixed bottom-5 max-md:bottom-[66px] left-1/2 -translate-x-1/2 z-30 w-[min(560px,calc(100vw-24px))] flex items-center gap-2 sm:gap-2.5 px-3 sm:px-3.5 py-2 rounded-full bg-[var(--bg-elevated)]/95 backdrop-blur-xl border border-[var(--border-strong)] shadow-2xl"
+      class="relative z-30 shrink-0 w-full flex items-center gap-2 sm:gap-2.5 px-3 sm:px-3.5 py-2 bg-[var(--bg-elevated)] border-t border-[var(--border)] md:fixed md:bottom-5 md:left-1/2 md:-translate-x-1/2 md:w-[min(560px,calc(100vw-24px))] md:rounded-full md:bg-[var(--bg-elevated)]/95 md:backdrop-blur-xl md:border md:border-[var(--border-strong)] md:shadow-2xl"
     >
       <button
         class="flex-1 min-w-0 flex items-center gap-2.5 text-left"
@@ -141,6 +153,8 @@
       </button>
     </div>
   {/if}
+
+  <MobileNav />
 
   {#if player.partyMode}
     <div transition:fade={{ duration: 220 }}>

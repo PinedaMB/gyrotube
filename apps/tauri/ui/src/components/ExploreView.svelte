@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Heart, Plus } from "lucide-svelte";
+  import { ArrowRight, Heart, Plus } from "lucide-svelte";
   import { t } from "../lib/i18n.svelte";
   import { player } from "../lib/stores/player.svelte";
   import { formatDuration, formatSubscribers } from "../lib/types";
@@ -179,7 +179,9 @@
             <div class="col-head">
               <h3 class="col-title">Songs</h3>
               {#if results.tracks.length > 4}
-                <button class="see-all" onclick={() => (filter = "songs")}>See all →</button>
+                <button class="see-all" onclick={() => (filter = "songs")}>
+                  See all <ArrowRight size={13} aria-hidden="true" />
+                </button>
               {/if}
             </div>
             <div class="track-list">
@@ -432,6 +434,9 @@
   }
 
   .see-all {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
     font-size: 12.5px;
     font-weight: 600;
     color: var(--text-muted);

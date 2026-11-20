@@ -9,18 +9,18 @@
 </script>
 
 {#if tracks.length > 0}
-  <section class="mt-6 flex flex-col gap-3">
+  <section class="mt-5 flex flex-col gap-2 md:mt-6 md:gap-3">
     <h2 class="section-title">{t("home.listen_again")}</h2>
-    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2.5">
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 md:gap-2.5 max-md:divide-y max-md:divide-[var(--border)]">
       {#each tracks as track, i (track.id)}
         {@const active = player.currentTrack?.id === track.id}
         <button
-          class="group flex items-center gap-3 p-2 pr-3 rounded-xl border text-left transition-all duration-150 {active
+          class="group flex min-w-0 items-center gap-2.5 px-2 py-1.5 text-left transition-colors duration-150 md:gap-3 md:p-2 md:pr-3 md:rounded-xl md:border {active
             ? 'bg-[var(--accent-soft)] border-[var(--accent-border)]'
-            : 'bg-[var(--surface)] border-[var(--border)] hover:bg-[var(--surface-hover)]'}"
+            : 'md:bg-[var(--surface)] border-[var(--border)] hover:bg-[var(--surface-hover)]'}"
           onclick={() => player.replaceQueueAndPlay(tracks, i, "Listen again")}
         >
-          <CoverImage class="tile-cover" src={track.cover_url} alt="" />
+          <CoverImage class="tile-cover max-md:!w-10 max-md:!h-10" src={track.cover_url} alt="" />
           <div class="track-meta">
             <span class="track-title {active ? '!text-[var(--accent-bright)] !font-bold' : ''}">
               {track.title}

@@ -129,7 +129,7 @@
     <div class="flex items-center justify-between gap-3">
       <h2 class="section-title">{t("home.stations_title")}</h2>
       <button
-        class="text-[12.5px] font-semibold text-[var(--accent-bright)] hover:underline"
+        class="shrink-0 text-[12.5px] font-semibold text-[var(--accent-bright)] hover:underline"
         onclick={() => {
           player.clearSearch();
           player.navigateTab("explore");
@@ -139,17 +139,17 @@
       </button>
     </div>
 
-    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
+    <div class="grid grid-cols-2 lg:grid-cols-3 gap-2.5 md:gap-3.5">
       {#each stations as genre, idx (genre.id)}
         {@const c = stationColor(genre, idx)}
         {@const icon = stationIconKind(genre.name)}
         {@const bgUrl = stationCovers[genre.id]}
         <div
-          class="group relative overflow-hidden rounded-2xl p-4 border border-white/10 hover:border-white/20 cursor-pointer transition-all duration-200 hover:-translate-y-0.5 flex flex-col justify-between min-h-[152px] bg-[var(--surface)]"
+          class="group relative overflow-hidden rounded-2xl p-2.5 md:p-4 border border-white/10 hover:border-white/20 cursor-pointer transition-all duration-200 hover:-translate-y-0.5 flex flex-col justify-between md:min-h-[152px] bg-[var(--surface)]"
           role="button"
           tabindex="0"
           onclick={() => void player.runSearch(genre.name)}
-          onkeydown={(e) => e.key === "Enter" && void player.runSearch(genre.name)}
+          onkeydown={(e) => e.target === e.currentTarget && e.key === "Enter" && void player.runSearch(genre.name)}
         >
           <!-- Background playlist artwork (lazy loaded) -->
           {#if bgUrl}
@@ -161,7 +161,7 @@
               referrerpolicy="no-referrer"
               onload={() => (loadedCovers = { ...loadedCovers, [genre.id]: true })}
               class="absolute inset-0 w-full h-full object-cover scale-105 group-hover:scale-110 transition-all duration-500 pointer-events-none {loadedCovers[genre.id]
-                ? 'opacity-35'
+                ? 'opacity-20 md:opacity-35'
                 : 'opacity-0'}"
             />
           {/if}
@@ -173,9 +173,9 @@
           ></div>
 
           <!-- Card content -->
-          <div class="relative z-10 flex items-center justify-between gap-2">
+          <div class="relative z-10 flex items-center justify-end md:justify-between gap-2">
             <span
-              class="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-black/40 backdrop-blur-sm"
+              class="hidden md:inline px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-black/40 backdrop-blur-sm"
               style="color: {c};"
             >
               {t("home.station_badge")}
@@ -199,11 +199,11 @@
             </span>
           </div>
 
-          <div class="relative z-10 my-3">
-            <h3 class="text-[18px] font-extrabold tracking-tight leading-snug drop-shadow-sm">
+          <div class="relative z-10 my-1 md:my-3">
+            <h3 class="text-[16px] md:text-[18px] font-extrabold tracking-tight leading-snug drop-shadow-sm break-words">
               {genre.name}
             </h3>
-            <p class="text-[12px] text-white/75 mt-0.5 line-clamp-1">
+            <p class="hidden md:line-clamp-1 text-[12px] text-white/75 mt-0.5">
               {t("home.station_sub")}
             </p>
           </div>
@@ -213,11 +213,11 @@
               class="inline-flex items-center gap-1 text-[12px] font-bold group-hover:translate-x-0.5 transition-transform"
               style="color: {c};"
             >
-              {t("home.explore_station")}
+              <span class="hidden md:inline">{t("home.explore_station")}</span>
               <ArrowRight size={13} />
             </span>
             <button
-              class="w-9 h-9 rounded-full inline-flex items-center justify-center bg-black/45 hover:bg-black/65 border border-white/15 text-white shadow-md transition-all active:scale-95"
+              class="w-11 h-11 md:w-9 md:h-9 rounded-full inline-flex items-center justify-center bg-black/45 hover:bg-black/65 border border-white/15 text-white shadow-md transition-all active:scale-95"
               title="Play {genre.name}"
               disabled={loadingStationId === genre.id}
               onclick={(e) => {

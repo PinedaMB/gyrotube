@@ -41,7 +41,8 @@
   $effect(() => {
     const idx = player.activeLyricIndex;
     if (idx != null && player.partyMode && !autoScrollPaused) {
-      lineRefs[idx]?.scrollIntoView({ behavior: "smooth", block: "center" });
+      const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      lineRefs[idx]?.scrollIntoView({ behavior: reduceMotion ? "instant" : "smooth", block: "center" });
     }
   });
 
@@ -51,10 +52,6 @@
 
   function resumeSync() {
     autoScrollPaused = false;
-    const idx = player.activeLyricIndex;
-    if (idx != null) {
-      lineRefs[idx]?.scrollIntoView({ behavior: "smooth", block: "center" });
-    }
   }
 
   function lineOpacity(idx: number): number {
@@ -64,11 +61,6 @@
     if (diff === 1) return 0.36;
     if (diff === 2) return 0.2;
     return 0.11;
-  }
-
-  function isFarLine(idx: number): boolean {
-    if (player.activeLyricIndex == null) return false;
-    return Math.abs(idx - player.activeLyricIndex) >= 2;
   }
 
   function handleProgressClick(e: MouseEvent) {
@@ -232,7 +224,7 @@
       <!-- Up Next card -->
       {#if player.nextTrack}
         <button
-          class="w-[340px] flex items-center gap-3 p-3 rounded-2xl bg-white/[0.05] hover:bg-white/[0.08] border border-white/10 text-left transition-colors"
+          class="w-[340px] hidden md:flex items-center gap-3 p-3 rounded-2xl bg-white/[0.05] hover:bg-white/[0.08] border border-white/10 text-left transition-colors"
           onclick={() => void player.next()}
         >
           <CoverImage class="up-next-cover !w-11 !h-11 !rounded-lg" src={player.nextTrack.cover_url} alt="" />
@@ -282,7 +274,7 @@
               {@const stanzaBreak = prevLine != null && line.time_secs - prevLine.time_secs >= 5.5}
               <button
                 bind:this={lineRefs[i]}
-                class="party-line text-left origin-left {active ? 'active-line' : ''} {isFarLine(i) ? 'far-line' : ''} {stanzaBreak ? 'mt-5' : ''}"
+                class="party-line text-left {active ? 'active-line' : ''} {stanzaBreak ? 'mt-5' : ''}"
                 style="opacity: {lineOpacity(i)};"
                 onclick={() => {
                   autoScrollPaused = false;
@@ -332,39 +324,20 @@
 
   .party-line {
     position: relative;
-    font-size: clamp(22px, 2.1vw, 29px);
-    font-weight: 700;
-    line-height: 1.38;
+    font-size: clamp(27px, 2.9vw, 39px);
+    font-weight: 800;
+    line-height: 1.3;
     letter-spacing: -0.025em;
     color: var(--text);
     padding: 6px 0;
-    transition:
-      opacity 380ms cubic-bezier(0.22, 1, 0.36, 1),
-      transform 380ms cubic-bezier(0.22, 1, 0.36, 1),
-      font-size 380ms cubic-bezier(0.22, 1, 0.36, 1),
-      color 380ms cubic-bezier(0.22, 1, 0.36, 1),
-      filter 380ms cubic-bezier(0.22, 1, 0.36, 1),
-      text-shadow 380ms cubic-bezier(0.22, 1, 0.36, 1);
-  }
-
-  .party-line.far-line {
-    filter: blur(0.6px);
+    transition: opacity 120ms ease-out;
   }
 
   .party-line:hover {
     opacity: 0.92 !important;
-    filter: none;
   }
 
   .party-line.active-line {
-    font-size: clamp(32px, 3.2vw, 44px);
-    font-weight: 900;
-    line-height: 1.24;
-    color: #ffffff;
-    transform: translateX(6px);
-    filter: none;
-    text-shadow:
-      0 0 36px rgba(var(--ambient-rgb), 0.72),
-      0 4px 24px rgba(0, 0, 0, 0.45);
+    color: var(--accent-bright);
   }
 </style>

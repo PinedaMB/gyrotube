@@ -51,7 +51,7 @@
       <Carousel title={t("home.new_releases")} id="new-releases">
         {#each releaseAlbums as album (album.id)}
           <button
-            class="p-2.5 rounded-2xl bg-[var(--surface)] border border-[var(--border)] hover:bg-[var(--surface-hover)] hover:border-[var(--border-strong)] text-left flex flex-col gap-1.5 transition-colors"
+            class="p-2 md:p-2.5 rounded-2xl bg-[var(--surface)] border border-[var(--border)] hover:bg-[var(--surface-hover)] hover:border-[var(--border-strong)] text-left flex flex-col gap-1.5 transition-colors"
             onclick={() => player.openAlbum(album.id, album.title, album.cover_url)}
           >
             <div class="relative w-full">
@@ -64,7 +64,7 @@
                 </span>
               {/if}
             </div>
-            <strong class="text-[13.5px] truncate w-full">{album.title}</strong>
+            <strong class="w-full text-[13.5px] max-md:line-clamp-2 max-md:leading-snug max-md:whitespace-normal md:truncate">{album.title}</strong>
             <span class="text-[12px] text-[var(--text-muted)] truncate w-full">{album.artist}</span>
           </button>
         {/each}

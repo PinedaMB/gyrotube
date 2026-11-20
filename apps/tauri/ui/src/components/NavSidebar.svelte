@@ -137,38 +137,3 @@
     {/each}
   </div>
 </aside>
-
-<!-- Mobile bottom navigation bar (< md) -->
-<nav
-  class="md:hidden fixed bottom-0 left-0 right-0 z-30 min-h-14 grid grid-cols-3 bg-[var(--bg-elevated)]/95 backdrop-blur-lg border-t border-[var(--border)] px-2"
-  style="padding-bottom: env(safe-area-inset-bottom);"
-  aria-label="Mobile navigation"
->
-  <button
-    class="flex flex-col items-center justify-center gap-0.5 text-[11px] font-semibold {player.activeTab === 'home'
-      ? 'text-[var(--accent-bright)]'
-      : 'text-[var(--text-muted)]'}"
-    onclick={() => player.navigateTab("home")}
-  >
-    <Home size={19} />
-    <span>{t("nav.home")}</span>
-  </button>
-  <button
-    class="flex flex-col items-center justify-center gap-0.5 text-[11px] font-semibold {player.activeTab === 'explore'
-      ? 'text-[var(--accent-bright)]'
-      : 'text-[var(--text-muted)]'}"
-    onclick={() => player.navigateTab("explore")}
-  >
-    <Compass size={19} />
-    <span>{t("nav.explore")}</span>
-  </button>
-  <button
-    class="flex flex-col items-center justify-center gap-0.5 text-[11px] font-semibold {player.activeTab === 'collection'
-      ? 'text-[var(--accent-bright)]'
-      : 'text-[var(--text-muted)]'}"
-    onclick={() => player.navigateTab("collection")}
-  >
-    <Library size={19} />
-    <span>{t("nav.collection")}</span>
-  </button>
-</nav>
