@@ -1,8 +1,9 @@
 <script lang="ts">
-  import { ArrowRight, Heart, Plus } from "lucide-svelte";
+  import TrackRow from "./TrackRow.svelte";
+  import { ArrowRight } from "lucide-svelte";
   import { t } from "../lib/i18n.svelte";
   import { player } from "../lib/stores/player.svelte";
-  import { formatDuration, formatSubscribers } from "../lib/types";
+  import { formatSubscribers } from "../lib/types";
   import Carousel from "./Carousel.svelte";
   import CoverImage from "./CoverImage.svelte";
 
@@ -186,45 +187,7 @@
             </div>
             <div class="track-list">
               {#each topFourSongs as track (track.id)}
-                {@const active = player.currentTrack?.id === track.id}
-                <div
-                  class="track-row"
-                  class:active
-                  role="button"
-                  tabindex="0"
-                  onclick={() => player.replaceQueueAndPlay([track], 0, `Search: ${player.searchQuery}`)}
-                  onkeydown={(e) =>
-                    e.key === "Enter" &&
-                    player.replaceQueueAndPlay([track], 0, `Search: ${player.searchQuery}`)}
-                >
-                  <CoverImage class="track-cover" src={track.cover_url} alt="" />
-                  <div class="track-meta">
-                    <span class="track-title">{track.title}</span>
-                    <span class="track-sub">{track.artist}{track.album ? ` • ${track.album}` : ""}</span>
-                  </div>
-                  <span class="muted numeric dur">{formatDuration(track.duration_secs)}</span>
-                  <button
-                    class="icon-btn"
-                    class:fav-active={player.isFavorite(track.id)}
-                    title="Favorite"
-                    onclick={(e) => {
-                      e.stopPropagation();
-                      player.toggleFavorite(track);
-                    }}
-                  >
-                    <Heart size={16} fill={player.isFavorite(track.id) ? "currentColor" : "none"} />
-                  </button>
-                  <button
-                    class="icon-btn"
-                    title="Add to queue"
-                    onclick={(e) => {
-                      e.stopPropagation();
-                      player.enqueueTrack(track);
-                    }}
-                  >
-                    <Plus size={16} />
-                  </button>
-                </div>
+                <TrackRow {track} onPlay={() => player.replaceQueueAndPlay([track], 0, `Search: ${player.searchQuery}`)} />
               {/each}
             </div>
           </section>
@@ -287,45 +250,7 @@
         <h2 class="section-title">Songs</h2>
         <div class="track-list">
           {#each results.tracks as track (track.id)}
-            {@const active = player.currentTrack?.id === track.id}
-            <div
-              class="track-row"
-              class:active
-              role="button"
-              tabindex="0"
-              onclick={() => player.replaceQueueAndPlay([track], 0, `Search: ${player.searchQuery}`)}
-              onkeydown={(e) =>
-                e.key === "Enter" &&
-                player.replaceQueueAndPlay([track], 0, `Search: ${player.searchQuery}`)}
-            >
-              <CoverImage class="track-cover" src={track.cover_url} alt="" />
-              <div class="track-meta">
-                <span class="track-title">{track.title}</span>
-                <span class="track-sub">{track.artist}{track.album ? ` • ${track.album}` : ""}</span>
-              </div>
-              <span class="muted numeric dur">{formatDuration(track.duration_secs)}</span>
-              <button
-                class="icon-btn"
-                class:fav-active={player.isFavorite(track.id)}
-                title="Favorite"
-                onclick={(e) => {
-                  e.stopPropagation();
-                  player.toggleFavorite(track);
-                }}
-              >
-                <Heart size={16} fill={player.isFavorite(track.id) ? "currentColor" : "none"} />
-              </button>
-              <button
-                class="icon-btn"
-                title="Add to queue"
-                onclick={(e) => {
-                  e.stopPropagation();
-                  player.enqueueTrack(track);
-                }}
-              >
-                <Plus size={16} />
-              </button>
-            </div>
+            <TrackRow {track} onPlay={() => player.replaceQueueAndPlay([track], 0, `Search: ${player.searchQuery}`)} />
           {/each}
         </div>
       </section>
@@ -595,10 +520,6 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     font-size: 13.5px;
-  }
-
-  .dur {
-    font-size: 12px;
   }
 
   @media (max-width: 780px) {

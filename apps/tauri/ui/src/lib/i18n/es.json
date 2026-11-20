@@ -17,6 +17,8 @@
   "header.settings": "Ajustes",
 
   "player.playing_from": "Reproduciendo desde",
+  "player.playing": "Reproduciendo",
+  "player.paused": "En pausa",
   "player.not_playing": "Sin reproducción",
   "player.nothing_playing": "Nada sonando",
   "player.select_song": "Elige una canción",
@@ -108,7 +110,7 @@
   "collection.empty_playlist": "Agrega canciones desde el historial reciente o resultados de búsqueda.",
   "collection.empty_title": "Esta playlist está vacía",
   "collection.explore_music": "Explorar música",
-  "collection.add_to_playlist": "Agregar a playlist:",
+  "collection.add_to_playlist": "Agregar a playlist",
   "collection.remove_from_playlist": "Quitar de la playlist",
   "collection.customize": "Personalizar",
   "collection.delete": "Eliminar",
@@ -148,7 +150,6 @@
   "artist.albums": "Álbumes",
   "artist.playlists": "Playlists",
   "artist.similar": "A los fans también les gusta",
-  "artist.about": "Acerca de {name}",
 
   "album.badge_album": "Álbum",
   "album.badge_playlist": "Playlist",

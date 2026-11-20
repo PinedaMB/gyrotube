@@ -71,7 +71,6 @@
 
       <AlbumTrackList
         title={resolvedTitle}
-        {isPlaylist}
         {tracks}
         {loading}
       />

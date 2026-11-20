@@ -88,7 +88,6 @@
       <PlaylistTrackList
         {mode}
         {playlist}
-        {title}
         {accentColor}
         {tracks}
         {sortBy}

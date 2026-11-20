@@ -32,7 +32,6 @@
     if (targetPx) return targetPx;
     if (
       className.includes("track-cover") ||
-      className.includes("tile-cover") ||
       className.includes("up-next-cover") ||
       className.includes("w-10")
     ) {

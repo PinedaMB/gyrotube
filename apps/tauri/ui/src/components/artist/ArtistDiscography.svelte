@@ -58,10 +58,3 @@
     {/each}
   </Carousel>
 {/if}
-
-{#if details.description}
-  <section class="max-w-3xl rounded-2xl p-5 bg-[var(--surface)] border border-[var(--border)] space-y-2">
-    <h3 class="text-[15px] font-bold">{t("artist.about", { name: details.name })}</h3>
-    <p class="text-[13.5px] leading-relaxed text-[var(--text-muted)]">{details.description}</p>
-  </section>
-{/if}

@@ -1,9 +1,8 @@
 <script lang="ts">
-  import { Heart, Plus, Volume2 } from "lucide-svelte";
+  import TrackRow from "../TrackRow.svelte";
   import { t } from "../../lib/i18n.svelte";
   import { player } from "../../lib/stores/player.svelte";
-  import { formatDuration, type Track } from "../../lib/types";
-  import CoverImage from "../CoverImage.svelte";
+  import type { Track } from "../../lib/types";
 
   let chartTab = $state<"trending" | "top">("trending");
 
@@ -42,52 +41,7 @@
 
     <div class="track-list">
       {#each chartTracks as track, i (track.id)}
-        {@const active = player.currentTrack?.id === track.id}
-        <div
-          class="track-row cursor-pointer max-md:!gap-2 max-md:!px-2 max-md:!py-1.5"
-          class:active
-          role="button"
-          tabindex="0"
-          onclick={() => player.replaceQueueAndPlay(chartTracks, i, "Trending hits")}
-          onkeydown={(e) => e.target === e.currentTarget && e.key === "Enter" && player.replaceQueueAndPlay(chartTracks, i, "Trending hits")}
-        >
-          <span class="w-6 max-md:w-5 text-center text-[12px] font-bold text-[var(--text-muted)] numeric shrink-0">
-            {#if active}
-              <Volume2 size={15} class="text-[var(--accent-bright)] mx-auto" />
-            {:else}
-              {String(i + 1).padStart(2, "0")}
-            {/if}
-          </span>
-          <CoverImage class="track-cover max-md:!w-9 max-md:!h-9" src={track.cover_url} alt="" />
-          <div class="track-meta">
-            <span class="track-title">{track.title}</span>
-            <span class="track-sub">{track.artist}</span>
-          </div>
-          <span class="hidden md:inline text-[12px] text-[var(--text-muted)] numeric mr-1">
-            {formatDuration(track.duration_secs)}
-          </span>
-          <button
-            class="icon-btn shrink-0 max-md:!h-11 max-md:!w-11"
-            class:fav-active={player.isFavorite(track.id)}
-            title="Favorite"
-            onclick={(e) => {
-              e.stopPropagation();
-              player.toggleFavorite(track);
-            }}
-          >
-            <Heart size={16} fill={player.isFavorite(track.id) ? "currentColor" : "none"} />
-          </button>
-          <button
-            class="icon-btn shrink-0 max-md:!h-11 max-md:!w-11"
-            title="Add to queue"
-            onclick={(e) => {
-              e.stopPropagation();
-              player.enqueueTrack(track);
-            }}
-          >
-            <Plus size={16} />
-          </button>
-        </div>
+        <TrackRow {track} number={i + 1} onPlay={() => player.replaceQueueAndPlay(chartTracks, i, t("home.trending_hits"))} />
       {/each}
     </div>
   </section>

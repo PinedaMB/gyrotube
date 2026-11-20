@@ -1,10 +1,9 @@
 <script lang="ts">
-  import { GripVertical, ListMusic, Plus, X } from "lucide-svelte";
+  import { GripVertical, ListMusic } from "lucide-svelte";
   import { fade } from "svelte/transition";
   import { t } from "../../lib/i18n.svelte";
   import { player } from "../../lib/stores/player.svelte";
-  import { formatDuration } from "../../lib/types";
-  import CoverImage from "../CoverImage.svelte";
+  import TrackRow from "../TrackRow.svelte";
 
   let dragFrom = $state<number | null>(null);
   let dragOverIdx = $state<number | null>(null);
@@ -31,16 +30,13 @@
       <p class="text-[13px]">{t("queue.empty")}</p>
     </div>
   {:else}
-    <div class="track-list">
+    <div class="track-list" role="list">
       {#each player.queue as track, i (track.id + ":" + i)}
         {@const isCurrent = player.currentIndex === i}
         <div
-          class="group flex items-center gap-2 px-2.5 py-2 border-b border-[var(--border)] last:border-b-0 cursor-pointer transition-colors {isCurrent
-            ? 'bg-[var(--accent-soft)]'
-            : 'hover:bg-[var(--surface-hover)]'} {dragOverIdx === i ? 'border-t-2 border-t-[var(--accent-bright)]' : ''}"
+          class={dragOverIdx === i ? "outline -outline-offset-1 outline-[var(--accent-bright)]" : ""}
+          role="listitem"
           draggable="true"
-          role="button"
-          tabindex="0"
           ondragstart={() => (dragFrom = i)}
           ondragover={(e) => {
             e.preventDefault();
@@ -58,36 +54,18 @@
             dragFrom = null;
             dragOverIdx = null;
           }}
-          onclick={() => void player.playIndex(i)}
-          onkeydown={(e) => e.key === "Enter" && void player.playIndex(i)}
         >
-          <GripVertical size={13} class="text-[var(--text-muted)]/45 cursor-grab shrink-0" />
-          <CoverImage class="track-cover !w-9 !h-9 !rounded-md" src={track.cover_url} alt="" />
-          <div class="track-meta">
-            <span class="track-title !text-[12.5px] {isCurrent ? '!text-[var(--accent-bright)] !font-bold' : ''}">
-              {track.title}
-            </span>
-            <span class="track-sub !text-[11px]">{track.artist}</span>
-          </div>
-          {#if isCurrent && player.isPlaying}
-            <span class="eq-bars shrink-0" aria-label="Playing">
-              <span></span><span></span><span></span>
-            </span>
-          {:else}
-            <span class="text-[11px] text-[var(--text-muted)] numeric shrink-0">
-              {formatDuration(track.duration_secs)}
-            </span>
-          {/if}
-          <button
-            class="icon-btn !w-6 !h-6 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
-            title="Remove from queue"
-            onclick={(e) => {
-              e.stopPropagation();
-              player.removeQueueIndex(i);
-            }}
+          <TrackRow
+            {track}
+            active={isCurrent}
+            onPlay={() => void player.playIndex(i)}
+            onRemove={() => player.removeQueueIndex(i)}
+            removeLabel={t("queue.remove")}
           >
-            <X size={13} />
-          </button>
+            {#snippet leading()}
+              <GripVertical size={13} class="shrink-0 cursor-grab text-[var(--text-muted)]" aria-hidden="true" />
+            {/snippet}
+          </TrackRow>
         </div>
       {/each}
     </div>
@@ -124,70 +102,8 @@
     </h4>
     <div class="track-list">
       {#each player.suggestedTracks as track (track.id)}
-        <div class="flex items-center gap-2.5 px-2.5 py-2 border-b border-[var(--border)] last:border-b-0 hover:bg-[var(--surface-hover)] transition-colors">
-          <CoverImage class="track-cover !w-9 !h-9 !rounded-md" src={track.cover_url} alt="" />
-          <div class="track-meta">
-            <span class="track-title !text-[12.5px]">{track.title}</span>
-            <span class="track-sub !text-[11px]">{track.artist}</span>
-          </div>
-          <button
-            class="icon-btn !w-7 !h-7 shrink-0"
-            title="Add to queue"
-            onclick={() => player.enqueueTrack(track)}
-          >
-            <Plus size={15} />
-          </button>
-        </div>
+        <TrackRow {track} onPlay={() => player.replaceQueueAndPlay([track], 0, t("queue.suggestions"))} />
       {/each}
     </div>
   {/if}
 </div>
-
-<style>
-  .eq-bars {
-    display: inline-flex;
-    align-items: flex-end;
-    gap: 2.5px;
-    height: 14px;
-    padding-bottom: 1px;
-  }
-
-  .eq-bars span {
-    width: 3px;
-    height: 100%;
-    border-radius: 2px;
-    background: var(--accent-bright);
-    transform-origin: bottom center;
-    will-change: transform;
-  }
-
-  .eq-bars span:nth-child(1) {
-    animation: eq-bar-1 0.85s ease-in-out infinite;
-  }
-
-  .eq-bars span:nth-child(2) {
-    animation: eq-bar-2 0.72s ease-in-out infinite;
-  }
-
-  .eq-bars span:nth-child(3) {
-    animation: eq-bar-3 0.95s ease-in-out infinite;
-  }
-
-  @keyframes eq-bar-1 {
-    0%, 100% { transform: scaleY(0.25); }
-    45% { transform: scaleY(0.95); }
-    75% { transform: scaleY(0.45); }
-  }
-
-  @keyframes eq-bar-2 {
-    0%, 100% { transform: scaleY(0.9); }
-    35% { transform: scaleY(0.3); }
-    68% { transform: scaleY(1); }
-  }
-
-  @keyframes eq-bar-3 {
-    0%, 100% { transform: scaleY(0.4); }
-    50% { transform: scaleY(0.85); }
-    80% { transform: scaleY(0.22); }
-  }
-</style>

@@ -95,7 +95,7 @@
       onEditPlaylist={openEditModal}
     />
 
-    <CollectionRecentlyPlayed onCreatePlaylist={openCreateModal} />
+    <CollectionRecentlyPlayed />
   </div>
 {/if}
 

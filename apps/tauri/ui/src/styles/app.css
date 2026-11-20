@@ -236,30 +236,8 @@
   overflow: hidden;
 }
 
-.track-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 9px 14px;
-  border-bottom: 1px solid var(--border);
-  transition: background-color 130ms ease;
-}
-
-.track-row:last-child {
-  border-bottom: none;
-}
-
-.track-row:hover {
-  background: var(--surface-hover);
-}
-
-.track-row.active {
-  background: var(--accent-soft);
-}
-
-.track-row.active .track-title {
-  color: var(--accent-bright);
-  font-weight: 700;
+.track-list > * + * {
+  border-top: 1px solid var(--border);
 }
 
 .track-cover {
@@ -327,14 +305,6 @@
 }
 
 /* Shared cover image sizing (used by CoverImage component across views) */
-.tile-cover {
-  width: 48px;
-  height: 48px;
-  border-radius: 8px;
-  object-fit: cover;
-  flex-shrink: 0;
-}
-
 .hero-cover {
   width: 148px;
   height: 148px;

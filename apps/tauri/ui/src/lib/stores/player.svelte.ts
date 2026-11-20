@@ -31,6 +31,7 @@ class PlayerStore {
   spinOpen = $state(false);
   partyMode = $state(false);
   settingsOpen = $state(false);
+  playlistDraftTrack = $state<Track | null>(null);
 
   // Playback state
   queue = $state<Track[]>([]);
@@ -729,6 +730,7 @@ class PlayerStore {
     description = "",
     colorHex: string | null = "#2190a4",
     iconName: string | null = null,
+    tracks: Track[] = [],
   ): UserPlaylist {
     const clean = name.trim() || "New playlist";
     const pl: UserPlaylist = {
@@ -738,7 +740,7 @@ class PlayerStore {
       color_hex: colorHex,
       icon_name: iconName,
       cover_path: null,
-      tracks: [],
+      tracks,
     };
     this.userPlaylists = [pl, ...this.userPlaylists];
     if (isTauriRuntime()) void api.saveUserPlaylists(this.userPlaylists);

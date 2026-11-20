@@ -6,6 +6,7 @@
   import AlbumView from "./components/AlbumView.svelte";
   import ArtistView from "./components/ArtistView.svelte";
   import CollectionView from "./components/CollectionView.svelte";
+  import CollectionPlaylistModal from "./components/collection/CollectionPlaylistModal.svelte";
   import CoverImage from "./components/CoverImage.svelte";
   import ExploreView from "./components/ExploreView.svelte";
   import HeaderBar from "./components/HeaderBar.svelte";
@@ -164,6 +165,18 @@
 
   <SettingsModal />
   <SpinModal />
+  {#if player.playlistDraftTrack}
+    <CollectionPlaylistModal
+      open={true}
+      editing={null}
+      onClose={() => (player.playlistDraftTrack = null)}
+      onSave={({ name, description, colorHex, iconName }) => {
+        const track = player.playlistDraftTrack;
+        if (!track) return;
+        player.createUserPlaylist(name, description, colorHex, iconName, [track]);
+      }}
+    />
+  {/if}
 
   {#if player.toasts.length > 0}
     <div

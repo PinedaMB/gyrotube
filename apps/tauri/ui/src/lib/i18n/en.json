@@ -17,6 +17,8 @@
   "header.settings": "Settings",
 
   "player.playing_from": "Playing from",
+  "player.playing": "Playing",
+  "player.paused": "Paused",
   "player.not_playing": "Not playing",
   "player.nothing_playing": "Nothing playing",
   "player.select_song": "Select a song",
@@ -108,7 +110,7 @@
   "collection.empty_playlist": "Add songs from Recently played or search results.",
   "collection.empty_title": "This playlist is empty",
   "collection.explore_music": "Explore music",
-  "collection.add_to_playlist": "Add to playlist:",
+  "collection.add_to_playlist": "Add to playlist",
   "collection.remove_from_playlist": "Remove from playlist",
   "collection.customize": "Customize",
   "collection.delete": "Delete",
@@ -148,7 +150,6 @@
   "artist.albums": "Albums",
   "artist.playlists": "Playlists",
   "artist.similar": "Fans might also like",
-  "artist.about": "About {name}",
 
   "album.badge_album": "Album",
   "album.badge_playlist": "Playlist",
