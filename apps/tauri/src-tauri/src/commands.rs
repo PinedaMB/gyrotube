@@ -332,7 +332,7 @@ pub async fn resolve_audio_stream(
 
 #[tauri::command]
 pub async fn prefetch_audio(state: State<'_, AppCoreState>, track: Track) -> Result<(), String> {
-    state.backend.prefetch_audio(&track).await;
+    state.backend.resolve_track_stream(&track).await?;
     Ok(())
 }
 

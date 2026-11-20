@@ -170,6 +170,9 @@ class PlayerStore {
       // Restore metadata, ambient color, and lyrics for the saved track (without auto-playing)
       const restored = this.currentTrack;
       if (restored) {
+        void api.prefetchAudio(restored).catch(() => {
+          // Playback retries if the background preparation fails.
+        });
         this.durationSecs = restored.duration_secs ?? 0;
         const cover = restored.cover_large_url || restored.cover_url;
         if (cover) {
