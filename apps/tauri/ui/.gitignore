@@ -29,4 +29,4 @@ benchmarking/compare/.results
 benchmarking/compare/.profiles
 benchmarking/compare/results.html
 
-./dist
+dist/
