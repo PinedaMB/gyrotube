@@ -84,7 +84,7 @@
   style="background-image: radial-gradient(ellipse at 26% 36%, rgba(var(--ambient-rgb), 0.34) 0%, rgba(var(--ambient-rgb), 0.1) 42%, transparent 74%);"
 >
   <!-- Top bar -->
-  <header class="shrink-0 flex items-center justify-between px-7 py-5">
+  <header class="shrink-0 flex items-center justify-between px-4 sm:px-7 py-4 sm:py-5">
     <div class="flex items-center gap-3 min-w-0">
       <span
         class="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[12px] font-bold tracking-wide bg-[var(--accent-soft)] text-[var(--accent-bright)] border border-[var(--accent-border)]/50"
@@ -107,13 +107,13 @@
   </header>
 
   <!-- Main 2-column stage -->
-  <div class="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-[440px_minmax(0,1fr)] gap-10 px-10 pb-8 max-w-[1440px] w-full mx-auto">
+  <div class="flex-1 min-h-0 overflow-y-auto lg:overflow-hidden grid grid-cols-1 lg:grid-cols-[440px_minmax(0,1fr)] gap-8 lg:gap-10 px-5 sm:px-8 lg:px-10 pb-8 max-w-[1440px] w-full mx-auto">
     <!-- Left column: Art + Info + Controls + Up Next -->
     <div class="flex flex-col items-center justify-center gap-5">
       {#key player.currentTrack?.id ?? "none"}
         <div in:scale={{ start: 0.94, duration: 280, easing: cubicOut }}>
           <CoverImage
-            class="party-cover !w-[292px] !h-[292px] !rounded-[22px] border border-white/12 shadow-[0_26px_64px_rgba(0,0,0,0.58)]"
+            class="party-cover !w-[210px] !h-[210px] sm:!w-[260px] sm:!h-[260px] lg:!w-[292px] lg:!h-[292px] !rounded-[22px] border border-white/12 shadow-[0_26px_64px_rgba(0,0,0,0.58)]"
             src={player.currentTrack?.cover_large_url}
             fallbackSrc={player.currentTrack?.cover_url}
             alt={player.currentTrack?.title ?? ""}

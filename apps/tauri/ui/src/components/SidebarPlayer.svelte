@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { ChevronRight, ListMusic, MessageSquareQuote, Music } from "lucide-svelte";
+  import { ChevronDown, ChevronRight, ListMusic, MessageSquareQuote, Music } from "lucide-svelte";
   import { t } from "../lib/i18n.svelte";
   import { player } from "../lib/stores/player.svelte";
   import SidebarLyricsPane from "./sidebar/SidebarLyricsPane.svelte";
@@ -34,7 +34,7 @@
 </script>
 
 <aside
-  class="w-[388px] shrink-0 h-full flex flex-col border-l border-[var(--border)] bg-[var(--bg-sidebar)] overflow-hidden relative select-none"
+  class="w-full md:w-[388px] lg:w-[360px] xl:w-[388px] shrink-0 h-full flex flex-col border-l max-md:border-l-0 border-[var(--border)] bg-[var(--bg-sidebar)] overflow-hidden relative select-none"
   style="background-image: linear-gradient(180deg, rgba(var(--ambient-rgb), 0.22) 0%, rgba(var(--ambient-rgb), 0.08) 52%, transparent 100%);"
 >
   <!-- Top context bar -->
@@ -47,7 +47,8 @@
         void player.persistSession();
       }}
     >
-      <ChevronRight size={19} />
+      <ChevronDown size={20} class="md:hidden" />
+      <ChevronRight size={19} class="hidden md:block" />
     </button>
     <div class="min-w-0 flex flex-col leading-tight text-right">
       <span class="text-[11.5px] font-medium text-[var(--text-muted)]">{t("player.playing_from")}</span>
@@ -73,7 +74,10 @@
   </div>
 
   <!-- Bottom tab bar -->
-  <nav class="shrink-0 grid grid-cols-3 gap-1.5 px-3 py-2.5 border-t border-[var(--border)] bg-[var(--bg-sidebar)]">
+  <nav
+    class="shrink-0 grid grid-cols-3 gap-1.5 px-3 py-2.5 border-t border-[var(--border)] bg-[var(--bg-sidebar)]"
+    style="padding-bottom: max(0.625rem, env(safe-area-inset-bottom));"
+  >
     <button
       class="flex items-center justify-center gap-1.5 py-2 rounded-xl text-[13px] font-semibold border transition-colors {player.sidebarTab === 'player'
         ? 'bg-[var(--accent-soft)] border-[var(--accent-border)] text-[var(--accent-bright)]'

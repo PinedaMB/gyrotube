@@ -46,7 +46,7 @@
     <NavSidebar />
 
     <!-- Center scrollable main view -->
-    <main class="flex-1 min-w-0 h-full overflow-y-auto ambient-surface scroll-y max-md:pb-16">
+    <main class="flex-1 min-w-0 h-full overflow-y-auto overflow-x-hidden ambient-surface scroll-y max-md:pb-24">
       {#key viewKey}
         <div in:fly={{ y: 10, duration: 220, easing: cubicOut }}>
           {#if player.activeView.kind === "home"}
@@ -72,9 +72,21 @@
       {/key}
     </main>
 
-    <!-- Right player sidebar -->
+    <!-- Right player sidebar (docked on lg+, full-height slide-over sheet on < lg) -->
     {#if player.sidebarOpen}
-      <div class="h-full shrink-0" transition:fly={{ x: 24, duration: 220, easing: cubicOut }}>
+      <div
+        class="lg:hidden fixed inset-0 z-40 bg-black/55 backdrop-blur-sm"
+        role="presentation"
+        transition:fade={{ duration: 160 }}
+        onclick={() => {
+          player.sidebarOpen = false;
+          void player.persistSession();
+        }}
+      ></div>
+      <div
+        class="h-full shrink-0 max-lg:fixed max-lg:inset-y-0 max-lg:right-0 max-lg:z-50 max-md:inset-0"
+        transition:fly={{ x: 28, duration: 220, easing: cubicOut }}
+      >
         <SidebarPlayer />
       </div>
     {/if}
@@ -83,14 +95,14 @@
   {#if !player.sidebarOpen && player.currentTrack}
     <div
       transition:fly={{ y: 24, duration: 240, easing: cubicOut }}
-      class="fixed bottom-5 max-md:bottom-16 left-1/2 -translate-x-1/2 z-40 w-[min(560px,calc(100vw-32px))] flex items-center gap-2.5 px-3.5 py-2 rounded-full bg-[var(--bg-elevated)]/95 backdrop-blur-xl border border-[var(--border-strong)] shadow-2xl"
+      class="fixed bottom-5 max-md:bottom-[66px] left-1/2 -translate-x-1/2 z-30 w-[min(560px,calc(100vw-24px))] flex items-center gap-2 sm:gap-2.5 px-3 sm:px-3.5 py-2 rounded-full bg-[var(--bg-elevated)]/95 backdrop-blur-xl border border-[var(--border-strong)] shadow-2xl"
     >
       <button
         class="flex-1 min-w-0 flex items-center gap-2.5 text-left"
         onclick={() => (player.sidebarOpen = true)}
       >
         <CoverImage
-          class="w-10 h-10 rounded-lg object-cover shrink-0"
+          class="w-10 h-10 !rounded-[8px] object-cover shrink-0"
           src={player.currentTrack.cover_url}
           alt=""
         />
@@ -110,7 +122,7 @@
           fill={player.isFavorite(player.currentTrack.id) ? "currentColor" : "none"}
         />
       </button>
-      <button class="icon-btn" title="Previous" onclick={() => void player.prev()}>
+      <button class="icon-btn hidden sm:inline-flex" title="Previous" onclick={() => void player.prev()}>
         <SkipBack size={17} fill="currentColor" />
       </button>
       <button

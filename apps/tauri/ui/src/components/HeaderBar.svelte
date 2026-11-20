@@ -5,9 +5,11 @@
 </script>
 
 <header
-  class="h-14 shrink-0 z-30 grid grid-cols-[1fr_minmax(240px,500px)_1fr] items-center gap-3 px-4 bg-[var(--bg-elevated)]/95 backdrop-blur-md border-b border-[var(--border)] select-none"
+  class="h-14 shrink-0 z-30 flex md:grid md:grid-cols-[1fr_minmax(240px,500px)_1fr] items-center gap-2 md:gap-3 px-3 md:px-4 bg-[var(--bg-elevated)]/95 backdrop-blur-md border-b border-[var(--border)] select-none"
 >
   <HeaderBrand />
-  <HeaderSearch />
+  <div class="flex-1 min-w-0 md:w-full">
+    <HeaderSearch />
+  </div>
   <HeaderActions />
 </header>

@@ -415,6 +415,10 @@
     margin-bottom: 22px;
   }
 
+  .overview-col {
+    min-width: 0;
+  }
+
   .col-head {
     display: flex;
     align-items: center;
@@ -594,7 +598,7 @@
 
   @media (max-width: 780px) {
     .overview-grid {
-      grid-template-columns: 1fr;
+      grid-template-columns: minmax(0, 1fr);
     }
     .genre-grid {
       grid-template-columns: repeat(2, minmax(0, 1fr));

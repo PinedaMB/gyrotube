@@ -158,6 +158,11 @@ class PlayerStore {
       this.language = s.language ?? "Auto";
       this.themeMode = (s.theme_mode as ThemeMode) || "system";
 
+      // On compact / mobile viewports, keep the player sheet closed on startup so Home is visible
+      if (typeof window !== "undefined" && window.innerWidth < 1024) {
+        this.sidebarOpen = false;
+      }
+
       this.engine.setVolume(this.volume);
       this.engine.setCrossfadeSecs(this.crossfadeSecs);
       this.applyTheme(this.themeMode);

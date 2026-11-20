@@ -140,7 +140,8 @@
 
 <!-- Mobile bottom navigation bar (< md) -->
 <nav
-  class="md:hidden fixed bottom-0 left-0 right-0 z-30 h-14 grid grid-cols-3 bg-[var(--bg-elevated)]/95 backdrop-blur-lg border-t border-[var(--border)] px-2"
+  class="md:hidden fixed bottom-0 left-0 right-0 z-30 min-h-14 grid grid-cols-3 bg-[var(--bg-elevated)]/95 backdrop-blur-lg border-t border-[var(--border)] px-2"
+  style="padding-bottom: env(safe-area-inset-bottom);"
   aria-label="Mobile navigation"
 >
   <button

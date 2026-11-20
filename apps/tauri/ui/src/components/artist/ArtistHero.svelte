@@ -45,7 +45,7 @@
   }
 </script>
 
-<section class="relative w-full min-h-[420px] sm:min-h-[480px] flex flex-col justify-between overflow-hidden">
+<section class="relative w-full min-h-[340px] sm:min-h-[440px] flex flex-col justify-between overflow-hidden">
   {#if details?.header_url}
     <!-- Edge-to-edge full-width banner dissolving smoothly at the bottom into the page background -->
     <div
@@ -84,7 +84,7 @@
       </button>
     </div>
 
-    <div class="mt-24 max-w-2xl space-y-2.5">
+    <div class="mt-14 sm:mt-24 max-w-2xl space-y-2.5">
       <h1 class="text-[38px] sm:text-[50px] font-black tracking-[-0.035em] leading-[1.04] text-white drop-shadow-[0_2px_14px_rgba(0,0,0,0.45)]">
         {details?.name ?? artistName}
       </h1>

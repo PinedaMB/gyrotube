@@ -8,7 +8,7 @@
   );
 </script>
 
-<div class="justify-self-end flex items-center gap-1.5">
+<div class="justify-self-end flex items-center gap-0.5 sm:gap-1.5 shrink-0">
   <button
     type="button"
     class="icon-btn relative"
@@ -29,7 +29,7 @@
 
   <button
     type="button"
-    class="icon-btn"
+    class="icon-btn hidden sm:inline-flex"
     class:active={player.partyMode}
     title={t("header.party_mode")}
     onclick={() => (player.partyMode = !player.partyMode)}
@@ -37,7 +37,7 @@
     <PartyPopper size={18} />
   </button>
 
-  <span class="w-px h-5 bg-[var(--border-strong)] mx-1" aria-hidden="true"></span>
+  <span class="hidden sm:block w-px h-5 bg-[var(--border-strong)] mx-1" aria-hidden="true"></span>
 
   <button
     type="button"
@@ -51,7 +51,7 @@
 
   <button
     type="button"
-    class="icon-btn"
+    class="icon-btn hidden md:inline-flex"
     class:active={player.sidebarOpen}
     title={t("header.toggle_sidebar")}
     onclick={() => {
