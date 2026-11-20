@@ -2,8 +2,9 @@ import { defineConfig } from "vite";
 import { svelte } from "@sveltejs/vite-plugin-svelte";
 import tailwindcss from "@tailwindcss/vite";
 
-export default defineConfig({
-  plugins: [tailwindcss(), svelte()],
+export default defineConfig(({ command }) => ({
+  // A cold virtual CSS request can fall back to the raw .svelte file in Vite dev.
+  plugins: [tailwindcss(), svelte({ emitCss: command === "build" })],
   clearScreen: false,
   server: {
     port: 1420,
@@ -23,4 +24,4 @@ export default defineConfig({
       },
     },
   },
-});
+}));

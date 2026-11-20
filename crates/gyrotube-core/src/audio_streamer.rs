@@ -240,7 +240,7 @@ impl AudioStreamer {
         let mut resp = req
             .send()
             .await
-            .map_err(|e| format!("Initial audio block request failed: {e}"))?;
+            .map_err(|e| format!("Initial audio block request failed: {}", e.without_url()))?;
         let status = resp.status();
         if !status.is_success() {
             return Err(format!("Initial audio block returned HTTP {status}"));
@@ -319,7 +319,7 @@ impl AudioStreamer {
                         });
                     }
                     Err(e) => {
-                        fatal_err = Some(format!("Network error reading block 0: {e}"));
+                        fatal_err = Some(format!("Network error reading block 0: {}", e.without_url()));
                         break;
                     }
                 }
@@ -713,7 +713,7 @@ async fn fetch_range_block_url(
                 match resp.bytes().await {
                     Ok(b) if b.len() as u64 == last - first + 1 => return Ok((b.to_vec(), total)),
                     Ok(_) => last_err = format!("Incomplete audio block {start}-{end}"),
-                    Err(e) => last_err = format!("Error reading block {start}-{end}: {e}"),
+                    Err(e) => last_err = format!("Error reading block {start}-{end}: {}", e.without_url()),
                 }
             }
             Ok(resp) if resp.status() == reqwest::StatusCode::RANGE_NOT_SATISFIABLE => {
@@ -723,7 +723,7 @@ async fn fetch_range_block_url(
                 last_err = format!("Block {start}-{end} HTTP {}", resp.status());
             }
             Err(e) => {
-                last_err = format!("Block {start}-{end} failed: {e}");
+                last_err = format!("Block {start}-{end} failed: {}", e.without_url());
             }
         }
         if attempt < 3 {

@@ -808,7 +808,7 @@ impl Backend {
     async fn extract_fast_ios_stream(
         &self,
         video_id: &str,
-    ) -> Option<(StreamInfo, &'static str, Option<u64>)> {
+    ) -> Result<(StreamInfo, &'static str, Option<u64>), String> {
         use rustypipe::client::ClientType;
         use rustypipe::model::AudioFormat;
         let started = Instant::now();
@@ -817,11 +817,12 @@ impl Backend {
             self.rp.query().player_from_client(video_id, ClientType::Ios),
         )
         .await
-        .ok()?
-        .ok()?;
+        .map_err(|_| "Tiempo de espera agotado al consultar el reproductor".to_string())?
+        .map_err(|_| "No se pudo consultar el reproductor".to_string())?;
         // Require itag 251 (Opus WebM ~160kbps) for the fast-start iOS path so byte offsets
         // match the background visionos handover identically to the single byte.
-        let stream = player.audio_streams.iter().find(|s| s.itag == 251)?;
+        let stream = player.audio_streams.iter().find(|s| s.itag == 251)
+            .ok_or_else(|| "El reproductor no ofreció audio WebM".to_string())?;
         let ext = match stream.format {
             AudioFormat::M4a => "m4a",
             _ => "webm",
@@ -833,7 +834,7 @@ impl Backend {
         headers.insert("User-Agent".to_string(), ua.clone());
         let size = (stream.size > 0).then_some(stream.size);
         log_audio_timing(video_id, "extraccion-ios-rapida", started);
-        Some((
+        Ok((
             StreamInfo {
                 url: stream.url.clone(),
                 quality_label,
@@ -850,7 +851,7 @@ impl Backend {
     async fn extract_visionos_stream(
         &self,
         video_id: &str,
-    ) -> Option<(StreamInfo, &'static str, Option<u64>)> {
+    ) -> Result<(StreamInfo, &'static str, Option<u64>), String> {
         const USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 15_7_3) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15";
         let response: serde_json::Value = self.http
             .post("https://www.youtube.com/youtubei/v1/player?prettyPrint=false")
@@ -866,19 +867,27 @@ impl Backend {
                 } },
                 "videoId": video_id,
             }))
-            .send().await.ok()?.error_for_status().ok()?.json().await.ok()?;
-        let formats = response["streamingData"]["adaptiveFormats"].as_array()?;
+            .send().await.and_then(reqwest::Response::error_for_status)
+            .map_err(|err| err.without_url().to_string())?
+            .json().await.map_err(|err| err.without_url().to_string())?;
+        let formats = response["streamingData"]["adaptiveFormats"].as_array().ok_or_else(|| {
+            let status = response["playabilityStatus"]["status"].as_str()
+                .filter(|status| status.len() <= 40 && status.bytes().all(|b| b.is_ascii_uppercase() || b == b'_'));
+            format!("El reproductor no ofreció audio ({})", status.unwrap_or("SIN_FORMATOS"))
+        })?;
         for (itag, extension) in [(251, "webm"), (140, "m4a")] {
             let Some(format) = formats.iter().find(|f| f["itag"].as_u64() == Some(itag) && f["url"].is_string()) else {
                 continue;
             };
-            let url = reqwest::Url::parse(format["url"].as_str()?).ok()?;
+            let Some(url) = format["url"].as_str().and_then(|url| reqwest::Url::parse(url).ok()) else {
+                continue;
+            };
             if url.scheme() != "https" || !url.host_str().is_some_and(|host| host.ends_with(".googlevideo.com")) {
                 continue;
             }
             let size = format["contentLength"].as_str().and_then(|v| v.parse().ok());
             let kbps = format["bitrate"].as_u64().unwrap_or(128_000) / 1000;
-            return Some((StreamInfo {
+            return Ok((StreamInfo {
                 url: url.into(),
                 quality_label: format!("{kbps}kbps ({})", extension.to_uppercase()),
                 user_agent: Some(USER_AGENT.into()),
@@ -886,7 +895,7 @@ impl Backend {
                 local_audio: None,
             }, extension, size));
         }
-        None
+        Err("El reproductor no ofreció una URL directa de audio compatible".into())
     }
 
     async fn resolve_audio_stream(&self, video_id: &str) -> Result<StreamInfo, String> {
@@ -905,22 +914,40 @@ impl Backend {
         let streamer = crate::audio_streamer::AudioStreamer::global().await?;
 
         #[cfg(target_os = "android")]
-        if let Some((remote, ext, size_hint)) = self.extract_visionos_stream(video_id).await
-            && let Ok(local_stream) = streamer
-                .start_chunked_http_stream(video_id, remote, ext, size_hint, &streams_dir)
-                .await
         {
-            if let Ok(mut cache) = self.stream_cache.write() {
-                cache.retain(|_, (ts, s)| stream_url_is_fresh(*ts, s));
-                cache.insert(video_id.to_owned(), (Instant::now(), local_stream.clone()));
+            for source in ["visionOS", "iOS"] {
+                let extracted = if source == "visionOS" {
+                    self.extract_visionos_stream(video_id).await
+                } else {
+                    self.extract_fast_ios_stream(video_id).await
+                };
+                let (remote, ext, size_hint) = match extracted {
+                    Ok(stream) => stream,
+                    Err(err) => {
+                        eprintln!("[audio-android] id={video_id} fuente={source} extracción: {err}");
+                        continue;
+                    }
+                };
+                match streamer.start_chunked_http_stream(video_id, remote, ext, size_hint, &streams_dir).await {
+                    Ok(local_stream) => {
+                        if let Ok(mut cache) = self.stream_cache.write() {
+                            cache.retain(|_, (ts, s)| stream_url_is_fresh(*ts, s));
+                            cache.insert(video_id.to_owned(), (Instant::now(), local_stream.clone()));
+                        }
+                        return Ok(local_stream);
+                    }
+                    Err(err) => eprintln!("[audio-android] id={video_id} fuente={source} descarga: {err}"),
+                }
             }
-            return Ok(local_stream);
+            Err("No se pudo resolver el flujo de audio (Android).".to_string())
         }
 
+        #[cfg(not(target_os = "android"))]
+        {
         // Fast-path: extract stream via pure-Rust iOS client (~140-250ms, no Python/Node startup)
         // to serve the initial audio blocks immediately while AudioStreamer transparently refreshes
         // the URL via visionos in the background before the 1 MB iOS limit.
-        if let Some((fast_remote, ext, size_hint)) = self.extract_fast_ios_stream(video_id).await
+        if let Ok((fast_remote, ext, size_hint)) = self.extract_fast_ios_stream(video_id).await
             && let Ok(local_stream) = streamer
                 .start_chunked_http_stream(video_id, fast_remote, ext, size_hint, &streams_dir)
                 .await
@@ -932,15 +959,8 @@ impl Backend {
             return Ok(local_stream);
         }
 
-        #[cfg(target_os = "android")]
-        {
-            return Err("No se pudo resolver el flujo de audio (Android).".to_string());
-        }
-
         // Fallback: extract stream URL via yt-dlp excluding tv_samsung (which triggers 6s ad / 403)
         // and skipping HLS/DASH manifest downloads.
-        #[cfg(not(target_os = "android"))]
-        {
         let mut cmd = tokio::process::Command::new("yt-dlp");
         cmd.kill_on_drop(true)
             .args([
