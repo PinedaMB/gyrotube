@@ -12,6 +12,7 @@
   } from "lucide-svelte";
   import { onMount } from "svelte";
   import { api, isTauriRuntime } from "../../lib/api";
+  import { t } from "../../lib/i18n.svelte";
   import { player } from "../../lib/stores/player.svelte";
   import type { Genre } from "../../lib/types";
 
@@ -126,7 +127,7 @@
 {#if stations.length > 0}
   <section bind:this={sectionEl} class="mt-6 flex flex-col gap-3">
     <div class="flex items-center justify-between gap-3">
-      <h2 class="section-title">Stations &amp; genres</h2>
+      <h2 class="section-title">{t("home.stations_title")}</h2>
       <button
         class="text-[12.5px] font-semibold text-[var(--accent-bright)] hover:underline"
         onclick={() => {
@@ -134,7 +135,7 @@
           player.navigateTab("explore");
         }}
       >
-        See all →
+        {t("home.see_all")}
       </button>
     </div>
 
@@ -177,7 +178,7 @@
               class="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-black/40 backdrop-blur-sm"
               style="color: {c};"
             >
-              Station
+              {t("home.station_badge")}
             </span>
             <span class="opacity-90" style="color: {c};">
               {#if icon === "moon"}
@@ -203,7 +204,7 @@
               {genre.name}
             </h3>
             <p class="text-[12px] text-white/75 mt-0.5 line-clamp-1">
-              Curated playlists &amp; mixes for this style.
+              {t("home.station_sub")}
             </p>
           </div>
 
@@ -212,7 +213,7 @@
               class="inline-flex items-center gap-1 text-[12px] font-bold group-hover:translate-x-0.5 transition-transform"
               style="color: {c};"
             >
-              Explore station
+              {t("home.explore_station")}
               <ArrowRight size={13} />
             </span>
             <button

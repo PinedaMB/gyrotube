@@ -1,5 +1,6 @@
 <script lang="ts">
   import { Heart, Pencil, Play } from "lucide-svelte";
+  import { t } from "../../lib/i18n.svelte";
   import { player } from "../../lib/stores/player.svelte";
   import type { UserPlaylist } from "../../lib/types";
   import PlaylistIcon from "./PlaylistIcon.svelte";
@@ -14,7 +15,7 @@
 </script>
 
 <section class="mt-6 flex flex-col gap-3">
-  <h2 class="section-title">Local playlists</h2>
+  <h2 class="section-title">{t("collection.local_playlists")}</h2>
 
   <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
     <!-- Favorites card -->
@@ -33,9 +34,11 @@
         <Heart size={20} fill="currentColor" />
       </span>
       <div class="min-w-0 flex-1">
-        <strong class="block text-[14.5px] font-bold truncate">Favorites</strong>
+        <strong class="block text-[14.5px] font-bold truncate">{t("collection.favorites")}</strong>
         <span class="block text-[12px] text-[var(--text-muted)]">
-          {player.favorites.length} {player.favorites.length === 1 ? "song" : "songs"}
+          {player.favorites.length === 1
+            ? t("collection.song_one")
+            : t("collection.song_many", { count: player.favorites.length })}
         </span>
       </div>
       <button

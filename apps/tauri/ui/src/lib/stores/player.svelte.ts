@@ -26,6 +26,7 @@ class PlayerStore {
   activeTab = $state<MainTab>("home");
   activeView = $state<ActiveView>({ kind: "home" });
   sidebarOpen = $state(true);
+  navCollapsed = $state(false);
   sidebarTab = $state<"player" | "lyrics" | "queue">("player");
   spinOpen = $state(false);
   partyMode = $state(false);
@@ -275,6 +276,11 @@ class PlayerStore {
     void this.persistSession();
   }
 
+  public setLanguage(lang: AppLanguage): void {
+    this.language = lang;
+    void this.persistSession();
+  }
+
   public setCrossfadeSecs(secs: number): void {
     this.crossfadeSecs = Math.max(0, Math.min(10, Math.round(secs)));
     this.engine.setCrossfadeSecs(this.crossfadeSecs);
@@ -372,6 +378,11 @@ class PlayerStore {
   public clearSearchHistory(): void {
     this.searchHistory = [];
     if (isTauriRuntime()) void api.saveSearchHistory([]);
+  }
+
+  public removeSearchHistoryItem(term: string): void {
+    this.searchHistory = this.searchHistory.filter((item) => item !== term);
+    if (isTauriRuntime()) void api.saveSearchHistory(this.searchHistory);
   }
 
   public isFavorite(trackId: string): boolean {

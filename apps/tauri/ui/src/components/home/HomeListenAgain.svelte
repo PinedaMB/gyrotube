@@ -1,5 +1,6 @@
 <script lang="ts">
   import { Play, Volume2 } from "lucide-svelte";
+  import { t } from "../../lib/i18n.svelte";
   import { player } from "../../lib/stores/player.svelte";
   import type { Track } from "../../lib/types";
   import CoverImage from "../CoverImage.svelte";
@@ -9,7 +10,7 @@
 
 {#if tracks.length > 0}
   <section class="mt-6 flex flex-col gap-3">
-    <h2 class="section-title">Listen again</h2>
+    <h2 class="section-title">{t("home.listen_again")}</h2>
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2.5">
       {#each tracks as track, i (track.id)}
         {@const active = player.currentTrack?.id === track.id}

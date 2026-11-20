@@ -1,5 +1,6 @@
 <script lang="ts">
   import { ArrowLeft, ListPlus, Play, Shuffle } from "lucide-svelte";
+  import { t } from "../../lib/i18n.svelte";
   import { player } from "../../lib/stores/player.svelte";
   import type { Track } from "../../lib/types";
   import CoverImage from "../CoverImage.svelte";
@@ -47,7 +48,7 @@
       onclick={() => player.navigateTab(player.activeTab)}
     >
       <ArrowLeft size={15} />
-      Back
+      {t("nav.back")}
     </button>
   </div>
 
@@ -71,11 +72,13 @@
     </h1>
     <div class="flex items-center justify-center gap-2 text-[12.5px] font-medium text-[var(--text-muted)]">
       <span class="px-2 py-0.5 rounded-full text-[10.5px] font-bold uppercase tracking-wider bg-[var(--accent-soft)] text-[var(--accent-bright)]">
-        {isPlaylist ? "Playlist" : "Album"}
+        {isPlaylist ? t("album.badge_playlist") : t("album.badge_album")}
       </span>
       <span>·</span>
       <span class="numeric">
-        {tracks.length} {tracks.length === 1 ? "song" : "songs"}{totalMins ? ` · ${totalMins} min` : ""}
+        {tracks.length === 1
+          ? t("collection.song_one")
+          : t("collection.song_many", { count: tracks.length })}{totalMins ? ` · ${totalMins} min` : ""}
       </span>
     </div>
   </div>

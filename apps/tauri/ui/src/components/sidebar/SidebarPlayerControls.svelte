@@ -16,6 +16,7 @@
   } from "lucide-svelte";
   import { cubicOut } from "svelte/easing";
   import { fade, fly, scale } from "svelte/transition";
+  import { t } from "../../lib/i18n.svelte";
   import { player } from "../../lib/stores/player.svelte";
   import { formatDuration } from "../../lib/types";
   import CoverImage from "../CoverImage.svelte";
@@ -79,14 +80,14 @@
     <!-- Track metadata -->
     <div class="w-full text-center px-1 space-y-1">
       <h2 class="text-[19px] font-extrabold leading-tight tracking-tight line-clamp-2">
-        {player.currentTrack?.title ?? "Nothing playing"}
+        {player.currentTrack?.title ?? t("player.nothing_playing")}
       </h2>
       <p class="text-[14px] font-medium text-[var(--text-muted)] truncate">
-        {player.currentTrack?.artist ?? "Select a song"}
+        {player.currentTrack?.artist ?? t("player.select_song")}
       </p>
       {#if player.currentTrack?.album}
         <p class="text-[12px] text-[var(--text-muted)]/75 truncate">
-          Album: {player.currentTrack.album}
+          {t("player.album_prefix", { album: player.currentTrack.album })}
         </p>
       {/if}
     </div>
@@ -186,7 +187,7 @@
           class="absolute bottom-12 left-1/2 -translate-x-1/2 w-[272px] p-3.5 rounded-2xl bg-[var(--bg-elevated)]/95 backdrop-blur-md border border-[var(--border-strong)] shadow-[0_16px_40px_rgba(0,0,0,0.5)] z-30 space-y-2.5"
         >
           <div class="flex items-center justify-between text-[12px]">
-            <span class="font-semibold text-[var(--text-muted)]">Volume</span>
+            <span class="font-semibold text-[var(--text-muted)]">{t("player.volume")}</span>
             <span class="font-bold text-[var(--accent-bright)] numeric">{volumePct}%</span>
           </div>
           <div class="flex items-center gap-3">
@@ -224,7 +225,7 @@
           class="absolute bottom-12 left-1/2 -translate-x-1/2 w-[272px] p-3.5 rounded-2xl bg-[var(--bg-elevated)]/95 backdrop-blur-md border border-[var(--border-strong)] shadow-[0_16px_40px_rgba(0,0,0,0.5)] z-30 space-y-2.5"
         >
           <div class="flex items-center justify-between text-[12px]">
-            <span class="font-semibold text-[var(--text-muted)]">Sleep timer</span>
+            <span class="font-semibold text-[var(--text-muted)]">{t("player.sleep_timer")}</span>
             {#if sleepRemainingSecs != null}
               <span class="font-bold text-[var(--accent-bright)] numeric">
                 {formatDuration(sleepRemainingSecs)}
@@ -240,7 +241,7 @@
                   openPopover = null;
                 }}
               >
-                {mins == null ? "Off" : `${mins}m`}
+                {mins == null ? t("player.sleep_off") : `${mins}m`}
               </button>
             {/each}
           </div>

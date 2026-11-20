@@ -2,6 +2,7 @@
   import { LocateFixed, Music } from "lucide-svelte";
   import { cubicOut } from "svelte/easing";
   import { fade, scale } from "svelte/transition";
+  import { t } from "../../lib/i18n.svelte";
   import { player } from "../../lib/stores/player.svelte";
 
   let lyricRefs = $state<Record<number, HTMLButtonElement>>({});
@@ -54,7 +55,7 @@
   <div class="flex items-start justify-between gap-2 pb-2 border-b border-[var(--border)]">
     <div class="min-w-0">
       <h3 class="text-[14.5px] font-bold truncate">
-        {player.currentTrack?.title ?? "Lyrics"}
+        {player.currentTrack?.title ?? t("lyrics.title")}
       </h3>
       {#if player.currentTrack}
         <p class="text-[12px] text-[var(--text-muted)] truncate">
@@ -65,11 +66,11 @@
     {#if player.lyrics.type === "Synced"}
       <span class="shrink-0 inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10.5px] font-bold bg-[var(--accent-soft)] text-[var(--accent-bright)]">
         <span class="w-1.5 h-1.5 rounded-full bg-[var(--accent-bright)]"></span>
-        Synced
+        {t("lyrics.synced")}
       </span>
     {:else if player.lyrics.type === "Plain"}
       <span class="shrink-0 px-2.5 py-0.5 rounded-full text-[10.5px] font-semibold bg-[var(--surface)] text-[var(--text-muted)]">
-        Static
+        {t("lyrics.static")}
       </span>
     {/if}
   </div>
@@ -108,7 +109,7 @@
           onclick={resumeSync}
         >
           <LocateFixed size={14} />
-          Sync
+          {t("lyrics.sync_btn")}
         </button>
       {/if}
     </div>
@@ -120,7 +121,7 @@
     <div class="flex-1 flex flex-col items-center justify-center text-center gap-2 py-12 text-[var(--text-muted)]">
       <Music size={28} class="opacity-40" />
       <p class="text-[13px]">
-        {player.currentTrack ? "No lyrics available for this track." : "Play a song to view its lyrics."}
+        {player.currentTrack ? t("lyrics.none_track") : t("lyrics.none_idle")}
       </p>
     </div>
   {/if}

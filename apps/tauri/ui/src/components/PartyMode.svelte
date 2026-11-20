@@ -14,6 +14,7 @@
   } from "lucide-svelte";
   import { cubicOut } from "svelte/easing";
   import { scale } from "svelte/transition";
+  import { t } from "../lib/i18n.svelte";
   import { player } from "../lib/stores/player.svelte";
   import { formatDuration } from "../lib/types";
   import CoverImage from "./CoverImage.svelte";
@@ -89,10 +90,10 @@
         class="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[12px] font-bold tracking-wide bg-[var(--accent-soft)] text-[var(--accent-bright)] border border-[var(--accent-border)]/50"
       >
         <PartyPopper size={14} />
-        Party Mode
+        {t("party.badge")}
       </span>
       <span class="text-[13.5px] font-medium text-[var(--text-muted)] truncate">
-        {player.sourceName}
+        {player.sourceName === "Not playing" ? t("player.not_playing") : player.sourceName}
       </span>
     </div>
 
@@ -101,7 +102,7 @@
       onclick={() => (player.partyMode = false)}
     >
       <X size={15} />
-      Exit
+      {t("party.exit")}
     </button>
   </header>
 
@@ -237,7 +238,7 @@
           <CoverImage class="up-next-cover !w-11 !h-11 !rounded-lg" src={player.nextTrack.cover_url} alt="" />
           <div class="min-w-0 flex-1">
             <span class="block text-[10px] font-extrabold uppercase tracking-[0.1em] text-[var(--text-muted)]">
-              Up Next
+              {t("party.up_next")}
             </span>
             <span class="block text-[13.5px] font-bold truncate">{player.nextTrack.title}</span>
             <span class="block text-[12px] text-[var(--text-muted)] truncate">{player.nextTrack.artist}</span>
@@ -250,18 +251,18 @@
     <div class="min-h-0 flex flex-col">
       <div class="shrink-0 flex items-center gap-2.5 pb-2">
         <span class="text-[13px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">
-          Lyrics
+          {t("lyrics.title")}
         </span>
         {#if player.lyrics.type === "Synced"}
           <span
             class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-[var(--accent-soft)] text-[var(--accent-bright)]"
           >
             <span class="w-1.5 h-1.5 rounded-full bg-[var(--accent-bright)]"></span>
-            Synced
+            {t("lyrics.synced")}
           </span>
         {:else if player.lyrics.type === "Plain"}
           <span class="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-white/8 text-[var(--text-muted)]">
-            Static
+            {t("lyrics.static")}
           </span>
         {/if}
       </div>
@@ -300,7 +301,7 @@
               onclick={resumeSync}
             >
               <LocateFixed size={15} />
-              Sync
+              {t("lyrics.sync_btn")}
             </button>
           {/if}
         </div>
@@ -311,7 +312,7 @@
       {:else}
         <div class="flex-1 flex flex-col items-center justify-center text-center gap-3 text-[var(--text-muted)]">
           <Music size={40} class="opacity-30" />
-          <p class="text-[18px] font-semibold">No lyrics available for this track</p>
+          <p class="text-[18px] font-semibold">{t("lyrics.none_track")}</p>
         </div>
       {/if}
     </div>

@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { ChevronLeft, ListMusic, MessageSquareQuote, Music } from "lucide-svelte";
+  import { ChevronRight, ListMusic, MessageSquareQuote, Music } from "lucide-svelte";
+  import { t } from "../lib/i18n.svelte";
   import { player } from "../lib/stores/player.svelte";
   import SidebarLyricsPane from "./sidebar/SidebarLyricsPane.svelte";
   import SidebarPlayerControls from "./sidebar/SidebarPlayerControls.svelte";
@@ -33,25 +34,27 @@
 </script>
 
 <aside
-  class="w-[388px] shrink-0 h-full flex flex-col border-r border-[var(--border)] bg-[var(--bg-sidebar)] overflow-hidden relative select-none"
+  class="w-[388px] shrink-0 h-full flex flex-col border-l border-[var(--border)] bg-[var(--bg-sidebar)] overflow-hidden relative select-none"
   style="background-image: linear-gradient(180deg, rgba(var(--ambient-rgb), 0.22) 0%, rgba(var(--ambient-rgb), 0.08) 52%, transparent 100%);"
 >
   <!-- Top context bar -->
-  <div class="shrink-0 flex items-center justify-between gap-2 px-6 pt-4 pb-2">
-    <div class="min-w-0 flex flex-col leading-tight">
-      <span class="text-[11.5px] font-medium text-[var(--text-muted)]">Playing from</span>
-      <span class="text-[13px] font-semibold truncate">{player.sourceName}</span>
-    </div>
+  <div class="shrink-0 flex items-center justify-between gap-3 px-5 pt-4 pb-2">
     <button
       class="icon-btn shrink-0 text-[var(--text-muted)] hover:text-[var(--text)]"
-      title="Collapse player"
+      title={t("player.collapse")}
       onclick={() => {
         player.sidebarOpen = false;
         void player.persistSession();
       }}
     >
-      <ChevronLeft size={19} />
+      <ChevronRight size={19} />
     </button>
+    <div class="min-w-0 flex flex-col leading-tight text-right">
+      <span class="text-[11.5px] font-medium text-[var(--text-muted)]">{t("player.playing_from")}</span>
+      <span class="text-[13px] font-semibold truncate">
+        {player.sourceName === "Not playing" ? t("player.not_playing") : player.sourceName}
+      </span>
+    </div>
   </div>
 
   <!-- Active pane -->
@@ -78,7 +81,7 @@
       onclick={() => (player.sidebarTab = "player")}
     >
       <Music size={15} />
-      Player
+      {t("player.tab_player")}
     </button>
     <button
       class="flex items-center justify-center gap-1.5 py-2 rounded-xl text-[13px] font-semibold border transition-colors {player.sidebarTab === 'lyrics'
@@ -87,7 +90,7 @@
       onclick={() => (player.sidebarTab = "lyrics")}
     >
       <MessageSquareQuote size={15} />
-      Lyrics
+      {t("player.tab_lyrics")}
     </button>
     <button
       class="flex items-center justify-center gap-1.5 py-2 rounded-xl text-[13px] font-semibold border transition-colors {player.sidebarTab === 'queue'
@@ -96,7 +99,7 @@
       onclick={() => (player.sidebarTab = "queue")}
     >
       <ListMusic size={15} />
-      Queue
+      {t("player.tab_queue")}
     </button>
   </nav>
 </aside>

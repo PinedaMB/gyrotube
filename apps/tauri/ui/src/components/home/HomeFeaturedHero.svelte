@@ -1,5 +1,6 @@
 <script lang="ts">
   import { Play } from "lucide-svelte";
+  import { t } from "../../lib/i18n.svelte";
   import { player } from "../../lib/stores/player.svelte";
   import type { Album } from "../../lib/types";
   import CoverImage from "../CoverImage.svelte";
@@ -17,7 +18,7 @@
       <span
         class="self-start text-[11px] font-extrabold tracking-[0.08em] px-2.5 py-0.5 rounded-full bg-[var(--accent-soft)] text-[var(--accent-bright)]"
       >
-        FEATURED
+        {t("home.featured")}
       </span>
       <h2 class="text-[24px] font-extrabold tracking-tight leading-tight">{album.title}</h2>
       <p class="text-[14px] text-[var(--text-muted)]">{album.artist}</p>
@@ -27,13 +28,13 @@
           onclick={() => player.openAlbum(album.id, album.title, album.cover_url)}
         >
           <Play size={14} fill="currentColor" />
-          Play
+          {t("home.play")}
         </button>
         <button
           class="pill-btn"
           onclick={() => player.openAlbum(album.id, album.title, album.cover_url)}
         >
-          Open album
+          {t("home.open_album")}
         </button>
       </div>
     </div>

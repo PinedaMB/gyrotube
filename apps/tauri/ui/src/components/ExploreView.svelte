@@ -1,5 +1,6 @@
 <script lang="ts">
   import { Heart, Plus } from "lucide-svelte";
+  import { t } from "../lib/i18n.svelte";
   import { player } from "../lib/stores/player.svelte";
   import { formatDuration, formatSubscribers } from "../lib/types";
   import Carousel from "./Carousel.svelte";
@@ -117,21 +118,21 @@
     </div>
   {:else if results}
     <div class="filters">
-      <button class="back-explore" onclick={() => player.clearSearch()} title="Back to Explore">
-        ← Explore
+      <button class="back-explore" onclick={() => player.clearSearch()} title={t("explore.back")}>
+        {t("explore.back")}
       </button>
-      <button class:active={filter === "all"} onclick={() => (filter = "all")}>All</button>
+      <button class:active={filter === "all"} onclick={() => (filter = "all")}>{t("explore.all")}</button>
       <button class:active={filter === "songs"} onclick={() => (filter = "songs")}>
-        Songs{#if results.tracks.length}&nbsp;· {results.tracks.length}{/if}
+        {t("explore.songs")}{#if results.tracks.length}&nbsp;· {results.tracks.length}{/if}
       </button>
       <button class:active={filter === "albums"} onclick={() => (filter = "albums")}>
-        Albums{#if results.albums.length}&nbsp;· {results.albums.length}{/if}
+        {t("explore.albums")}{#if results.albums.length}&nbsp;· {results.albums.length}{/if}
       </button>
       <button class:active={filter === "artists"} onclick={() => (filter = "artists")}>
-        Artists{#if results.artists.length}&nbsp;· {results.artists.length}{/if}
+        {t("explore.artists")}{#if results.artists.length}&nbsp;· {results.artists.length}{/if}
       </button>
       <button class:active={filter === "playlists"} onclick={() => (filter = "playlists")}>
-        Playlists{#if results.playlists.length}&nbsp;· {results.playlists.length}{/if}
+        {t("explore.playlists")}{#if results.playlists.length}&nbsp;· {results.playlists.length}{/if}
       </button>
     </div>
 
@@ -328,12 +329,12 @@
       </section>
     {/if}
   {:else}
-    <h1 class="explore-title">Explore</h1>
-    <p class="muted caption">Moods, moments, and music genres from YouTube Music</p>
+    <h1 class="explore-title">{t("explore.title")}</h1>
+    <p class="muted caption">{t("explore.subtitle")}</p>
 
     {#if moods.length > 0}
       <section class="section">
-        <h2 class="section-title">Moods &amp; moments</h2>
+        <h2 class="section-title">{t("explore.moods")}</h2>
         <div class="genre-grid">
           {#each moods as m (m.id)}
             {@const c = colorFor(m.name)}
@@ -353,7 +354,7 @@
 
     {#if musicGenres.length > 0}
       <section class="section">
-        <h2 class="section-title">Music genres</h2>
+        <h2 class="section-title">{t("explore.genres")}</h2>
         <div class="genre-grid">
           {#each musicGenres as g (g.id)}
             {@const c = colorFor(g.name)}

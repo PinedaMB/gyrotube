@@ -2,6 +2,7 @@
   import { Clock3, Heart, ListPlus, Play, Plus, Volume2 } from "lucide-svelte";
   import { cubicOut } from "svelte/easing";
   import { fly } from "svelte/transition";
+  import { t } from "../../lib/i18n.svelte";
   import { player } from "../../lib/stores/player.svelte";
   import { formatDuration, type Track } from "../../lib/types";
   import CoverImage from "../CoverImage.svelte";
@@ -22,7 +23,7 @@
 <section class="mt-8 flex flex-col gap-3">
   <div class="flex items-center justify-between gap-3">
     <div class="flex items-baseline gap-2">
-      <h2 class="section-title">Recently played</h2>
+      <h2 class="section-title">{t("collection.recently_played")}</h2>
       {#if player.recentTracks.length > 0}
         <span class="text-[12.5px] font-semibold text-[var(--text-muted)] numeric">
           {player.recentTracks.length}
@@ -33,23 +34,23 @@
     {#if player.recentTracks.length > 0}
       <button
         class="pill-btn"
-        onclick={() => player.replaceQueueAndPlay(player.recentTracks, 0, "Recently played")}
+        onclick={() => player.replaceQueueAndPlay(player.recentTracks, 0, t("collection.recently_played"))}
       >
         <Play size={13} fill="currentColor" />
-        Play all
+        {t("collection.play_all")}
       </button>
     {/if}
   </div>
 
   {#if player.recentTracks.length === 0}
     <div class="py-10 text-center rounded-2xl bg-[var(--surface)] border border-[var(--border)]">
-      <p class="text-[var(--text-muted)] text-[13.5px]">Songs you play will appear here.</p>
+      <p class="text-[var(--text-muted)] text-[13.5px]">{t("collection.empty_recent")}</p>
     </div>
   {:else}
     <div>
       <div class="grid grid-cols-[minmax(0,1fr)_auto] md:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_auto] items-center gap-4 px-3 pb-2.5 text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)]/75 border-b border-white/[0.08]">
-        <span>Title</span>
-        <span class="hidden md:block">Album</span>
+        <span>{t("collection.col_title")}</span>
+        <span class="hidden md:block">{t("collection.col_album")}</span>
         <span class="w-28 flex justify-end pr-2"><Clock3 size={13} /></span>
       </div>
 

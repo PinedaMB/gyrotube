@@ -1,5 +1,6 @@
 <script lang="ts">
   import { Heart, Plus, Volume2 } from "lucide-svelte";
+  import { t } from "../../lib/i18n.svelte";
   import { player } from "../../lib/stores/player.svelte";
   import { formatDuration, type Track } from "../../lib/types";
   import CoverImage from "../CoverImage.svelte";
@@ -16,7 +17,7 @@
 {#if chartTracks.length > 0}
   <section class="mt-6 flex flex-col gap-3" id="trending-hits">
     <div class="flex items-center justify-between gap-3">
-      <h2 class="section-title">Trending hits</h2>
+      <h2 class="section-title">{t("home.trending_hits")}</h2>
       <div class="inline-flex gap-1 p-1 rounded-full bg-[var(--surface)] border border-[var(--border)]">
         <button
           class="px-3 py-1 rounded-full text-[12px] font-semibold transition-colors {chartTab === 'trending'
@@ -24,7 +25,7 @@
             : 'text-[var(--text-muted)] hover:text-[var(--text)]'}"
           onclick={() => (chartTab = "trending")}
         >
-          Trending
+          {t("home.tab_trending")}
         </button>
         <button
           class="px-3 py-1 rounded-full text-[12px] font-semibold transition-colors {chartTab === 'top'
@@ -32,7 +33,7 @@
             : 'text-[var(--text-muted)] hover:text-[var(--text)]'}"
           onclick={() => (chartTab = "top")}
         >
-          Top Music
+          {t("home.tab_top")}
         </button>
       </div>
     </div>

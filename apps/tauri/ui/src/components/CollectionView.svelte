@@ -1,5 +1,6 @@
 <script lang="ts">
   import { Plus } from "lucide-svelte";
+  import { t } from "../lib/i18n.svelte";
   import { player } from "../lib/stores/player.svelte";
   import type { UserPlaylist } from "../lib/types";
   import CollectionPlaylistDetail from "./collection/CollectionPlaylistDetail.svelte";
@@ -60,31 +61,31 @@
   }
 </script>
 
-<div class="page-clamp">
-  {#if screen.kind === "favorites"}
-    <CollectionPlaylistDetail
-      mode="favorites"
-      onBack={() => (screen = { kind: "overview" })}
-    />
-  {:else if screen.kind === "playlist" && activePlaylist}
-    <CollectionPlaylistDetail
-      mode="playlist"
-      playlist={activePlaylist}
-      onBack={() => (screen = { kind: "overview" })}
-      onEdit={openEditModal}
-      onDelete={handleDeletePlaylist}
-    />
-  {:else}
+{#if screen.kind === "favorites"}
+  <CollectionPlaylistDetail
+    mode="favorites"
+    onBack={() => (screen = { kind: "overview" })}
+  />
+{:else if screen.kind === "playlist" && activePlaylist}
+  <CollectionPlaylistDetail
+    mode="playlist"
+    playlist={activePlaylist}
+    onBack={() => (screen = { kind: "overview" })}
+    onEdit={openEditModal}
+    onDelete={handleDeletePlaylist}
+  />
+{:else}
+  <div class="page-clamp">
     <div class="flex items-center justify-between gap-3">
       <div>
-        <h1 class="text-[28px] font-extrabold tracking-[-0.025em] leading-tight">Collection</h1>
+        <h1 class="text-[28px] font-extrabold tracking-[-0.025em] leading-tight">{t("collection.title")}</h1>
         <p class="text-[13px] text-[var(--text-muted)] mt-0.5">
-          Your local playlists, recent history, and favorite songs
+          {t("collection.subtitle")}
         </p>
       </div>
       <button class="pill-btn primary !px-4" onclick={openCreateModal}>
         <Plus size={15} />
-        New playlist
+        {t("collection.new_playlist")}
       </button>
     </div>
 
@@ -95,8 +96,8 @@
     />
 
     <CollectionRecentlyPlayed onCreatePlaylist={openCreateModal} />
-  {/if}
-</div>
+  </div>
+{/if}
 
 <CollectionPlaylistModal
   open={modalOpen}

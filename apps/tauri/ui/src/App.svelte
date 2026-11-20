@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Compass, Heart, Home, Library, Pause, Play, SkipBack, SkipForward } from "lucide-svelte";
+  import { Heart, Pause, Play, SkipBack, SkipForward } from "lucide-svelte";
   import { onMount } from "svelte";
   import { cubicOut } from "svelte/easing";
   import { fade, fly } from "svelte/transition";
@@ -10,10 +10,11 @@
   import ExploreView from "./components/ExploreView.svelte";
   import HeaderBar from "./components/HeaderBar.svelte";
   import HomeView from "./components/HomeView.svelte";
+  import NavSidebar from "./components/NavSidebar.svelte";
   import PartyMode from "./components/PartyMode.svelte";
   import SettingsModal from "./components/SettingsModal.svelte";
   import SidebarPlayer from "./components/SidebarPlayer.svelte";
-  import SpinSidebar from "./components/SpinSidebar.svelte";
+  import SpinModal from "./components/spin/SpinModal.svelte";
   import { player } from "./lib/stores/player.svelte";
 
   onMount(() => {
@@ -41,43 +42,11 @@
   <HeaderBar />
 
   <div class="flex-1 min-h-0 flex overflow-hidden relative">
-    {#if player.sidebarOpen}
-      <div class="h-full shrink-0" transition:fly={{ x: -24, duration: 220, easing: cubicOut }}>
-        <SidebarPlayer />
-      </div>
-    {/if}
+    <!-- Left navigation sidebar (+ mobile bottom bar) -->
+    <NavSidebar />
 
-    <main class="flex-1 min-w-0 h-full overflow-y-auto ambient-surface scroll-y">
-      <nav class="flex items-center justify-center gap-2 pt-3.5 pb-1 px-4">
-        <button
-          class="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full text-[13px] font-semibold transition-all duration-200 active:scale-95 {player.activeTab === 'home'
-            ? 'bg-[var(--surface-hover)] text-[var(--text)] shadow-sm'
-            : 'text-[var(--text-muted)] hover:bg-[var(--surface)] hover:text-[var(--text)]'}"
-          onclick={() => player.navigateTab("home")}
-        >
-          <Home size={15} />
-          Home
-        </button>
-        <button
-          class="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full text-[13px] font-semibold transition-all duration-200 active:scale-95 {player.activeTab === 'explore'
-            ? 'bg-[var(--surface-hover)] text-[var(--text)] shadow-sm'
-            : 'text-[var(--text-muted)] hover:bg-[var(--surface)] hover:text-[var(--text)]'}"
-          onclick={() => player.navigateTab("explore")}
-        >
-          <Compass size={15} />
-          Explore
-        </button>
-        <button
-          class="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full text-[13px] font-semibold transition-all duration-200 active:scale-95 {player.activeTab === 'collection'
-            ? 'bg-[var(--surface-hover)] text-[var(--text)] shadow-sm'
-            : 'text-[var(--text-muted)] hover:bg-[var(--surface)] hover:text-[var(--text)]'}"
-          onclick={() => player.navigateTab("collection")}
-        >
-          <Library size={15} />
-          Collection
-        </button>
-      </nav>
-
+    <!-- Center scrollable main view -->
+    <main class="flex-1 min-w-0 h-full overflow-y-auto ambient-surface scroll-y max-md:pb-16">
       {#key viewKey}
         <div in:fly={{ y: 10, duration: 220, easing: cubicOut }}>
           {#if player.activeView.kind === "home"}
@@ -103,9 +72,10 @@
       {/key}
     </main>
 
-    {#if player.spinOpen}
+    <!-- Right player sidebar -->
+    {#if player.sidebarOpen}
       <div class="h-full shrink-0" transition:fly={{ x: 24, duration: 220, easing: cubicOut }}>
-        <SpinSidebar />
+        <SidebarPlayer />
       </div>
     {/if}
   </div>
@@ -113,7 +83,7 @@
   {#if !player.sidebarOpen && player.currentTrack}
     <div
       transition:fly={{ y: 24, duration: 240, easing: cubicOut }}
-      class="fixed bottom-5 left-1/2 -translate-x-1/2 z-40 w-[min(560px,calc(100vw-32px))] flex items-center gap-2.5 px-3.5 py-2 rounded-full bg-[var(--bg-elevated)]/95 backdrop-blur-xl border border-[var(--border-strong)] shadow-2xl"
+      class="fixed bottom-5 max-md:bottom-16 left-1/2 -translate-x-1/2 z-40 w-[min(560px,calc(100vw-32px))] flex items-center gap-2.5 px-3.5 py-2 rounded-full bg-[var(--bg-elevated)]/95 backdrop-blur-xl border border-[var(--border-strong)] shadow-2xl"
     >
       <button
         class="flex-1 min-w-0 flex items-center gap-2.5 text-left"
@@ -167,6 +137,7 @@
   {/if}
 
   <SettingsModal />
+  <SpinModal />
 
   {#if player.toasts.length > 0}
     <div

@@ -1,6 +1,7 @@
 <script lang="ts">
-  import { ArrowLeft, BadgeCheck, Play, Radio, Shuffle } from "lucide-svelte";
+  import { ArrowLeft, Play, Radio, Shuffle } from "lucide-svelte";
   import { api, isTauriRuntime } from "../../lib/api";
+  import { t } from "../../lib/i18n.svelte";
   import { player } from "../../lib/stores/player.svelte";
   import { formatSubscribers, type ArtistDetails } from "../../lib/types";
 
@@ -13,10 +14,12 @@
 
   let bannerLoaded = $state(false);
   let startingMix = $state(false);
+  let bioExpanded = $state(false);
 
   $effect(() => {
     void details?.header_url;
     bannerLoaded = false;
+    bioExpanded = false;
   });
 
   function shufflePlay() {
@@ -42,54 +45,75 @@
   }
 </script>
 
-<section class="relative w-full min-h-[340px] sm:min-h-[380px] flex flex-col justify-between overflow-hidden">
+<section class="relative w-full min-h-[420px] sm:min-h-[480px] flex flex-col justify-between overflow-hidden">
   {#if details?.header_url}
-    <img
-      class="absolute inset-0 w-full h-full object-cover object-[65%_25%] transition-opacity duration-500 {bannerLoaded
-        ? 'opacity-100'
-        : 'opacity-0'}"
-      src={details.header_url}
-      alt=""
-      loading="lazy"
-      decoding="async"
-      referrerpolicy="no-referrer"
-      onload={() => (bannerLoaded = true)}
-    />
+    <!-- Edge-to-edge full-width banner dissolving smoothly at the bottom into the page background -->
+    <div
+      class="absolute inset-0 pointer-events-none"
+      style="-webkit-mask-image: linear-gradient(180deg, #000 0%, #000 54%, rgba(0,0,0,0.72) 72%, rgba(0,0,0,0.25) 88%, transparent 100%);
+             mask-image: linear-gradient(180deg, #000 0%, #000 54%, rgba(0,0,0,0.72) 72%, rgba(0,0,0,0.25) 88%, transparent 100%);"
+    >
+      <img
+        class="w-full h-full object-cover object-[50%_22%] transition-opacity duration-500 {bannerLoaded
+          ? 'opacity-100'
+          : 'opacity-0'}"
+        src={details.header_url}
+        alt=""
+        loading="lazy"
+        decoding="async"
+        referrerpolicy="no-referrer"
+        onload={() => (bannerLoaded = true)}
+      />
+    </div>
   {/if}
 
-  <!-- Seamless directional fade into GyroTube background -->
+  <!-- Soft bottom readability gradient (transparent at top and at the very bottom edge) -->
   <div
     class="absolute inset-0 pointer-events-none"
-    style="background:
-      linear-gradient(180deg, rgba(18, 18, 22, 0.25) 0%, rgba(18, 18, 22, 0.42) 55%, var(--bg) 100%),
-      linear-gradient(90deg, var(--bg) 0%, rgba(30, 30, 33, 0.78) 38%, rgba(30, 30, 33, 0.18) 72%, transparent 100%);"
+    style="background: linear-gradient(180deg, rgba(12, 12, 15, 0.14) 0%, rgba(12, 12, 15, 0.1) 36%, rgba(12, 12, 15, 0.62) 70%, rgba(12, 12, 15, 0.25) 90%, transparent 100%);"
   ></div>
 
-  <div class="relative z-10 w-full max-w-[1280px] mx-auto px-6 pt-4 pb-6 flex-1 flex flex-col justify-between">
+  <div class="relative z-10 w-full max-w-[1280px] mx-auto px-6 pt-4 pb-8 flex-1 flex flex-col justify-between">
     <div>
       <button
-        class="w-9 h-9 rounded-full inline-flex items-center justify-center bg-black/40 hover:bg-black/60 backdrop-blur-md border border-white/10 text-white transition-all active:scale-95"
-        title="Back"
+        class="w-9 h-9 rounded-full inline-flex items-center justify-center bg-black/45 hover:bg-black/65 backdrop-blur-md border border-white/15 text-white transition-all active:scale-95"
+        title={t("nav.back")}
         onclick={() => player.navigateTab("explore")}
       >
         <ArrowLeft size={17} />
       </button>
     </div>
 
-    <div class="mt-16 max-w-2xl space-y-2.5">
-      <div class="inline-flex items-center gap-1.5 text-[12px] font-bold text-[var(--accent-bright)]">
-        <BadgeCheck size={15} />
-        <span>Verified Artist</span>
-      </div>
-
-      <h1 class="text-[36px] sm:text-[46px] font-black tracking-[-0.035em] leading-[1.05] drop-shadow-sm">
+    <div class="mt-24 max-w-2xl space-y-2.5">
+      <h1 class="text-[38px] sm:text-[50px] font-black tracking-[-0.035em] leading-[1.04] text-white drop-shadow-[0_2px_14px_rgba(0,0,0,0.45)]">
         {details?.name ?? artistName}
       </h1>
 
       {#if details?.subscriber_count}
-        <p class="text-[14px] font-medium text-[var(--text-muted)]">
+        <p class="text-[13.5px] font-medium text-white/80 drop-shadow-sm">
           {formatSubscribers(details.subscriber_count)}
         </p>
+      {/if}
+
+      {#if details?.description}
+        <div class="pt-0.5 max-w-xl">
+          <p
+            class="text-[13.5px] leading-relaxed text-white/85 drop-shadow-sm {bioExpanded
+              ? ''
+              : 'line-clamp-2'}"
+          >
+            {details.description}
+          </p>
+          {#if details.description.length > 140}
+            <button
+              type="button"
+              class="mt-1 text-[11.5px] font-bold uppercase tracking-wider text-white/90 hover:text-[var(--accent-bright)] transition-colors"
+              onclick={() => (bioExpanded = !bioExpanded)}
+            >
+              {bioExpanded ? t("artist.show_less") : t("artist.more")}
+            </button>
+          {/if}
+        </div>
       {/if}
 
       <div class="flex flex-wrap items-center gap-2.5 pt-2">
@@ -99,7 +123,7 @@
           onclick={() => details && player.replaceQueueAndPlay(details.tracks, 0, details.name)}
         >
           <Play size={15} fill="currentColor" />
-          Play
+          {t("artist.play")}
         </button>
 
         <button
@@ -108,7 +132,7 @@
           onclick={shufflePlay}
         >
           <Shuffle size={15} />
-          Shuffle
+          {t("artist.shuffle")}
         </button>
 
         <button
@@ -121,7 +145,7 @@
           {:else}
             <Radio size={15} />
           {/if}
-          Mix
+          {t("artist.mix")}
         </button>
       </div>
     </div>

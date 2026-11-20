@@ -1,5 +1,6 @@
 <script lang="ts">
   import { RefreshCw } from "lucide-svelte";
+  import { t } from "../lib/i18n.svelte";
   import { player } from "../lib/stores/player.svelte";
   import Carousel from "./Carousel.svelte";
   import CoverImage from "./CoverImage.svelte";
@@ -11,9 +12,9 @@
 
   let greeting = $derived.by(() => {
     const h = new Date().getHours();
-    if (h >= 5 && h < 12) return "Good morning";
-    if (h >= 12 && h < 19) return "Good afternoon";
-    return "Good evening";
+    if (h >= 5 && h < 12) return t("home.morning");
+    if (h >= 12 && h < 19) return t("home.afternoon");
+    return t("home.evening");
   });
 
   let listenAgain = $derived(player.recentTracks.slice(0, 6));
@@ -30,9 +31,9 @@
   <div class="flex items-center justify-between mb-4">
     <div>
       <h1 class="text-[28px] font-extrabold tracking-[-0.025em] leading-tight">{greeting}</h1>
-      <p class="text-[13px] text-[var(--text-muted)] mt-0.5">Your music ready to play</p>
+      <p class="text-[13px] text-[var(--text-muted)] mt-0.5">{t("home.subtitle")}</p>
     </div>
-    <button class="icon-btn" title="Reload home" onclick={() => void player.loadHome(true)}>
+    <button class="icon-btn" title={t("home.reload")} onclick={() => void player.loadHome(true)}>
       <RefreshCw size={16} class={player.homeLoading ? "animate-spin" : ""} />
     </button>
   </div>
@@ -47,7 +48,7 @@
 
   {#if releaseAlbums.length > 0}
     <div class="mt-6">
-      <Carousel title="New releases" id="new-releases">
+      <Carousel title={t("home.new_releases")} id="new-releases">
         {#each releaseAlbums as album (album.id)}
           <button
             class="p-2.5 rounded-2xl bg-[var(--surface)] border border-[var(--border)] hover:bg-[var(--surface-hover)] hover:border-[var(--border-strong)] text-left flex flex-col gap-1.5 transition-colors"

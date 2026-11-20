@@ -1,26 +1,23 @@
 <script lang="ts">
+  import { Globe, HardDrive, Monitor, Moon, Sun, Trash2, X } from "lucide-svelte";
+  import { cubicOut } from "svelte/easing";
+  import { fade, scale } from "svelte/transition";
   import { api, isTauriRuntime } from "../lib/api";
+  import { t } from "../lib/i18n.svelte";
   import { player } from "../lib/stores/player.svelte";
-  import type { ThemeMode } from "../lib/types";
+  import type { AppLanguage, ThemeMode } from "../lib/types";
 
-  let dialogEl = $state<HTMLDialogElement | null>(null);
   let cacheBytes = $state(0);
 
   $effect(() => {
-    const dlg = dialogEl;
-    if (!dlg) return;
-    if (player.settingsOpen && !dlg.open) {
-      dlg.showModal();
-      if (isTauriRuntime()) {
-        void api.getCacheBytes().then((b) => (cacheBytes = b)).catch(() => {});
-      }
-    } else if (!player.settingsOpen && dlg.open) {
-      dlg.close();
+    if (player.settingsOpen && isTauriRuntime()) {
+      void api.getCacheBytes().then((b) => (cacheBytes = b)).catch(() => {});
     }
   });
 
   let cacheMb = $derived((cacheBytes / (1024 * 1024)).toFixed(1));
   let cachePct = $derived(Math.min(100, (cacheBytes / (1024 * 1024 * 1024)) * 100));
+  let crossfadePct = $derived(Math.round((player.crossfadeSecs / 10) * 100));
 
   async function clearCache() {
     if (!isTauriRuntime()) return;
@@ -28,202 +25,236 @@
     cacheBytes = 0;
     player.showToast("Audio cache cleared");
   }
+
+  function handleKeydown(e: KeyboardEvent) {
+    if (player.settingsOpen && e.key === "Escape") {
+      e.preventDefault();
+      player.settingsOpen = false;
+    }
+  }
+
+  const THEMES: ThemeMode[] = ["system", "dark", "light"];
+  const LANGUAGES: { id: AppLanguage; label: string }[] = [
+    { id: "Auto", label: "Auto" },
+    { id: "Es", label: "Español" },
+    { id: "En", label: "English" },
+  ];
 </script>
 
-<dialog
-  bind:this={dialogEl}
-  class="gt-dialog"
-  onclose={() => (player.settingsOpen = false)}
-  onclick={(e) => {
-    if (e.target === dialogEl) player.settingsOpen = false;
-  }}
->
-  <div class="dlg-head">
-    <h2>Settings</h2>
-    <button class="icon-btn" onclick={() => (player.settingsOpen = false)}>✕</button>
+<svelte:window onkeydown={handleKeydown} />
+
+{#if player.settingsOpen}
+  <div
+    transition:fade={{ duration: 160 }}
+    class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-md"
+    role="presentation"
+    onclick={(e) => {
+      if (e.target === e.currentTarget) player.settingsOpen = false;
+    }}
+  >
+    <div
+      transition:scale={{ start: 0.95, duration: 190, easing: cubicOut }}
+      role="dialog"
+      aria-modal="true"
+      aria-label={t("settings.title")}
+      class="w-[min(520px,calc(100vw-32px))] max-h-[calc(100vh-48px)] overflow-y-auto rounded-[18px] bg-[var(--bg-elevated)] text-[var(--text)] border border-[var(--border-strong)] shadow-[0_24px_64px_rgba(0,0,0,0.62)]"
+    >
+      <div class="flex items-center justify-between px-6 py-4 border-b border-[var(--border)]">
+        <h2 class="text-[18px] font-extrabold tracking-tight">{t("settings.title")}</h2>
+        <button class="icon-btn" title="Close" onclick={() => (player.settingsOpen = false)}>
+          <X size={17} />
+        </button>
+      </div>
+
+      <div class="p-6 space-y-5">
+        <!-- Appearance & Language -->
+        <section class="space-y-2.5">
+          <h3 class="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">
+            {t("settings.appearance")}
+          </h3>
+          <div class="rounded-2xl bg-[var(--surface)] border border-[var(--border)] divide-y divide-[var(--border)]">
+            <div class="p-3.5 flex items-center justify-between gap-3">
+              <div>
+                <div class="text-[14px] font-semibold">{t("settings.theme")}</div>
+                <div class="text-[12px] text-[var(--text-muted)]">{t("settings.theme_sub")}</div>
+              </div>
+              <div class="inline-flex p-1 rounded-xl bg-black/20 border border-[var(--border)] gap-1 shrink-0">
+                {#each THEMES as mode}
+                  <button
+                    type="button"
+                    class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[12px] font-semibold transition-all {player.themeMode === mode
+                      ? 'bg-[var(--accent)] text-white shadow-sm'
+                      : 'text-[var(--text-muted)] hover:text-[var(--text)]'}"
+                    onclick={() => player.setThemeMode(mode)}
+                  >
+                    {#if mode === "system"}
+                      <Monitor size={13} />
+                      {t("settings.theme_system")}
+                    {:else if mode === "dark"}
+                      <Moon size={13} />
+                      {t("settings.theme_dark")}
+                    {:else}
+                      <Sun size={13} />
+                      {t("settings.theme_light")}
+                    {/if}
+                  </button>
+                {/each}
+              </div>
+            </div>
+
+            <div class="p-3.5 flex items-center justify-between gap-3">
+              <div>
+                <div class="flex items-center gap-1.5 text-[14px] font-semibold">
+                  <Globe size={14} class="text-[var(--accent-bright)]" />
+                  {t("settings.language")}
+                </div>
+                <div class="text-[12px] text-[var(--text-muted)]">{t("settings.language_sub")}</div>
+              </div>
+              <div class="inline-flex p-1 rounded-xl bg-black/20 border border-[var(--border)] gap-1 shrink-0">
+                {#each LANGUAGES as lang}
+                  <button
+                    type="button"
+                    class="px-2.5 py-1.5 rounded-lg text-[12px] font-semibold transition-all {player.language === lang.id
+                      ? 'bg-[var(--accent)] text-white shadow-sm'
+                      : 'text-[var(--text-muted)] hover:text-[var(--text)]'}"
+                    onclick={() => player.setLanguage(lang.id)}
+                  >
+                    {lang.id === "Auto" ? t("settings.lang_auto") : lang.label}
+                  </button>
+                {/each}
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Playback -->
+        <section class="space-y-2.5">
+          <h3 class="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">
+            {t("settings.playback")}
+          </h3>
+          <div class="rounded-2xl bg-[var(--surface)] border border-[var(--border)] divide-y divide-[var(--border)]">
+            <div class="p-3.5 flex items-center justify-between gap-4">
+              <div class="min-w-0">
+                <div class="text-[14px] font-semibold">{t("settings.crossfade")}</div>
+                <div class="text-[12px] text-[var(--text-muted)] numeric">
+                  {player.crossfadeSecs === 0
+                    ? t("settings.crossfade_off")
+                    : t("settings.crossfade_secs", { secs: player.crossfadeSecs })}
+                </div>
+              </div>
+              <input
+                class="w-36 !h-1.5"
+                type="range"
+                min="0"
+                max="10"
+                step="1"
+                value={player.crossfadeSecs}
+                aria-label={t("settings.crossfade")}
+                style="background: linear-gradient(to right, var(--accent-bright) {crossfadePct}%, rgba(255,255,255,0.16) {crossfadePct}%);"
+                oninput={(e) => player.setCrossfadeSecs(Number((e.currentTarget as HTMLInputElement).value))}
+              />
+            </div>
+
+            <div class="p-3.5 flex items-center justify-between gap-4">
+              <div class="min-w-0">
+                <div class="text-[14px] font-semibold">{t("settings.autoplay")}</div>
+                <div class="text-[12px] text-[var(--text-muted)]">{t("settings.autoplay_sub")}</div>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={player.autoplayRelated}
+                aria-label={t("settings.autoplay")}
+                class="w-11 h-6 rounded-full p-0.5 transition-colors shrink-0 {player.autoplayRelated
+                  ? 'bg-[var(--accent)]'
+                  : 'bg-white/15'}"
+                onclick={() => player.setAutoplay(!player.autoplayRelated)}
+              >
+                <span
+                  class="block w-5 h-5 rounded-full bg-white shadow transition-transform {player.autoplayRelated
+                    ? 'translate-x-5'
+                    : 'translate-x-0'}"
+                ></span>
+              </button>
+            </div>
+
+            <div class="p-3.5 flex items-center justify-between gap-4">
+              <div class="min-w-0">
+                <div class="text-[14px] font-semibold">{t("settings.background")}</div>
+                <div class="text-[12px] text-[var(--text-muted)]">{t("settings.background_sub")}</div>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={player.backgroundPlayback}
+                aria-label={t("settings.background")}
+                class="w-11 h-6 rounded-full p-0.5 transition-colors shrink-0 {player.backgroundPlayback
+                  ? 'bg-[var(--accent)]'
+                  : 'bg-white/15'}"
+                onclick={() => player.setBackgroundPlayback(!player.backgroundPlayback)}
+              >
+                <span
+                  class="block w-5 h-5 rounded-full bg-white shadow transition-transform {player.backgroundPlayback
+                    ? 'translate-x-5'
+                    : 'translate-x-0'}"
+                ></span>
+              </button>
+            </div>
+          </div>
+        </section>
+
+        <!-- Storage -->
+        <section class="space-y-2.5">
+          <h3 class="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">
+            {t("settings.storage")}
+          </h3>
+          <div class="rounded-2xl bg-[var(--surface)] border border-[var(--border)] divide-y divide-[var(--border)]">
+            <div class="p-3.5 flex items-center justify-between gap-4">
+              <div class="min-w-0 flex-1 space-y-1.5">
+                <div class="flex items-center gap-2 text-[14px] font-semibold">
+                  <HardDrive size={15} class="text-[var(--accent-bright)]" />
+                  {t("settings.cache")}
+                </div>
+                <div class="text-[12px] text-[var(--text-muted)] numeric">
+                  {t("settings.cache_sub", { mb: cacheMb })}
+                </div>
+                <div class="h-1.5 w-full max-w-[240px] rounded-full bg-white/10 overflow-hidden">
+                  <div
+                    class="h-full rounded-full bg-[var(--accent-bright)] transition-[width] duration-300"
+                    style="width: {cachePct}%"
+                  ></div>
+                </div>
+              </div>
+              <button
+                class="pill-btn hover:!bg-red-500/20 hover:!border-red-500/40 hover:!text-red-400 shrink-0"
+                disabled={cacheBytes === 0}
+                onclick={() => void clearCache()}
+              >
+                <Trash2 size={13} />
+                {t("settings.clear")}
+              </button>
+            </div>
+
+            <div class="p-3.5 flex items-center justify-between gap-4">
+              <div class="min-w-0">
+                <div class="text-[14px] font-semibold">{t("settings.search_history")}</div>
+                <div class="text-[12px] text-[var(--text-muted)] numeric">
+                  {player.searchHistory.length === 1
+                    ? t("settings.search_history_one")
+                    : t("settings.search_history_many", { count: player.searchHistory.length })}
+                </div>
+              </div>
+              <button
+                class="pill-btn shrink-0"
+                disabled={player.searchHistory.length === 0}
+                onclick={() => player.clearSearchHistory()}
+              >
+                {t("settings.clear")}
+              </button>
+            </div>
+          </div>
+        </section>
+      </div>
+    </div>
   </div>
-
-  <div class="dlg-body">
-    <section class="group">
-      <h3>Appearance</h3>
-      <div class="card">
-        <div class="row">
-          <span>Theme</span>
-          <select
-            value={player.themeMode}
-            onchange={(e) =>
-              player.setThemeMode((e.currentTarget as HTMLSelectElement).value as ThemeMode)}
-          >
-            <option value="system">System</option>
-            <option value="dark">Dark</option>
-            <option value="light">Light</option>
-          </select>
-        </div>
-      </div>
-    </section>
-
-    <section class="group">
-      <h3>Playback</h3>
-      <div class="card">
-        <div class="row">
-          <div>
-            <strong>Crossfade</strong>
-            <small class="muted">{player.crossfadeSecs === 0 ? "Disabled (0 s)" : `${player.crossfadeSecs} s`}</small>
-          </div>
-          <input
-            type="range"
-            min="0"
-            max="10"
-            step="1"
-            value={player.crossfadeSecs}
-            oninput={(e) => player.setCrossfadeSecs(Number((e.currentTarget as HTMLInputElement).value))}
-          />
-        </div>
-
-        <label class="row">
-          <div>
-            <strong>Autoplay</strong>
-            <small class="muted">Queue similar songs when the queue ends</small>
-          </div>
-          <input
-            type="checkbox"
-            checked={player.autoplayRelated}
-            onchange={(e) => player.setAutoplay((e.currentTarget as HTMLInputElement).checked)}
-          />
-        </label>
-
-        <label class="row">
-          <div>
-            <strong>Background playback</strong>
-            <small class="muted">Keep playing music when closing the window</small>
-          </div>
-          <input
-            type="checkbox"
-            checked={player.backgroundPlayback}
-            onchange={(e) =>
-              player.setBackgroundPlayback((e.currentTarget as HTMLInputElement).checked)}
-          />
-        </label>
-      </div>
-    </section>
-
-    <section class="group">
-      <h3>Storage</h3>
-      <div class="card">
-        <div class="row">
-          <div>
-            <strong>Audio cache</strong>
-            <small class="muted numeric">{cacheMb} MB / 1024 MB cached</small>
-            <div class="cache-bar"><div class="cache-fill" style="width: {cachePct}%"></div></div>
-          </div>
-          <button class="pill-btn danger" disabled={cacheBytes === 0} onclick={() => void clearCache()}>
-            Clear
-          </button>
-        </div>
-
-        <div class="row">
-          <div>
-            <strong>Search history</strong>
-            <small class="muted">{player.searchHistory.length} saved searches</small>
-          </div>
-          <button
-            class="pill-btn"
-            disabled={player.searchHistory.length === 0}
-            onclick={() => player.clearSearchHistory()}
-          >
-            Clear
-          </button>
-        </div>
-      </div>
-    </section>
-  </div>
-</dialog>
-
-<style>
-  .dlg-head {
-    padding: 16px 20px;
-    border-bottom: 1px solid var(--border);
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-  }
-
-  .dlg-head h2 {
-    margin: 0;
-    font-size: 17px;
-  }
-
-  .dlg-body {
-    padding: 18px 20px 22px;
-    display: flex;
-    flex-direction: column;
-    gap: 18px;
-  }
-
-  .group h3 {
-    margin: 0 0 8px;
-    font-size: 13px;
-    color: var(--text-muted);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-  }
-
-  .card {
-    border-radius: 14px;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    overflow: hidden;
-  }
-
-  .row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 14px;
-    padding: 12px 14px;
-    border-bottom: 1px solid var(--border);
-    font-size: 13.5px;
-  }
-
-  .row:last-child {
-    border-bottom: none;
-  }
-
-  .row div {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
-
-  .row small {
-    font-size: 11.5px;
-  }
-
-  select {
-    padding: 6px 10px;
-    border-radius: 8px;
-    border: 1px solid var(--border-strong);
-    background: var(--bg);
-    color: var(--text);
-  }
-
-  .cache-bar {
-    width: 140px;
-    height: 5px;
-    margin-top: 4px;
-    border-radius: 999px;
-    background: var(--surface-hover);
-    overflow: hidden;
-  }
-
-  .cache-fill {
-    height: 100%;
-    background: var(--accent);
-  }
-
-  .danger {
-    background: rgba(224, 27, 36, 0.16);
-    border-color: rgba(224, 27, 36, 0.42);
-    color: #ff7b82;
-  }
-</style>
+{/if}

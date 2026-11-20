@@ -1,5 +1,6 @@
 <script lang="ts">
   import { Compass, Disc3, Heart, TrendingUp } from "lucide-svelte";
+  import { t } from "../../lib/i18n.svelte";
   import { player } from "../../lib/stores/player.svelte";
 </script>
 
@@ -13,8 +14,8 @@
       <Disc3 size={18} />
     </span>
     <span class="min-w-0 flex flex-col gap-0.5">
-      <strong class="text-[14px] truncate">New releases</strong>
-      <small class="text-[11.5px] text-[var(--text-muted)] truncate">Recent albums &amp; singles</small>
+      <strong class="text-[14px] truncate">{t("home.new_releases")}</strong>
+      <small class="text-[11.5px] text-[var(--text-muted)] truncate">{t("home.new_releases_sub")}</small>
     </span>
   </button>
 
@@ -27,8 +28,8 @@
       <TrendingUp size={18} />
     </span>
     <span class="min-w-0 flex flex-col gap-0.5">
-      <strong class="text-[14px] truncate">Top charts</strong>
-      <small class="text-[11.5px] text-[var(--text-muted)] truncate">Trending &amp; Top Music</small>
+      <strong class="text-[14px] truncate">{t("home.top_charts")}</strong>
+      <small class="text-[11.5px] text-[var(--text-muted)] truncate">{t("home.top_charts_sub")}</small>
     </span>
   </button>
 
@@ -44,8 +45,8 @@
       <Compass size={18} />
     </span>
     <span class="min-w-0 flex flex-col gap-0.5">
-      <strong class="text-[14px] truncate">Moods</strong>
-      <small class="text-[11.5px] text-[var(--text-muted)] truncate">Explore genres &amp; vibes</small>
+      <strong class="text-[14px] truncate">{t("home.moods")}</strong>
+      <small class="text-[11.5px] text-[var(--text-muted)] truncate">{t("home.moods_sub")}</small>
     </span>
   </button>
 
@@ -58,8 +59,8 @@
       <Heart size={18} />
     </span>
     <span class="min-w-0 flex flex-col gap-0.5">
-      <strong class="text-[14px] truncate">Collection</strong>
-      <small class="text-[11.5px] text-[var(--text-muted)] truncate">Your favorite songs</small>
+      <strong class="text-[14px] truncate">{t("home.collection")}</strong>
+      <small class="text-[11.5px] text-[var(--text-muted)] truncate">{t("home.collection_sub")}</small>
     </span>
   </button>
 </section>
