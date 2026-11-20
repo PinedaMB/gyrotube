@@ -99,7 +99,12 @@ export class DualDeckAudioEngine {
     this.crossfadeSecs = Math.max(0, Math.min(10, Math.round(secs)));
   }
 
-  public async loadAndPlay(url: string, startPositionSecs = 0, useCrossfade = false): Promise<void> {
+  public async loadAndPlay(
+    url: string,
+    startPositionSecs = 0,
+    useCrossfade = false,
+    startPaused = false,
+  ): Promise<void> {
     this.cancelFade();
     this.crossfadeFired = false;
     this.loading = true;
@@ -157,7 +162,7 @@ export class DualDeckAudioEngine {
           outgoing.load();
         }
         incoming.volume = this.volume;
-        await incoming.play();
+        if (!startPaused) await incoming.play();
       }
     } catch (err) {
       console.error("[GyroTube play() failed]", {

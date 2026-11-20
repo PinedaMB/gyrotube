@@ -12,6 +12,7 @@
     const next = !player.spinStatus.local_active;
     try {
       player.spinStatus = next ? await api.spinStartLocal() : await api.spinStopLocal();
+      if (next) void player.syncSpinSnapshot();
     } catch (err) {
       player.showToast(String(err));
     } finally {

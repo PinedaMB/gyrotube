@@ -68,6 +68,13 @@ pub fn run() {
             let handle_for_remote = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 while let Ok(update) = remote_rx.recv().await {
+                    let state = handle_for_remote.state::<AppCoreState>();
+                    let current = state.spin.lock().is_ok_and(|spin| {
+                        matches!(&spin.remote_role, RemoteRole::Guest(target) if *target == update.target)
+                    });
+                    if !current {
+                        continue;
+                    }
                     let event = match update.result {
                         Ok(payload) => SpinRemoteSyncEvent {
                             target: update.target,

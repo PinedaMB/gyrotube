@@ -16,6 +16,7 @@
     busy = true;
     try {
       player.spinStatus = !isHost ? await api.spinStartRemoteHost() : await api.spinStopRemote();
+      if (player.spinStatus.remote_role === "host") void player.syncSpinSnapshot();
     } catch (err) {
       player.showToast(String(err));
     } finally {

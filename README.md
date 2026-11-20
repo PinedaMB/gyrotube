@@ -85,7 +85,7 @@ Los favoritos, playlists y sesiones se guardan mediante escritura temporal y ree
 
 ## Salas SPIN
 
-El anfitrión crea una sala y comparte el ticket `GYRO-…` con **Copiar** o mediante el QR. Los invitados pegan el ticket en GyroTube. Genera una invitación nueva al reiniciar la sala. Los códigos SPIN anteriores dejaron de funcionar.
+El anfitrión crea una sala y comparte la invitación compacta `GYRO-…` con **Copiar** o mediante el QR. Los invitados la pegan en su app. Los clientes actualizados también pueden leer tickets largos de versiones anteriores. Genera una invitación nueva al reiniciar la sala.
 
 GyroTube usa iroh para conectar cada invitado con el anfitrión. Intenta establecer una conexión directa y recurre a los relays públicos de iroh cuando hace falta. Los datos de sincronización viajan cifrados entre equipos, y cada invitado obtiene su propio audio de YouTube Music. Los relays públicos tienen límites y su disponibilidad puede variar.
 

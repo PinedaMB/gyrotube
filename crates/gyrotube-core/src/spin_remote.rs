@@ -73,11 +73,9 @@ pub enum RemoteGuestEvent {
 }
 
 fn encode_ticket(addr: EndpointAddr, token: &[u8; 16]) -> String {
-    format!(
-        "{}.{}",
-        EndpointTicket::new(addr).encode_string(),
-        URL_SAFE_NO_PAD.encode(token)
-    )
+    let mut bytes = EndpointTicket::new(addr).encode_bytes();
+    bytes.extend_from_slice(token);
+    URL_SAFE_NO_PAD.encode(bytes)
 }
 
 fn parse_ticket(code: &str) -> Result<(EndpointAddr, [u8; 16]), String> {
@@ -85,14 +83,16 @@ fn parse_ticket(code: &str) -> Result<(EndpointAddr, [u8; 16]), String> {
     if code.len() > 2048 {
         return Err(invalid());
     }
-    let (ticket, token) = code.split_once('.').ok_or_else(invalid)?;
-    let ticket: EndpointTicket = ticket.parse().map_err(|_| invalid())?;
-    let token = URL_SAFE_NO_PAD
-        .decode(token)
-        .ok()
-        .and_then(|v| v.try_into().ok())
-        .ok_or_else(invalid)?;
-    Ok((ticket.into(), token))
+    if let Some((ticket, token)) = code.split_once('.') {
+        let ticket: EndpointTicket = ticket.parse().map_err(|_| invalid())?;
+        let token = URL_SAFE_NO_PAD.decode(token).map_err(|_| invalid())?;
+        return Ok((ticket.into(), token.try_into().map_err(|_| invalid())?));
+    }
+    let bytes = URL_SAFE_NO_PAD.decode(code).map_err(|_| invalid())?;
+    let split = bytes.len().checked_sub(16).ok_or_else(invalid)?;
+    let (ticket, token) = bytes.split_at(split);
+    let ticket = EndpointTicket::decode_bytes(ticket).map_err(|_| invalid())?;
+    Ok((ticket.into(), token.try_into().map_err(|_| invalid())?))
 }
 
 pub fn normalize_room_code(input: &str) -> Result<String, String> {
@@ -540,7 +540,16 @@ mod tests {
             let (commands, requests) = async_channel::bounded(4);
             let host = HostPublisher::serve(host, commands)?;
             let (_, token) = parse_ticket(&host.invitation).unwrap();
-            let ticket = format!("GYRO-{}", encode_ticket(addr, &token));
+            let previous = format!(
+                "{}.{}",
+                EndpointTicket::new(addr.clone()).encode_string(),
+                URL_SAFE_NO_PAD.encode(token)
+            );
+            let compact = encode_ticket(addr.clone(), &token);
+            assert!(compact.len() < previous.len());
+            assert_eq!(parse_ticket(&previous).unwrap(), (addr.clone(), token));
+            assert_eq!(parse_ticket(&compact).unwrap(), (addr, token));
+            let ticket = format!("GYRO-{compact}");
             let code = normalize_room_code(&ticket).unwrap();
             assert!(normalize_room_code("GYRO-8492").is_err());
             assert!(ticket_qr_svg(&ticket).is_some());

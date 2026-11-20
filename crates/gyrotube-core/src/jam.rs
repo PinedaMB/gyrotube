@@ -1207,6 +1207,8 @@ function fmt(sec){
   return m+':'+(s<10?'0':'')+s;
 }
 let listenHere=false;let curTrackId=null;let dragFrom=null;
+let latestState=null;let statePending=false;let renderedQueue=null;
+const localAudio=document.getElementById('local-audio');
 function setMobileTab(tab){
   document.getElementById('main-grid').dataset.tab=tab;
   document.getElementById('tab-search').setAttribute('aria-selected',String(tab==='search'));
@@ -1220,13 +1222,57 @@ function renderListenBtn(){
 renderListenBtn();
 function toggleLocalAudio(){
   listenHere=!listenHere;
-  const aud=document.getElementById('local-audio');
   renderListenBtn();
-  if(!listenHere){aud.pause();curTrackId=null;}else{loadState();}
+  syncLocalAudio();
 }
+function stopLocalAudio(){
+  localAudio.pause();
+  if(curTrackId!==null){
+    curTrackId=null;
+    localAudio.removeAttribute('src');
+    localAudio.load();
+  }
+}
+function localAudioFailed(message){
+  listenHere=false;
+  stopLocalAudio();
+  renderListenBtn();
+  showToast(message);
+}
+function syncLocalAudio(){
+  const track=latestState?.now_playing;
+  if(!listenHere||!track){stopLocalAudio();return;}
+  if(curTrackId!==track.id){
+    curTrackId=track.id;
+    localAudio.src='/api/audio?id='+encodeURIComponent(track.id);
+  }
+  const pos=latestState.position_secs||0;
+  if(localAudio.readyState>=1&&!localAudio.seeking){
+    const target=Number.isFinite(localAudio.duration)?Math.min(pos,localAudio.duration):pos;
+    if(Math.abs(localAudio.currentTime-target)>(latestState.is_playing?1.5:0.35))localAudio.currentTime=target;
+  }
+  if(!latestState.is_playing){localAudio.pause();return;}
+  if(localAudio.paused){
+    const src=localAudio.src;
+    localAudio.play().catch(error=>{
+      if(!listenHere||localAudio.src!==src||!latestState?.is_playing||error.name==='AbortError')return;
+      localAudioFailed(error.name==='NotAllowedError'
+        ?'Toca «Escuchar aquí» para iniciar el audio.'
+        :'No se pudo reproducir el audio. Toca «Escuchar aquí» para reintentar.');
+    });
+  }
+}
+localAudio.addEventListener('loadedmetadata',syncLocalAudio);
+localAudio.addEventListener('error',()=>{
+  if(listenHere&&curTrackId!==null)localAudioFailed('No se pudo cargar el audio. Toca «Escuchar aquí» para reintentar.');
+});
 async function loadState(){
+  if(statePending)return;
+  statePending=true;
   try{
-    const r=await fetch('/api/state');const s=await r.json();
+    const r=await fetch('/api/state');if(!r.ok)return;
+    const s=await r.json();
+    latestState=s;
     const gTxt=s.guest_count+' '+(s.guest_count===1?'invitado':'invitados');
     document.getElementById('guests').innerHTML='<span class="dot" aria-hidden="true"></span><span>'+esc(gTxt)+'</span>';
     if(s.now_playing){
@@ -1240,19 +1286,6 @@ async function loadState(){
       document.getElementById('np-dur').textContent=dur?fmt(dur):'--:--';
       document.getElementById('np-progress').style.width=(dur>0?Math.min(100,(pos/dur)*100):0)+'%';
       document.getElementById('np-state').textContent=s.is_playing?'Reproduciendo':'En pausa';
-      if(listenHere){
-        const aud=document.getElementById('local-audio');
-        if(curTrackId!==s.now_playing.id){
-          curTrackId=s.now_playing.id;
-          aud.src='/api/audio?id='+encodeURIComponent(curTrackId);
-          aud.currentTime=s.position_secs||0;
-          if(s.is_playing)aud.play().catch(()=>{});
-        }else{
-          if(s.is_playing&&aud.paused)aud.play().catch(()=>{});
-          else if(!s.is_playing&&!aud.paused)aud.pause();
-          if(Math.abs((aud.currentTime||0)-(s.position_secs||0))>2.5)aud.currentTime=s.position_secs||0;
-        }
-      }
     }else{
       document.getElementById('np-title').textContent='Sin reproducción';
       document.getElementById('np-artist').textContent='Busca una canción para empezar';
@@ -1268,13 +1301,16 @@ async function loadState(){
     const qLabel='Cola ('+s.queue.length+')';
     document.getElementById('q-title').textContent=qLabel;
     document.getElementById('tab-queue').textContent=qLabel;
-    if(dragFrom===null){
+    const queueKey=JSON.stringify([s.allow_controls,s.queue]);
+    if(dragFrom===null&&renderedQueue!==queueKey){
       const canReorder=!!s.allow_controls;
       document.getElementById('queue').innerHTML=s.queue.length
         ? s.queue.map((t,i)=>`<div class="row ${t.is_current?'cur':''}" ${canReorder?`draggable="true" ondragstart="qDragStart(event,${i})" ondragover="qDragOver(event)" ondragleave="qDragLeave(event)" ondrop="qDrop(event,${i})" ondragend="qDragEnd(event)"`:''}>${canReorder?`<span class="drag-grip" aria-hidden="true">${SVG_GRIP}</span>`:''}<img class="row-art" src="${esc(t.cover_url)}" alt="" loading="lazy"/><div class="meta"><div class="row-title">${esc(t.title)}</div><div class="row-sub">${esc(t.artist)}</div></div>${t.duration_secs?`<span class="dur">${fmt(t.duration_secs)}</span>`:''}${canReorder?`<div class="q-actions"><button type="button" class="q-move-btn" ${i===0?'disabled':''} onclick="moveQueue(${i},${i-1})" aria-label="Subir">${SVG_UP}</button><button type="button" class="q-move-btn" ${i===s.queue.length-1?'disabled':''} onclick="moveQueue(${i},${i+1})" aria-label="Bajar">${SVG_DOWN}</button></div>`:''}</div>`).join('')
         : '<div class="empty">La cola está vacía</div>';
+      renderedQueue=queueKey;
     }
-  }catch(_){}
+    syncLocalAudio();
+  }catch(_){}finally{statePending=false;}
 }
 async function doSearch(e){
   e.preventDefault();
@@ -1327,7 +1363,7 @@ function qDragOver(e){e.preventDefault();e.dataTransfer.dropEffect='move';e.curr
 function qDragLeave(e){e.currentTarget.classList.remove('drop-target');}
 function qDrop(e,to){e.preventDefault();e.currentTarget.classList.remove('drop-target');const from=dragFrom;dragFrom=null;if(from!==null&&from!==to){moveQueue(from,to);}}
 function qDragEnd(e){e.currentTarget.classList.remove('dragging');dragFrom=null;}
-loadState();setInterval(loadState,2500);
+loadState();setInterval(loadState,750);
 </script>
 </body>
 </html>"##;

@@ -92,6 +92,7 @@ class PlayerStore {
   toasts = $state<ToastItem[]>([]);
   private toastSeq = 0;
   private loadGen = 0;
+  private lastLocalSpinUpdate = 0;
   private engine: DualDeckAudioEngine;
 
   currentTrack = $derived(
@@ -112,6 +113,11 @@ class PlayerStore {
         this.positionSecs = pos;
         if (dur > 0) this.durationSecs = dur;
         this.updateActiveLyric(pos);
+        const now = performance.now();
+        if (this.spinStatus.local_active && this.isPlaying && !this.isLoadingAudio && now - this.lastLocalSpinUpdate >= 500) {
+          this.lastLocalSpinUpdate = now;
+          void this.syncSpinSnapshot();
+        }
       },
       onPlayStateChange: (playing) => {
         this.isPlaying = playing;
@@ -119,10 +125,12 @@ class PlayerStore {
         void this.syncSpinSnapshot();
       },
       onEnded: () => {
-        void this.handleTrackEnded();
+        this.isPlaying = false;
+        void this.syncSpinSnapshot();
+        if (this.spinStatus.remote_role !== "guest") void this.handleTrackEnded();
       },
       onCrossfadeTrigger: () => {
-        void this.next(true);
+        if (this.spinStatus.remote_role !== "guest") void this.next(true);
       },
       onError: (msg) => {
         this.isLoadingAudio = false;
@@ -246,20 +254,37 @@ class PlayerStore {
           this.showToast(error);
           return;
         }
-        if (!payload?.track) return;
+        if (!payload) return;
+        if (!payload.track) {
+          ++this.loadGen;
+          this.currentIndex = null;
+          this.queue = [];
+          this.unshuffledQueue = [];
+          this.isLoadingAudio = false;
+          this.engine.stop();
+          this.lyrics = { type: "None" };
+          this.activeLyricIndex = null;
+          return;
+        }
         const driftMs = Math.max(0, Date.now() - payload.sent_at_ms);
         const targetPos = payload.position_secs + (payload.is_playing ? driftMs / 1000 : 0);
-        if (this.currentTrack?.id !== payload.track.id) {
-          this.queue = [payload.track];
-          this.unshuffledQueue = [payload.track];
+        const trackChanged = this.currentTrack?.id !== payload.track.id;
+        if (trackChanged || (!this.engine.activeDeck.src && !this.isLoadingAudio)) {
+          this.engine.stop();
+          const track = { ...payload.track, is_music: false };
+          this.queue = [track];
+          this.unshuffledQueue = [track];
           this.sourceName = `SPIN · ${payload.host_name || "Host"}`;
-          void this.playIndex(0, false, targetPos);
-        } else {
-          if (Math.abs(this.positionSecs - targetPos) > 1.8) {
+          void this.playIndex(0, false, targetPos, !payload.is_playing);
+        } else if (!this.isLoadingAudio) {
+          const deck = this.engine.activeDeck;
+          if (deck.readyState >= 1 && !deck.seeking && Math.abs(deck.currentTime - targetPos) > (payload.is_playing ? 1.8 : 0.35)) {
             this.seek(targetPos);
           }
-          if (payload.is_playing !== this.isPlaying) {
-            void this.engine.togglePlay();
+          if (!payload.is_playing) {
+            deck.pause();
+          } else if (deck.paused) {
+            void deck.play().catch((err) => this.showToast(String(err)));
           }
         }
       });
@@ -422,6 +447,7 @@ class PlayerStore {
       void this.playIndex(0);
     } else {
       void this.persistSession();
+      void this.syncSpinSnapshot();
     }
   }
 
@@ -463,6 +489,7 @@ class PlayerStore {
       this.currentIndex -= 1;
     }
     void this.persistSession();
+    void this.syncSpinSnapshot();
   }
 
   public moveQueueItem(from: number, to: number): void {
@@ -480,6 +507,7 @@ class PlayerStore {
       else if (from > this.currentIndex && to <= this.currentIndex) this.currentIndex += 1;
     }
     void this.persistSession();
+    void this.syncSpinSnapshot();
   }
 
   public clearQueue(): void {
@@ -503,7 +531,7 @@ class PlayerStore {
     void this.persistSession();
   }
 
-  public async playIndex(index: number, useCrossfade = false, startPositionSecs = 0): Promise<void> {
+  public async playIndex(index: number, useCrossfade = false, startPositionSecs = 0, startPaused = false): Promise<void> {
     if (index < 0 || index >= this.queue.length) return;
     const track = this.queue[index];
     const gen = ++this.loadGen;
@@ -548,13 +576,16 @@ class PlayerStore {
       const stream = await api.resolveAudioStream(track);
       if (this.loadGen !== gen) return;
       this.qualityLabel = stream.quality_label;
-      await this.engine.loadAndPlay(stream.url, startPositionSecs, useCrossfade);
+      await this.engine.loadAndPlay(stream.url, startPositionSecs, useCrossfade, startPaused);
+      if (this.loadGen !== gen) return;
+      if (startPaused) this.isLoadingAudio = false;
       void this.syncSpinSnapshot();
 
       // Load lyrics & related suggestions asynchronously
       void api.getLyrics(track.title, track.artist, track.duration_secs).then((data) => {
         if (this.loadGen === gen) this.lyrics = data;
       });
+      if (this.spinStatus.remote_role === "guest") return;
       void api.getRadioTracks(track.id).then((tracks) => {
         if (this.loadGen !== gen) return;
         const existing = new Set(this.queue.map((t) => t.id));
@@ -591,6 +622,7 @@ class PlayerStore {
     this.positionSecs = secs;
     this.engine.seek(secs);
     this.updateActiveLyric(secs);
+    void this.syncSpinSnapshot();
   }
 
   public async prev(): Promise<void> {
@@ -643,6 +675,7 @@ class PlayerStore {
       this.currentIndex = idx >= 0 ? idx : 0;
     }
     void this.persistSession();
+    void this.syncSpinSnapshot();
   }
 
   public toggleRepeat(): void {
