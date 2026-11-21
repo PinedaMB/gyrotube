@@ -60,8 +60,8 @@
 <div class="page-clamp">
   <div class="flex items-center justify-between gap-2 mb-4">
     <div>
-      <h1 class="text-[28px] font-extrabold tracking-[-0.025em] leading-tight">{greeting}</h1>
-      <p class="text-[13px] text-[var(--text-muted)] mt-0.5">{t("home.subtitle")}</p>
+      <h1 class="text-[28px] md:text-[32px] font-extrabold tracking-[-0.025em] leading-tight">{greeting}</h1>
+      <p class="text-[13.5px] md:text-[14px] text-[var(--text-muted)] mt-0.5">{t("home.subtitle")}</p>
     </div>
     <div class="flex items-center gap-1.5 shrink-0">
       <SelectDropdown
@@ -121,8 +121,8 @@
               {/if}
             </div>
             <div class="px-0.5 space-y-0.5 w-full">
-              <strong class="block w-full text-[13.5px] font-bold max-md:line-clamp-2 max-md:leading-snug max-md:whitespace-normal md:truncate">{album.title}</strong>
-              <span class="block text-[12px] text-[var(--text-muted)] truncate w-full">{album.artist}</span>
+              <strong class="block w-full text-[14px] md:text-[14.5px] font-bold max-md:line-clamp-2 max-md:leading-snug max-md:whitespace-normal md:truncate">{album.title}</strong>
+              <span class="block text-[12.5px] md:text-[13px] text-[var(--text-muted)] truncate w-full">{album.artist}</span>
             </div>
           </button>
         {/each}

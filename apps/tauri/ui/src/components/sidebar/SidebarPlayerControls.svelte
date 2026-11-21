@@ -1,5 +1,7 @@
 <script lang="ts">
   import {
+    ChevronRight,
+    Disc3,
     Heart,
     PartyPopper,
     Pause,
@@ -35,6 +37,7 @@
   let openPopover = $state<ActionPopover>(null);
   let prevVolume = $state(1);
   let startingRadio = $state(false);
+  let resolvingArtist = $state(false);
 
   let displayPos = $derived(seeking ? seekDraft : player.positionSecs);
   let progressPct = $derived(
@@ -77,34 +80,51 @@
 
   <!-- Lower controls stack -->
   <div class="w-full flex flex-col items-center gap-4">
-    <!-- Track metadata (artist & album clickable when IDs are available) -->
-    <div class="w-full text-center px-1 space-y-1">
+    <!-- Track metadata (artist & album interactive) -->
+    <div class="w-full flex flex-col items-center text-center px-1 gap-1.5">
       <h2 class="text-[19px] font-extrabold leading-tight tracking-tight line-clamp-2">
         {player.currentTrack?.title ?? t("player.nothing_playing")}
       </h2>
-      {#if player.currentTrack?.artist_id}
+      {#if player.currentTrack?.artist}
         <button
           type="button"
-          class="text-[14px] font-medium text-[var(--text-muted)] hover:text-[var(--accent-bright)] hover:underline truncate max-w-full transition-colors"
-          onclick={() => {
+          disabled={resolvingArtist}
+          class="group inline-flex items-center justify-center gap-1.5 max-w-full px-2.5 py-0.5 rounded-full text-[14.5px] font-semibold text-[var(--text-muted)] hover:text-[var(--accent-bright)] hover:bg-[var(--surface-hover)] transition-colors"
+          title={t("ctx.go_artist")}
+          onclick={async () => {
             const tr = player.currentTrack;
-            if (!tr?.artist_id) return;
-            if (typeof window !== "undefined" && window.innerWidth < 1024) player.sidebarOpen = false;
-            player.openArtist(tr.artist_id, tr.artist);
+            if (!tr?.artist || resolvingArtist) return;
+            resolvingArtist = true;
+            try {
+              if (typeof window !== "undefined" && window.innerWidth < 1024) {
+                player.sidebarOpen = false;
+              }
+              await player.openArtistByNameOrId(tr.artist_id, tr.artist);
+            } finally {
+              resolvingArtist = false;
+            }
           }}
         >
-          {player.currentTrack.artist}
+          {#if resolvingArtist}
+            <span class="w-3 h-3 rounded-full border-2 border-current/30 border-t-current animate-spin shrink-0"></span>
+          {/if}
+          <span class="truncate">{player.currentTrack.artist}</span>
+          <ChevronRight
+            size={13}
+            class="shrink-0 opacity-0 -ml-1 group-hover:opacity-80 group-hover:ml-0 transition-all"
+          />
         </button>
       {:else}
         <p class="text-[14px] font-medium text-[var(--text-muted)] truncate">
-          {player.currentTrack?.artist ?? t("player.select_song")}
+          {t("player.select_song")}
         </p>
       {/if}
       {#if player.currentTrack?.album}
         {#if player.currentTrack.album_id}
           <button
             type="button"
-            class="block mx-auto text-[12px] text-[var(--text-muted)]/75 hover:text-[var(--text)] hover:underline truncate max-w-full transition-colors"
+            class="group inline-flex items-center justify-center gap-1.5 max-w-full px-3 py-1 rounded-full text-[12px] font-medium bg-[var(--surface)] border border-[var(--border)] text-[var(--text-muted)] hover:bg-[var(--accent-soft)] hover:border-[var(--accent-border)] hover:text-[var(--accent-bright)] transition-colors"
+            title={t("player.album_prefix", { album: player.currentTrack.album })}
             onclick={() => {
               const tr = player.currentTrack;
               if (!tr?.album_id || !tr.album) return;
@@ -112,12 +132,18 @@
               player.openAlbum(tr.album_id, tr.album, tr.cover_large_url ?? tr.cover_url);
             }}
           >
-            {t("player.album_prefix", { album: player.currentTrack.album })}
+            <Disc3 size={12} class="shrink-0 opacity-75 group-hover:opacity-100" />
+            <span class="truncate">{player.currentTrack.album}</span>
+            <ChevronRight
+              size={12}
+              class="shrink-0 opacity-50 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all"
+            />
           </button>
         {:else}
-          <p class="text-[12px] text-[var(--text-muted)]/75 truncate">
-            {t("player.album_prefix", { album: player.currentTrack.album })}
-          </p>
+          <span class="inline-flex items-center justify-center gap-1.5 max-w-full px-2.5 py-0.5 text-[12px] text-[var(--text-muted)]/80">
+            <Disc3 size={12} class="shrink-0 opacity-70" />
+            <span class="truncate">{player.currentTrack.album}</span>
+          </span>
         {/if}
       {/if}
     </div>

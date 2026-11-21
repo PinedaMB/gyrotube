@@ -213,18 +213,18 @@
         </div>
       {/if}
 
-      {#if track.artist_id || track.album_id}
+      {#if track.artist || track.album_id}
         <div class="my-1 border-t border-white/[0.08]"></div>
       {/if}
 
-      {#if track.artist_id}
+      {#if track.artist}
         <button
           type="button"
           role="menuitem"
           class="ctx-item"
           onclick={() => {
             contextMenu.close();
-            if (track.artist_id) player.openArtist(track.artist_id, track.artist);
+            void player.openArtistByNameOrId(track.artist_id, track.artist);
           }}
         >
           <User size={15} />

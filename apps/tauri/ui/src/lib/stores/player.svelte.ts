@@ -472,6 +472,32 @@ class PlayerStore {
     this.commitRoute({ kind: "artist", artistId, artistName }, "explore");
   }
 
+  public async openArtistByNameOrId(
+    artistId: string | null | undefined,
+    artistName: string,
+  ): Promise<void> {
+    if (artistId) {
+      this.openArtist(artistId, artistName);
+      return;
+    }
+    const cleanName = artistName.split(/[,&]|feat\.?|ft\.?/i)[0]?.trim() || artistName.trim();
+    if (!cleanName) return;
+    if (!isTauriRuntime()) return;
+    try {
+      const res = await api.searchAll(cleanName);
+      const lower = cleanName.toLowerCase();
+      const match =
+        res.artists.find((a) => a.name.trim().toLowerCase() === lower) ?? res.artists[0];
+      if (match) {
+        this.openArtist(match.id, match.name);
+        return;
+      }
+      await this.runSearch(cleanName);
+    } catch {
+      await this.runSearch(cleanName);
+    }
+  }
+
   public openAlbum(id: string, title: string, coverUrl?: string | null, isPlaylist = false): void {
     this.commitRoute({ kind: "album", id, title, coverUrl, isPlaylist }, this.activeTab);
   }

@@ -603,6 +603,11 @@ impl Backend {
                         .into_iter()
                         .filter_map(|item| match item {
                             PlaylistItem::Song(ps) if ps.is_available => {
+                                let first_artist_id = ps
+                                    .artists
+                                    .iter()
+                                    .find_map(|a| a.id.as_ref().map(|id| id.get_raw().to_string()))
+                                    .or_else(|| Some(artist_id.to_string()));
                                 let artist_str = ps
                                     .artists
                                     .into_iter()
@@ -618,7 +623,7 @@ impl Backend {
                                     } else {
                                         artist_str
                                     },
-                                    artist_id: None,
+                                    artist_id: first_artist_id,
                                     album: Some(ps.album.name),
                                     album_id: Some(ps.album.id.get_raw().to_string()),
                                     duration_secs: parse_mm_ss(&ps.duration),
@@ -642,6 +647,11 @@ impl Backend {
                         .map(|t| {
                             let id = t.video_id.get_raw().to_string();
                             let cover = Some(format!("https://i.ytimg.com/vi/{id}/hqdefault.jpg"));
+                            let first_artist_id = t
+                                .artists
+                                .iter()
+                                .find_map(|a| a.id.as_ref().map(|aid| aid.get_raw().to_string()))
+                                .or_else(|| Some(artist_id.to_string()));
                             Track {
                                 is_music: false,
                                 id,
@@ -655,7 +665,7 @@ impl Backend {
                                         .collect::<Vec<_>>()
                                         .join(", ")
                                 },
-                                artist_id: None,
+                                artist_id: first_artist_id,
                                 album: Some(t.album.name),
                                 album_id: Some(t.album.id.get_raw().to_string()),
                                 duration_secs: None,
@@ -1765,6 +1775,10 @@ fn tracks_from_ytm_playlist(items: Vec<PlaylistItem>) -> Vec<Track> {
         .filter_map(|item| match item {
             PlaylistItem::Song(song) if song.is_available => {
                 let cover = best_ytm_thumb(&song.thumbnails);
+                let first_artist_id = song
+                    .artists
+                    .iter()
+                    .find_map(|a| a.id.as_ref().map(|id| id.get_raw().to_string()));
                 Some(Track {
                     is_music: true,
                     id: song.video_id.get_raw().to_string(),
@@ -1775,7 +1789,7 @@ fn tracks_from_ytm_playlist(items: Vec<PlaylistItem>) -> Vec<Track> {
                         .map(|a| a.name)
                         .collect::<Vec<_>>()
                         .join(", "),
-                    artist_id: None,
+                    artist_id: first_artist_id,
                     album: Some(song.album.name),
                     album_id: Some(song.album.id.get_raw().to_string()),
                     duration_secs: parse_mm_ss(&song.duration),

@@ -10,7 +10,7 @@
     children: Snippet;
   }
 
-  let { title, id, minCardWidth = 172, gap = 12, children }: Props = $props();
+  let { title, id, minCardWidth = 188, gap = 14, children }: Props = $props();
 
   let scroller = $state<HTMLDivElement | null>(null);
   let canPrev = $state(false);

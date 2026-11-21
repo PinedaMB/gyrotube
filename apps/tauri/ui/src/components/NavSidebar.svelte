@@ -10,8 +10,8 @@
 <!-- Desktop / tablet left navigation sidebar -->
 <aside
   class="hidden md:flex flex-col shrink-0 h-full border-r border-[var(--border)] bg-[var(--bg-sidebar)] select-none transition-[width] duration-200 ease-out overflow-hidden {collapsed
-    ? 'w-[72px]'
-    : 'w-[228px]'}"
+    ? 'w-[74px]'
+    : 'w-[240px]'}"
 >
   <!-- Primary navigation -->
   <nav class="p-3 space-y-1" aria-label="Main navigation">

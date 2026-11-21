@@ -18,7 +18,7 @@
   --border: rgba(255, 255, 255, 0.08);
   --border-strong: rgba(255, 255, 255, 0.16);
   --text: #f3f4f6;
-  --text-muted: rgba(243, 244, 246, 0.62);
+  --text-muted: rgba(243, 244, 246, 0.72);
   --ambient-rgb: 33, 144, 164;
 
   --radius-sm: 10px;
@@ -37,7 +37,7 @@
     --border: rgba(0, 0, 0, 0.09);
     --border-strong: rgba(0, 0, 0, 0.16);
     --text: #18181b;
-    --text-muted: rgba(24, 24, 27, 0.62);
+    --text-muted: rgba(24, 24, 27, 0.7);
   }
 }
 
@@ -51,7 +51,7 @@
   --border: rgba(0, 0, 0, 0.09);
   --border-strong: rgba(0, 0, 0, 0.16);
   --text: #18181b;
-  --text-muted: rgba(24, 24, 27, 0.62);
+  --text-muted: rgba(24, 24, 27, 0.7);
 }
 
 :root[data-theme="dark"] {
@@ -197,9 +197,9 @@
 
 .page-clamp {
   width: 100%;
-  max-width: 1280px;
+  max-width: 1400px;
   margin: 0 auto;
-  padding: 18px 24px 116px 24px;
+  padding: 20px 28px 124px 28px;
 }
 
 @media (width < 48rem) {
@@ -210,7 +210,7 @@
 
 .section-title {
   margin: 0;
-  font-size: 20px;
+  font-size: 22px;
   font-weight: 800;
   letter-spacing: -0.02em;
 }

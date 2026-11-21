@@ -53,7 +53,7 @@
       {/if}
 
       <div class="relative shrink-0">
-        <CoverImage class="track-cover !w-10 !h-10 !rounded-[8px]" src={track.cover_url} alt="" />
+        <CoverImage class="track-cover !w-10 !h-10 md:!w-11 md:!h-11 !rounded-[8px]" src={track.cover_url} alt="" />
         {#if current}
           <span
             class="absolute inset-0 rounded-[8px] bg-black/55 flex items-center justify-center text-[var(--accent-bright)]"
@@ -78,14 +78,14 @@
 
       <div class="min-w-0 flex-1">
         <div
-          class="text-[13.5px] font-semibold truncate {current
+          class="text-[14px] md:text-[15px] font-semibold truncate {current
             ? 'text-[var(--accent-bright)] font-bold'
             : ''}"
           title={track.title}
         >
           {track.title}
         </div>
-        <div class="text-[12px] text-[var(--text-muted)] truncate" title={track.artist}>
+        <div class="text-[12.5px] md:text-[13px] text-[var(--text-muted)] truncate" title={track.artist}>
           {track.artist}{track.album ? ` · ${track.album}` : ""}
         </div>
       </div>
