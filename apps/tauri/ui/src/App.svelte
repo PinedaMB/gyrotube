@@ -47,7 +47,7 @@
     const rgb = player.ambientRgb;
     document.documentElement.style.setProperty(
       "--ambient-rgb",
-      rgb ? `${rgb[0]}, ${rgb[1]}, ${rgb[2]}` : "33, 144, 164",
+      rgb ? `${rgb[0]}, ${rgb[1]}, ${rgb[2]}` : "16, 185, 129",
     );
   });
 </script>

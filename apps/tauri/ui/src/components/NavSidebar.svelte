@@ -119,7 +119,7 @@
       >
         <span
           class="w-7 h-7 rounded-lg inline-flex items-center justify-center text-white shrink-0"
-          style="background: {pl.color_hex || '#2190a4'};"
+          style="background: {pl.color_hex || '#10b981'};"
         >
           <PlaylistIcon name={pl.icon_name} size={13} />
         </span>

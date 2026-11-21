@@ -23,13 +23,13 @@
       <!-- Header -->
       <div class="flex items-center justify-between px-6 py-4 border-b border-[var(--border)]">
         <div class="flex items-center gap-2.5">
-          <div class="w-8 h-8 rounded-xl bg-[var(--accent-soft)] text-[var(--accent-bright)] flex items-center justify-center">
+          <div class="w-8 h-8 rounded-xl bg-[var(--gold-soft)] text-[var(--gold-bright)] flex items-center justify-center">
             <SpinIcon size={18} spinning={isLive} />
           </div>
           <h2 class="text-[18px] font-extrabold tracking-tight">{t("spin.title")}</h2>
           {#if isLive}
-            <span class="inline-flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/25">
-              <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+            <span class="inline-flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-[var(--gold-soft)] text-[var(--gold-bright)] border border-[var(--gold-border)]">
+              <span class="w-1.5 h-1.5 rounded-full bg-[var(--gold-bright)] animate-pulse"></span>
               {t("spin.live")}
             </span>
           {/if}

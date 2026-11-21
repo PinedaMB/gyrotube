@@ -909,7 +909,7 @@ class PlayerStore {
   public createUserPlaylist(
     name: string,
     description = "",
-    colorHex: string | null = "#2190a4",
+    colorHex: string | null = "#10b981",
     iconName: string | null = null,
     tracks: Track[] = [],
   ): UserPlaylist {

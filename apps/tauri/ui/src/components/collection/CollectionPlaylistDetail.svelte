@@ -27,7 +27,7 @@
     mode === "favorites" ? t("collection.favorites_desc") : (playlist?.description ?? ""),
   );
   let accentColor = $derived(
-    mode === "favorites" ? "#e01b24" : (playlist?.color_hex || "#2190a4"),
+    mode === "favorites" ? "#e11d48" : (playlist?.color_hex || "#10b981"),
   );
 
   let tracks = $derived.by(() => {

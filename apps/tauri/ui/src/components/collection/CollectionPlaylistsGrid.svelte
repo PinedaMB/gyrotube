@@ -56,7 +56,7 @@
 
     <!-- User playlists -->
     {#each player.userPlaylists as pl (pl.id)}
-      {@const accent = pl.color_hex || "#2190a4"}
+      {@const accent = pl.color_hex || "#10b981"}
       <div
         class="group flex items-center gap-3.5 p-3.5 rounded-2xl border border-[var(--border)] hover:border-white/20 cursor-pointer transition-all duration-150 hover:-translate-y-0.5"
         style="background: linear-gradient(135deg, {accent}26, var(--surface) 72%);"

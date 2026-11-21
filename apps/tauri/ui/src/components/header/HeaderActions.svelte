@@ -23,7 +23,7 @@
     <SpinIcon size={19} spinning={spinLive} />
     {#if spinLive}
       <span
-        class="w-2 h-2 rounded-full bg-emerald-400 ring-2 ring-[var(--bg-elevated)] absolute top-1 right-1 animate-pulse"
+        class="w-2 h-2 rounded-full bg-[var(--gold-bright)] ring-2 ring-[var(--bg-elevated)] absolute top-1 right-1 animate-pulse"
       ></span>
     {/if}
   </button>

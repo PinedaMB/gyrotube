@@ -5,7 +5,7 @@
   import PlaylistIcon, { PLAYLIST_ICON_IDS } from "./PlaylistIcon.svelte";
 
   const SWATCHES = [
-    "#2190a4",
+    "#10b981",
     "#3584e4",
     "#9141ac",
     "#c061cb",
@@ -67,7 +67,7 @@
     onClose();
   }
 
-  let previewColor = $derived(formColor ?? "#2190a4");
+  let previewColor = $derived(formColor ?? "#10b981");
 </script>
 
 <ModalSheet
