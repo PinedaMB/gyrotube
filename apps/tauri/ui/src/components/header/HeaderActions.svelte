@@ -1,7 +1,8 @@
 <script lang="ts">
-  import { PanelRight, PartyPopper, Radio, Settings } from "lucide-svelte";
+  import { PanelRight, PartyPopper, Settings } from "lucide-svelte";
   import { t } from "../../lib/i18n.svelte";
   import { player } from "../../lib/stores/player.svelte";
+  import SpinIcon from "../icons/SpinIcon.svelte";
 
   let spinLive = $derived(
     player.spinStatus.local_active || player.spinStatus.remote_role !== "idle",
@@ -19,7 +20,7 @@
       if (player.spinOpen) void player.refreshSpinStatus();
     }}
   >
-    <Radio size={18} />
+    <SpinIcon size={19} spinning={spinLive} />
     {#if spinLive}
       <span
         class="w-2 h-2 rounded-full bg-emerald-400 ring-2 ring-[var(--bg-elevated)] absolute top-1 right-1 animate-pulse"

@@ -1,7 +1,8 @@
 <script lang="ts">
-  import { Globe, Radio, Wifi, X } from "lucide-svelte";
+  import { Globe, Wifi, X } from "lucide-svelte";
   import { t } from "../../lib/i18n.svelte";
   import { player } from "../../lib/stores/player.svelte";
+  import SpinIcon from "../icons/SpinIcon.svelte";
   import ModalSheet from "../ModalSheet.svelte";
   import SpinLocalPane from "./SpinLocalPane.svelte";
   import SpinRemotePane from "./SpinRemotePane.svelte";
@@ -23,7 +24,7 @@
       <div class="flex items-center justify-between px-6 py-4 border-b border-[var(--border)]">
         <div class="flex items-center gap-2.5">
           <div class="w-8 h-8 rounded-xl bg-[var(--accent-soft)] text-[var(--accent-bright)] flex items-center justify-center">
-            <Radio size={17} />
+            <SpinIcon size={18} spinning={isLive} />
           </div>
           <h2 class="text-[18px] font-extrabold tracking-tight">{t("spin.title")}</h2>
           {#if isLive}
