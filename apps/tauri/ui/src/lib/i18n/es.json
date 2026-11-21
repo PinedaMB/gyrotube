@@ -167,6 +167,7 @@
   "settings.search_history_many": "{count} búsquedas guardadas",
   "settings.clear": "Limpiar",
   "spin.title": "Modo SPIN",
+  "spin.experimental": "Experimental",
   "spin.live": "En vivo",
   "spin.close": "Cerrar modo SPIN",
   "spin.tab_local": "Jukebox Wi-Fi",

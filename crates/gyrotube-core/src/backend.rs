@@ -403,7 +403,7 @@ impl Backend {
             );
             if let Ok(items) = items {
                 had_entries = !items.is_empty();
-                let tracks = tracks_from_ytm_playlist(items);
+                let tracks = tracks_from_ytm_playlist_with_videos(items);
                 if !tracks.is_empty() {
                     let title = details.map_or_else(
                         |_| String::from("Playlist"),
@@ -430,9 +430,11 @@ impl Backend {
                 }
             })?;
 
-        // shortcut: check up to three continuation pages for audio, extend further on demand if needed.
+        // shortcut: check up to three continuation pages for playable items, extend further on demand if needed.
         for _ in 0..3 {
-            if playlist.tracks.is_exhausted() || playlist.tracks.items.iter().any(is_playlist_audio) {
+            if playlist.tracks.is_exhausted()
+                || playlist.tracks.items.iter().any(is_playlist_playable)
+            {
                 break;
             }
             if let Err(err) = playlist.tracks.extend(&query).await {
@@ -447,8 +449,15 @@ impl Backend {
             .tracks
             .items
             .iter()
-            .filter(|t| is_playlist_audio(t))
-            .map(Track::from)
+            .filter(|t| is_playlist_playable(t))
+            .map(|t| {
+                let mut tr = Track::from(t);
+                if t.track_type == TrackType::Video {
+                    tr.is_music = true;
+                    tr.is_video = true;
+                }
+                tr
+            })
             .collect();
         playlist_audio_result(playlist.name, tracks, had_entries, complete)
     }
@@ -2270,8 +2279,13 @@ fn parse_watch_counterpart_json(
     None
 }
 
+#[allow(dead_code)]
 fn is_playlist_audio(track: &rustypipe::model::TrackItem) -> bool {
     track.track_type == TrackType::Track && !track.unavailable
+}
+
+fn is_playlist_playable(track: &rustypipe::model::TrackItem) -> bool {
+    matches!(track.track_type, TrackType::Track | TrackType::Video) && !track.unavailable
 }
 
 fn playlist_audio_result(
@@ -2302,6 +2316,14 @@ fn playlist_browse_id(id: &str) -> PlaylistID<'static> {
 }
 
 fn tracks_from_ytm_playlist(items: Vec<PlaylistItem>) -> Vec<Track> {
+    tracks_from_ytm_playlist_inner(items, false)
+}
+
+fn tracks_from_ytm_playlist_with_videos(items: Vec<PlaylistItem>) -> Vec<Track> {
+    tracks_from_ytm_playlist_inner(items, true)
+}
+
+fn tracks_from_ytm_playlist_inner(items: Vec<PlaylistItem>, include_videos: bool) -> Vec<Track> {
     items
         .into_iter()
         .filter_map(|item| match item {
@@ -2326,6 +2348,31 @@ fn tracks_from_ytm_playlist(items: Vec<PlaylistItem>) -> Vec<Track> {
                     album: Some(song.album.name),
                     album_id: Some(song.album.id.get_raw().to_string()),
                     duration_secs: parse_mm_ss(&song.duration),
+                    view_count: None,
+                    cover_url: cover.clone(),
+                    cover_large_url: cover,
+                })
+            }
+            PlaylistItem::Video(video) if include_videos && video.is_available => {
+                let cover = best_ytm_thumb(&video.thumbnails);
+                let artist_id = {
+                    let raw = video.channel_id.get_raw();
+                    (!raw.is_empty()).then(|| raw.to_string())
+                };
+                Some(Track {
+                    is_music: true,
+                    is_video: true,
+                    id: video.video_id.get_raw().to_string(),
+                    title: clean_track_title(&video.title),
+                    artist: if video.channel_name.is_empty() {
+                        String::from("Artista desconocido")
+                    } else {
+                        video.channel_name
+                    },
+                    artist_id,
+                    album: None,
+                    album_id: None,
+                    duration_secs: parse_mm_ss(&video.duration),
                     view_count: None,
                     cover_url: cover.clone(),
                     cover_large_url: cover,
@@ -2623,12 +2670,22 @@ mod tests {
             "channel_name":"Artist", "channel_id":"UC-test", "like_status":"INDIFFERENT",
             "thumbnails":[], "is_available":true, "playlist_id":"OLAK-test"
         }});
-        let items = serde_json::from_value(serde_json::json!([video, song, unavailable])).unwrap();
-        let tracks = tracks_from_ytm_playlist(items);
+        let items: Vec<PlaylistItem> =
+            serde_json::from_value(serde_json::json!([video, song, unavailable])).unwrap();
+        let tracks = tracks_from_ytm_playlist(items.clone());
         assert_eq!(tracks.len(), 1);
         assert_eq!(tracks[0].id, "audio123456");
         assert_eq!(tracks[0].duration_secs, Some(180));
         assert!(tracks[0].is_music);
+        assert!(!tracks[0].is_video);
+
+        let with_videos = tracks_from_ytm_playlist_with_videos(items);
+        assert_eq!(with_videos.len(), 2);
+        assert_eq!(with_videos[0].id, "video123456");
+        assert!(with_videos[0].is_music);
+        assert!(with_videos[0].is_video);
+        assert_eq!(with_videos[1].id, "audio123456");
+        assert!(!with_videos[1].is_video);
     }
 
     #[test]

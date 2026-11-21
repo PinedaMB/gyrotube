@@ -34,6 +34,9 @@
             <SpinIcon size={18} spinning={isLive} />
           </div>
           <h2 class="text-[18px] font-extrabold tracking-tight">{t("spin.title")}</h2>
+          <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10.5px] font-bold uppercase tracking-wide bg-[var(--gold-soft)] text-[var(--gold-bright)] border border-[var(--gold-border)]">
+            {t("spin.experimental")}
+          </span>
           {#if isLive}
             <span class="inline-flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-[var(--gold-soft)] text-[var(--gold-bright)] border border-[var(--gold-border)]">
               <span class="w-1.5 h-1.5 rounded-full bg-[var(--gold-bright)] animate-pulse"></span>

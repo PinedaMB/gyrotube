@@ -130,7 +130,7 @@
         </button>
 
         <button
-          class="pill-btn !px-4 !py-2 !text-[13.5px] bg-black/45 hover:bg-black/60 border-white/15"
+          class="pill-btn !px-4 !py-2 !text-[13.5px] !bg-black/55 hover:!bg-black/70 !border-white/20 !text-white"
           disabled={!details?.tracks.length}
           onclick={shufflePlay}
         >
@@ -139,7 +139,7 @@
         </button>
 
         <button
-          class="pill-btn !px-4 !py-2 !text-[13.5px] bg-black/45 hover:bg-black/60 border-white/15"
+          class="pill-btn !px-4 !py-2 !text-[13.5px] !bg-black/55 hover:!bg-black/70 !border-white/20 !text-white"
           disabled={!details?.tracks.length || startingMix}
           onclick={() => void startArtistMix()}
         >
@@ -154,8 +154,8 @@
         <button
           type="button"
           class="pill-btn !px-4 !py-2 !text-[13.5px] {following
-            ? '!bg-[var(--accent-soft)] !border-[var(--accent-border)] !text-[var(--accent-bright)]'
-            : 'bg-black/45 hover:bg-black/60 border-white/15'}"
+            ? '!bg-black/60 !border-[var(--accent)] !text-emerald-300'
+            : '!bg-black/55 hover:!bg-black/70 !border-white/20 !text-white'}"
           onclick={() =>
             player.toggleFollowArtist({
               id: artistId,

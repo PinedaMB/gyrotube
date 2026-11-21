@@ -128,7 +128,7 @@
   }}
 >
   <div
-    class="flex items-center gap-2.5 h-9 px-3.5 rounded-full bg-[var(--surface)] border border-[var(--border)] hover:border-[var(--border-strong)] focus-within:border-[var(--accent-border)] focus-within:bg-[var(--bg)] focus-within:ring-2 focus-within:ring-[var(--accent-soft)] transition-all"
+    class="flex items-center gap-2.5 h-11 md:h-9 px-3.5 rounded-full bg-[var(--surface)] border border-[var(--border)] hover:border-[var(--border-strong)] focus-within:border-[var(--accent-border)] focus-within:bg-[var(--bg)] focus-within:ring-2 focus-within:ring-[var(--accent-soft)] transition-all"
   >
     <Search size={15} class="text-[var(--text-muted)] shrink-0" />
     <input
@@ -158,7 +158,7 @@
       </button>
     {:else}
       <kbd
-        class="hidden sm:inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-[6px] text-[10.5px] font-mono font-semibold text-[var(--text-muted)] bg-white/[0.06] border border-white/10 shrink-0 leading-none"
+        class="hidden sm:inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-[6px] text-[10.5px] font-mono font-semibold text-[var(--text-muted)] bg-[var(--surface)] border border-[var(--border)] shrink-0 leading-none"
       >
         Ctrl K
       </kbd>
