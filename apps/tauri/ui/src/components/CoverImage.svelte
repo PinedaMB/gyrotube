@@ -162,6 +162,7 @@
         {alt}
         loading={eager ? "eager" : "lazy"}
         decoding="async"
+        fetchpriority={eager ? "high" : "low"}
         referrerpolicy="no-referrer"
         onload={() => (loaded = true)}
         onerror={handleError}
@@ -195,7 +196,7 @@
   .cover-skeleton {
     position: absolute;
     inset: 0;
-    background: rgba(255, 255, 255, 0.05);
+    background: var(--skeleton);
   }
 
   .cover-fallback {
@@ -203,7 +204,7 @@
     height: 100%;
     display: grid;
     place-items: center;
-    background: linear-gradient(135deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.03));
+    background: linear-gradient(135deg, var(--skeleton), var(--skeleton-soft));
     color: var(--text-muted);
     font-size: 1.4rem;
     user-select: none;

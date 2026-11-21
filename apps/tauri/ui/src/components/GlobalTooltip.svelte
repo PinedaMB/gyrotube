@@ -8,6 +8,7 @@
   let x = $state(0);
   let y = $state(0);
   let placement = $state<"top" | "bottom">("top");
+  let tooltipEl = $state<HTMLDivElement | null>(null);
 
   let activeEl: HTMLElement | null = null;
   let savedTitle: string | null = null;
@@ -36,11 +37,12 @@
 
   function positionFor(el: HTMLElement) {
     const rect = el.getBoundingClientRect();
-    const estWidth = Math.min(280, Math.max(80, text.length * 6.8 + 22));
+    const measuredWidth =
+      tooltipEl?.offsetWidth ?? Math.min(280, Math.max(80, text.length * 6.8 + 22));
     const center = rect.left + rect.width / 2;
     const clampedX = Math.max(
-      12 + estWidth / 2,
-      Math.min(window.innerWidth - 12 - estWidth / 2, center),
+      12 + measuredWidth / 2,
+      Math.min(window.innerWidth - 12 - measuredWidth / 2, center),
     );
     x = clampedX;
     if (rect.top < 46) {
@@ -52,11 +54,8 @@
     }
   }
 
-  function handlePointerOver(e: PointerEvent) {
-    if (device.isTouch || e.pointerType === "touch") return;
-    const raw = e.target as HTMLElement | null;
-    const el = raw?.closest<HTMLElement>("[title], [data-tooltip]") ?? null;
-    if (!el || el === activeEl) return;
+  function scheduleShowFor(el: HTMLElement, immediate = false) {
+    if (el === activeEl) return;
 
     const tip = (el.getAttribute("title") ?? el.getAttribute("data-tooltip") ?? "").trim();
     if (!tip) return;
@@ -74,13 +73,24 @@
       el.removeAttribute("title");
     }
 
-    const delay = performance.now() - lastHideAt < 240 ? 70 : 320;
+    const delay = immediate ? 80 : performance.now() - lastHideAt < 240 ? 70 : 320;
     showTimer = window.setTimeout(() => {
       if (activeEl !== el || !document.contains(el)) return;
       text = tip;
-      positionFor(el);
       visible = true;
+      positionFor(el);
+      queueMicrotask(() => {
+        if (activeEl === el && visible) positionFor(el);
+      });
     }, delay);
+  }
+
+  function handlePointerOver(e: PointerEvent) {
+    if (device.isTouch || e.pointerType === "touch") return;
+    const raw = e.target as HTMLElement | null;
+    const el = raw?.closest<HTMLElement>("[title], [data-tooltip]") ?? null;
+    if (!el) return;
+    scheduleShowFor(el, false);
   }
 
   function handlePointerOut(e: PointerEvent) {
@@ -90,10 +100,24 @@
     hide();
   }
 
+  function handleFocusIn(e: FocusEvent) {
+    const raw = e.target as HTMLElement | null;
+    if (!raw || !raw.matches(":focus-visible")) return;
+    const el = raw.closest<HTMLElement>("[title], [data-tooltip]") ?? null;
+    if (!el) return;
+    scheduleShowFor(el, true);
+  }
+
+  function handleFocusOut() {
+    hide();
+  }
+
   onMount(() => {
     const onScroll = () => hide();
     document.addEventListener("pointerover", handlePointerOver, true);
     document.addEventListener("pointerout", handlePointerOut, true);
+    document.addEventListener("focusin", handleFocusIn, true);
+    document.addEventListener("focusout", handleFocusOut, true);
     document.addEventListener("pointerdown", hide, true);
     document.addEventListener("scroll", onScroll, true);
     window.addEventListener("blur", hide);
@@ -102,6 +126,8 @@
       hide();
       document.removeEventListener("pointerover", handlePointerOver, true);
       document.removeEventListener("pointerout", handlePointerOut, true);
+      document.removeEventListener("focusin", handleFocusIn, true);
+      document.removeEventListener("focusout", handleFocusOut, true);
       document.removeEventListener("pointerdown", hide, true);
       document.removeEventListener("scroll", onScroll, true);
       window.removeEventListener("blur", hide);
@@ -112,6 +138,7 @@
 
 {#if visible && text}
   <div
+    bind:this={tooltipEl}
     transition:fade={{ duration: 110 }}
     role="tooltip"
     class="fixed z-[200] pointer-events-none select-none max-w-[280px] px-2.5 py-1 rounded-lg bg-[var(--bg-elevated)] border border-[var(--border-strong)] text-[12px] font-medium leading-snug text-[var(--text)] shadow-[0_10px_28px_rgba(0,0,0,0.45)] whitespace-nowrap truncate"

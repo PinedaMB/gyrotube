@@ -3,6 +3,7 @@
   import { ArrowLeft, Play, Shuffle } from "lucide-svelte";
   import { t } from "../../lib/i18n.svelte";
   import { player } from "../../lib/stores/player.svelte";
+  import { shuffleItems } from "../../lib/stores/queueOps";
   import type { Track } from "../../lib/types";
 
   interface Props {
@@ -24,7 +25,7 @@
 
   function shufflePlay() {
     if (!tracks.length) return;
-    const shuffled = [...tracks].sort(() => Math.random() - 0.5);
+    const shuffled = shuffleItems(tracks);
     player.replaceQueueAndPlay(shuffled, 0, artistName);
   }
 </script>

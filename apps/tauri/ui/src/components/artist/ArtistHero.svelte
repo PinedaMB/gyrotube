@@ -3,6 +3,7 @@
   import { api, isTauriRuntime } from "../../lib/api";
   import { t } from "../../lib/i18n.svelte";
   import { player } from "../../lib/stores/player.svelte";
+  import { shuffleItems } from "../../lib/stores/queueOps";
   import { formatSubscribers, type ArtistDetails } from "../../lib/types";
 
   interface Props {
@@ -27,7 +28,7 @@
 
   function shufflePlay() {
     if (!details?.tracks.length) return;
-    const shuffled = [...details.tracks].sort(() => Math.random() - 0.5);
+    const shuffled = shuffleItems(details.tracks);
     player.replaceQueueAndPlay(shuffled, 0, details.name);
   }
 
