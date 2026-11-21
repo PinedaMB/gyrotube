@@ -74,9 +74,11 @@
               >
                 <Plus size={14} />
               </button>
-              <span class="text-[11.5px] text-[var(--text-muted)] numeric shrink-0">
-                {formatDuration(track.duration_secs)}
-              </span>
+              {#if track.duration_secs != null}
+                <span class="text-[11.5px] text-[var(--text-muted)] numeric shrink-0">
+                  {formatDuration(track.duration_secs)}
+                </span>
+              {/if}
             </div>
           {/each}
         </div>

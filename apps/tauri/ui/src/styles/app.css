@@ -230,14 +230,7 @@
 .track-list {
   display: flex;
   flex-direction: column;
-  border-radius: var(--radius-md);
-  background: var(--surface);
-  border: 1px solid var(--border);
-  overflow: hidden;
-}
-
-.track-list > * + * {
-  border-top: 1px solid var(--border);
+  gap: 2px;
 }
 
 .track-cover {

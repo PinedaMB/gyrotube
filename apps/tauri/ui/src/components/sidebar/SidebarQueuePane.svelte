@@ -63,7 +63,11 @@
             removeLabel={t("queue.remove")}
           >
             {#snippet leading()}
-              <GripVertical size={13} class="shrink-0 cursor-grab text-[var(--text-muted)]" aria-hidden="true" />
+              <GripVertical
+                size={13}
+                class="shrink-0 cursor-grab text-[var(--text-muted)] opacity-35 group-hover:opacity-90 transition-opacity"
+                aria-hidden="true"
+              />
             {/snippet}
           </TrackRow>
         </div>
