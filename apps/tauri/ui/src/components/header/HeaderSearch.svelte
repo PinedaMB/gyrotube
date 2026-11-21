@@ -168,7 +168,7 @@
   {#if popoverOpen && listItems.length > 0}
     <div
       transition:fly={{ y: -6, duration: 160, easing: cubicOut }}
-      class="absolute inset-x-3 top-[calc(100%+4px)] md:inset-x-0 md:top-[calc(100%+8px)] rounded-2xl bg-[var(--bg-elevated)] md:bg-[var(--bg-elevated)]/98 md:backdrop-blur-xl border border-[var(--border-strong)] shadow-[0_20px_48px_rgba(0,0,0,0.55)] overflow-hidden py-1.5 z-50"
+      class="absolute inset-x-3 top-[calc(100%+4px)] md:inset-x-0 md:top-[calc(100%+8px)] rounded-2xl bg-[var(--bg-elevated)] border border-[var(--border-strong)] shadow-[0_20px_48px_rgba(0,0,0,0.55)] overflow-hidden py-1.5 z-50"
       role="listbox"
     >
       <div

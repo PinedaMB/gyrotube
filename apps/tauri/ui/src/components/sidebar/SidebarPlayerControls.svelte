@@ -184,7 +184,7 @@
       {#if openPopover === "volume"}
         <div
           transition:fly={{ y: 8, duration: 170, easing: cubicOut }}
-          class="absolute bottom-12 left-1/2 -translate-x-1/2 w-[272px] p-3.5 rounded-2xl bg-[var(--bg-elevated)]/95 backdrop-blur-md border border-[var(--border-strong)] shadow-[0_16px_40px_rgba(0,0,0,0.5)] z-30 space-y-2.5"
+          class="absolute bottom-12 left-1/2 -translate-x-1/2 w-[272px] p-3.5 rounded-2xl bg-[var(--bg-elevated)] border border-[var(--border-strong)] shadow-[0_16px_40px_rgba(0,0,0,0.5)] z-30 space-y-2.5"
         >
           <div class="flex items-center justify-between text-[12px]">
             <span class="font-semibold text-[var(--text-muted)]">{t("player.volume")}</span>
@@ -222,7 +222,7 @@
       {:else if openPopover === "timer"}
         <div
           transition:fly={{ y: 8, duration: 170, easing: cubicOut }}
-          class="absolute bottom-12 left-1/2 -translate-x-1/2 w-[272px] p-3.5 rounded-2xl bg-[var(--bg-elevated)]/95 backdrop-blur-md border border-[var(--border-strong)] shadow-[0_16px_40px_rgba(0,0,0,0.5)] z-30 space-y-2.5"
+          class="absolute bottom-12 left-1/2 -translate-x-1/2 w-[272px] p-3.5 rounded-2xl bg-[var(--bg-elevated)] border border-[var(--border-strong)] shadow-[0_16px_40px_rgba(0,0,0,0.5)] z-30 space-y-2.5"
         >
           <div class="flex items-center justify-between text-[12px]">
             <span class="font-semibold text-[var(--text-muted)]">{t("player.sleep_timer")}</span>

@@ -100,7 +100,7 @@
     {#if canPrev}
       <button
         type="button"
-        class="hidden md:inline-flex items-center justify-center w-9 h-9 rounded-full absolute left-2 top-1/2 -translate-y-1/2 bg-[var(--bg-elevated)]/90 backdrop-blur-md border border-[var(--border-strong)] shadow-xl opacity-0 group-hover:opacity-100 transition-all duration-200 hover:bg-[var(--accent)] hover:text-white hover:border-transparent active:scale-95"
+        class="hidden md:inline-flex items-center justify-center w-9 h-9 rounded-full absolute left-2 top-1/2 -translate-y-1/2 bg-[var(--bg-elevated)] border border-[var(--border-strong)] shadow-xl opacity-0 group-hover:opacity-100 transition-all duration-200 hover:bg-[var(--accent)] hover:text-white hover:border-transparent active:scale-95"
         aria-label="Scroll left"
         onclick={() => scrollPage(-1)}
       >
@@ -111,7 +111,7 @@
     {#if canNext}
       <button
         type="button"
-        class="hidden md:inline-flex items-center justify-center w-9 h-9 rounded-full absolute right-2 top-1/2 -translate-y-1/2 bg-[var(--bg-elevated)]/90 backdrop-blur-md border border-[var(--border-strong)] shadow-xl opacity-0 group-hover:opacity-100 transition-all duration-200 hover:bg-[var(--accent)] hover:text-white hover:border-transparent active:scale-95"
+        class="hidden md:inline-flex items-center justify-center w-9 h-9 rounded-full absolute right-2 top-1/2 -translate-y-1/2 bg-[var(--bg-elevated)] border border-[var(--border-strong)] shadow-xl opacity-0 group-hover:opacity-100 transition-all duration-200 hover:bg-[var(--accent)] hover:text-white hover:border-transparent active:scale-95"
         aria-label="Scroll right"
         onclick={() => scrollPage(1)}
       >

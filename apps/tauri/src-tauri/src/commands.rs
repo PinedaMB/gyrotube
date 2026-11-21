@@ -155,46 +155,62 @@ fn build_spin_payload(spin: &SpinState) -> SpinStatusPayload {
 }
 
 #[tauri::command]
-pub fn load_initial_state(state: State<'_, AppCoreState>) -> InitialAppData {
-    let session = load_session_state();
+pub async fn load_initial_state(state: State<'_, AppCoreState>) -> Result<InitialAppData, String> {
+    let bg_flag = Arc::clone(&state.background_playback);
+    tokio::task::spawn_blocking(move || {
+        let session = load_session_state();
+        bg_flag.store(session.background_playback, Ordering::Relaxed);
+        InitialAppData {
+            session,
+            favorites: load_favorites(),
+            recent_tracks: load_recent_tracks(),
+            user_playlists: load_user_playlists(),
+            search_history: load_search_history(),
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn save_session(
+    state: State<'_, AppCoreState>,
+    session: SessionState,
+) -> Result<(), String> {
     state
         .background_playback
         .store(session.background_playback, Ordering::Relaxed);
-    InitialAppData {
-        session,
-        favorites: load_favorites(),
-        recent_tracks: load_recent_tracks(),
-        user_playlists: load_user_playlists(),
-        search_history: load_search_history(),
-    }
+    tokio::task::spawn_blocking(move || save_session_state(&session).map_err(|e| e.to_string()))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-pub fn save_session(state: State<'_, AppCoreState>, session: SessionState) -> Result<(), String> {
-    state
-        .background_playback
-        .store(session.background_playback, Ordering::Relaxed);
-    save_session_state(&session).map_err(|e| e.to_string())
+pub async fn save_favorites_cmd(favorites: Vec<Track>) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || save_favorites(&favorites).map_err(|e| e.to_string()))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-pub fn save_favorites_cmd(favorites: Vec<Track>) -> Result<(), String> {
-    save_favorites(&favorites).map_err(|e| e.to_string())
+pub async fn save_recent_tracks_cmd(tracks: Vec<Track>) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || save_recent_tracks(&tracks).map_err(|e| e.to_string()))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-pub fn save_recent_tracks_cmd(tracks: Vec<Track>) -> Result<(), String> {
-    save_recent_tracks(&tracks).map_err(|e| e.to_string())
+pub async fn save_user_playlists_cmd(playlists: Vec<UserPlaylist>) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || save_user_playlists(&playlists).map_err(|e| e.to_string()))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-pub fn save_user_playlists_cmd(playlists: Vec<UserPlaylist>) -> Result<(), String> {
-    save_user_playlists(&playlists).map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub fn save_search_history_cmd(history: Vec<String>) -> Result<(), String> {
-    save_search_history(&history).map_err(|e| e.to_string())
+pub async fn save_search_history_cmd(history: Vec<String>) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || save_search_history(&history).map_err(|e| e.to_string()))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -337,46 +353,57 @@ pub async fn prefetch_audio(state: State<'_, AppCoreState>, track: Track) -> Res
 }
 
 #[tauri::command]
-pub fn cancel_stale_streams(state: State<'_, AppCoreState>, keep_ids: Vec<String>) {
+pub async fn cancel_stale_streams(
+    state: State<'_, AppCoreState>,
+    keep_ids: Vec<String>,
+) -> Result<(), String> {
     let refs: Vec<&str> = keep_ids.iter().map(String::as_str).collect();
     state.backend.cancel_stale_streams(&refs);
-}
-
-#[tauri::command]
-pub fn get_cache_bytes() -> u64 {
-    let Some(dir) = cache_dir().map(|d| d.join("streams")) else {
-        return 0;
-    };
-    std::fs::read_dir(dir)
-        .ok()
-        .into_iter()
-        .flatten()
-        .filter_map(Result::ok)
-        .filter_map(|e| e.metadata().ok())
-        .map(|m| m.len())
-        .sum()
-}
-
-#[tauri::command]
-pub fn clear_audio_cache() -> Result<(), String> {
-    if let Some(dir) = cache_dir().map(|d| d.join("streams"))
-        && let Ok(entries) = std::fs::read_dir(dir)
-    {
-        for entry in entries.flatten() {
-            let _ = std::fs::remove_file(entry.path());
-        }
-    }
     Ok(())
 }
 
 #[tauri::command]
-pub fn spin_status(state: State<'_, AppCoreState>) -> Result<SpinStatusPayload, String> {
+pub async fn get_cache_bytes() -> u64 {
+    tokio::task::spawn_blocking(|| {
+        let Some(dir) = cache_dir().map(|d| d.join("streams")) else {
+            return 0;
+        };
+        std::fs::read_dir(dir)
+            .ok()
+            .into_iter()
+            .flatten()
+            .filter_map(Result::ok)
+            .filter_map(|e| e.metadata().ok())
+            .map(|m| m.len())
+            .sum()
+    })
+    .await
+    .unwrap_or(0)
+}
+
+#[tauri::command]
+pub async fn clear_audio_cache() -> Result<(), String> {
+    tokio::task::spawn_blocking(|| {
+        if let Some(dir) = cache_dir().map(|d| d.join("streams"))
+            && let Ok(entries) = std::fs::read_dir(dir)
+        {
+            for entry in entries.flatten() {
+                let _ = std::fs::remove_file(entry.path());
+            }
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn spin_status(state: State<'_, AppCoreState>) -> Result<SpinStatusPayload, String> {
     let spin = state.spin.lock().map_err(|e| e.to_string())?;
     Ok(build_spin_payload(&spin))
 }
 
 #[tauri::command]
-pub fn spin_start_local(state: State<'_, AppCoreState>) -> Result<SpinStatusPayload, String> {
+pub async fn spin_start_local(state: State<'_, AppCoreState>) -> Result<SpinStatusPayload, String> {
     let mut spin = state.spin.lock().map_err(|e| e.to_string())?;
     if spin.server.is_none() {
         let handle = start_jam_server(
@@ -466,7 +493,7 @@ pub fn spin_join_remote(
 }
 
 #[tauri::command]
-pub fn spin_sync_snapshot(
+pub async fn spin_sync_snapshot(
     state: State<'_, AppCoreState>,
     is_playing: bool,
     position_secs: f64,

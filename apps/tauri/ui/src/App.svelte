@@ -61,7 +61,7 @@
     <!-- Center scrollable main view -->
     <main class="flex-1 min-w-0 h-full overflow-y-auto overflow-x-hidden ambient-surface scroll-y">
       {#key viewKey}
-        <div in:fly={{ y: 10, duration: 220, easing: cubicOut }}>
+        <div in:fade={{ duration: 110 }}>
           {#if player.activeView.kind === "home"}
             <HomeView />
           {:else if player.activeView.kind === "explore"}
@@ -88,7 +88,7 @@
     <!-- Right player sidebar (docked on lg+, full-height slide-over sheet on < lg) -->
     {#if player.sidebarOpen}
       <div
-        class="lg:hidden fixed inset-0 z-40 bg-black/55 backdrop-blur-sm"
+        class="lg:hidden fixed inset-0 z-40 bg-black/65"
         role="presentation"
         transition:fade={{ duration: 160 }}
         onclick={() => {
@@ -108,7 +108,7 @@
   {#if !player.sidebarOpen && player.currentTrack}
     <div
       transition:fly={{ y: 24, duration: 240, easing: cubicOut }}
-      class="relative z-30 shrink-0 w-full flex items-center gap-2 sm:gap-2.5 px-3 sm:px-3.5 py-2 bg-[var(--bg-elevated)] border-t border-[var(--border)] md:fixed md:bottom-5 md:left-1/2 md:-translate-x-1/2 md:w-[min(560px,calc(100vw-24px))] md:rounded-full md:bg-[var(--bg-elevated)]/95 md:backdrop-blur-xl md:border md:border-[var(--border-strong)] md:shadow-2xl"
+      class="relative z-30 shrink-0 w-full flex items-center gap-2 sm:gap-2.5 px-3 sm:px-3.5 py-2 bg-[var(--bg-elevated)] border-t border-[var(--border)] md:fixed md:bottom-5 md:left-1/2 md:-translate-x-1/2 md:w-[min(560px,calc(100vw-24px))] md:rounded-full md:bg-[var(--bg-elevated)]/[0.97] md:border md:border-[var(--border-strong)] md:shadow-2xl"
     >
       <button
         class="flex-1 min-w-0 flex items-center gap-2.5 text-left"
@@ -186,7 +186,7 @@
       {#each player.toasts as toast (toast.id)}
         <div
           transition:fly={{ y: 14, duration: 200, easing: cubicOut }}
-          class="px-4 py-2 rounded-full text-[13px] font-medium bg-[var(--bg-elevated)]/95 backdrop-blur-md border border-[var(--border-strong)] shadow-xl"
+          class="px-4 py-2 rounded-full text-[13px] font-medium bg-[var(--bg-elevated)] border border-[var(--border-strong)] shadow-xl"
         >
           {toast.message}
         </div>

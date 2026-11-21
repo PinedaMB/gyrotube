@@ -5,7 +5,7 @@
 </script>
 
 <header
-  class="relative h-14 shrink-0 z-30 flex md:grid md:grid-cols-[minmax(max-content,1fr)_minmax(0,500px)_minmax(max-content,1fr)] items-center gap-2 md:gap-3 px-3 md:px-4 bg-[var(--bg-elevated)]/95 backdrop-blur-md border-b border-[var(--border)] select-none"
+  class="relative h-14 shrink-0 z-30 flex md:grid md:grid-cols-[minmax(max-content,1fr)_minmax(0,500px)_minmax(max-content,1fr)] items-center gap-2 md:gap-3 px-3 md:px-4 bg-[var(--bg-elevated)] border-b border-[var(--border)] select-none"
 >
   <HeaderBrand />
   <div class="flex-1 min-w-0 md:w-full">

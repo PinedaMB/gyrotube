@@ -44,8 +44,8 @@
   <div class="w-full flex items-center justify-start">
     <button
       class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[12.5px] font-semibold text-[var(--text-muted)] hover:text-[var(--text)] bg-white/[0.05] hover:bg-white/[0.1] border border-white/10 transition-all active:scale-95"
-      title="Back"
-      onclick={() => player.navigateTab(player.activeTab)}
+      title={t("nav.back")}
+      onclick={() => player.goBack()}
     >
       <ArrowLeft size={15} />
       {t("nav.back")}

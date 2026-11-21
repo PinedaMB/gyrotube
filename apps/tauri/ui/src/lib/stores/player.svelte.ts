@@ -1,6 +1,7 @@
 import { listen } from "@tauri-apps/api/event";
 import { api, isTauriRuntime } from "../api";
 import { DualDeckAudioEngine, extractDominantRgb } from "../audioEngine";
+import { hashToView, isSameView, type RouteState, viewToHash } from "../router";
 import type {
   ActiveView,
   AppLanguage,
@@ -94,6 +95,9 @@ class PlayerStore {
   private toastSeq = 0;
   private loadGen = 0;
   private lastLocalSpinUpdate = 0;
+  private persistTimer: number | null = null;
+  private routeDepth = 0;
+  private routerBound = false;
   private engine: DualDeckAudioEngine;
 
   currentTrack = $derived(
@@ -111,8 +115,13 @@ class PlayerStore {
   constructor() {
     this.engine = new DualDeckAudioEngine({
       onTimeUpdate: (pos, dur) => {
-        this.positionSecs = pos;
-        if (dur > 0) this.durationSecs = dur;
+        const minDelta = this.lyrics.type === "Synced" ? 0.1 : 0.25;
+        if (Math.abs(pos - this.positionSecs) >= minDelta || pos === 0) {
+          this.positionSecs = pos;
+        }
+        if (dur > 0 && Math.abs(dur - this.durationSecs) >= 0.5) {
+          this.durationSecs = dur;
+        }
         this.updateActiveLyric(pos);
         const now = performance.now();
         if (this.spinStatus.local_active && this.isPlaying && !this.isLoadingAudio && now - this.lastLocalSpinUpdate >= 500) {
@@ -142,6 +151,7 @@ class PlayerStore {
 
   public async bootstrap(): Promise<void> {
     this.applyTheme(this.themeMode);
+    this.initRouter();
     if (!isTauriRuntime()) {
       return;
     }
@@ -345,12 +355,95 @@ class PlayerStore {
     }, 3200);
   }
 
+  private initRouter(): void {
+    if (typeof window === "undefined" || this.routerBound) return;
+    this.routerBound = true;
+
+    const initial = hashToView(window.location.hash);
+    this.activeView = initial.view;
+    this.activeTab = initial.tab;
+    this.routeDepth = 0;
+    const initialState: RouteState = {
+      view: initial.view,
+      tab: initial.tab,
+      depth: 0,
+    };
+    window.history.replaceState(initialState, "", viewToHash(initial.view));
+
+    window.addEventListener("popstate", (event) => {
+      // On Android / desktop Back button, dismiss open overlays before navigating away
+      if (this.dismissTopOverlay()) {
+        const keep: RouteState = {
+          view: this.activeView,
+          tab: this.activeTab,
+          depth: this.routeDepth + 1,
+        };
+        this.routeDepth = keep.depth;
+        window.history.pushState(keep, "", viewToHash(this.activeView));
+        return;
+      }
+
+      const st = event.state as RouteState | null;
+      if (st?.view) {
+        this.activeView = st.view;
+        this.activeTab = st.tab;
+        this.routeDepth = st.depth ?? 0;
+      } else {
+        const parsed = hashToView(window.location.hash);
+        this.activeView = parsed.view;
+        this.activeTab = parsed.tab;
+        this.routeDepth = 0;
+      }
+      document.querySelector("main")?.scrollTo({ top: 0 });
+    });
+  }
+
+  private dismissTopOverlay(): boolean {
+    if (this.partyMode) {
+      this.partyMode = false;
+      return true;
+    }
+    if (this.settingsOpen) {
+      this.settingsOpen = false;
+      return true;
+    }
+    if (this.spinOpen) {
+      this.spinOpen = false;
+      return true;
+    }
+    if (this.sidebarOpen && typeof window !== "undefined" && window.innerWidth < 1024) {
+      this.sidebarOpen = false;
+      void this.persistSession();
+      return true;
+    }
+    return false;
+  }
+
+  private commitRoute(view: ActiveView, tab: MainTab): void {
+    const changed = !isSameView(this.activeView, view);
+    this.activeTab = tab;
+    this.activeView = view;
+    if (typeof window !== "undefined" && changed) {
+      this.routeDepth += 1;
+      const state: RouteState = { view, tab, depth: this.routeDepth };
+      window.history.pushState(state, "", viewToHash(view));
+    }
+    document.querySelector("main")?.scrollTo({ top: 0 });
+  }
+
+  public goBack(): void {
+    if (typeof window !== "undefined" && this.routeDepth > 0) {
+      window.history.back();
+      return;
+    }
+    this.navigateTab(this.activeTab === "home" ? "home" : "explore");
+  }
+
   public navigateTab(tab: MainTab): void {
     if (tab === "explore" && this.activeTab === "explore" && this.activeView.kind === "explore") {
       this.clearSearch();
     }
-    this.activeTab = tab;
-    this.activeView = { kind: tab };
+    this.commitRoute({ kind: tab }, tab);
   }
 
   public clearSearch(): void {
@@ -360,12 +453,11 @@ class PlayerStore {
   }
 
   public openArtist(artistId: string, artistName: string): void {
-    this.activeTab = "explore";
-    this.activeView = { kind: "artist", artistId, artistName };
+    this.commitRoute({ kind: "artist", artistId, artistName }, "explore");
   }
 
   public openAlbum(id: string, title: string, coverUrl?: string | null, isPlaylist = false): void {
-    this.activeView = { kind: "album", id, title, coverUrl, isPlaylist };
+    this.commitRoute({ kind: "album", id, title, coverUrl, isPlaylist }, this.activeTab);
   }
 
   public async loadHome(forceRefresh = false): Promise<void> {
@@ -393,8 +485,7 @@ class PlayerStore {
     const q = raw.trim();
     if (!q) return;
     this.searchQuery = q;
-    this.activeTab = "explore";
-    this.activeView = { kind: "explore" };
+    this.commitRoute({ kind: "explore" }, "explore");
     this.searchHistory = [q, ...this.searchHistory.filter((h) => h.toLowerCase() !== q.toLowerCase())].slice(0, 8);
     if (isTauriRuntime()) {
       void api.saveSearchHistory(this.searchHistory);
@@ -792,27 +883,29 @@ class PlayerStore {
 
   public async persistSession(): Promise<void> {
     if (!isTauriRuntime()) return;
-    const session: SessionState = {
-      sidebar_collapsed: !this.sidebarOpen,
-      queue: this.queue,
-      unshuffled_queue: this.unshuffledQueue,
-      current_index: this.currentIndex,
-      source_name: this.sourceName,
-      user_volume: this.volume,
-      shuffle: this.shuffle,
-      repeat: this.repeat,
-      position_secs: this.positionSecs,
-      crossfade_secs: this.crossfadeSecs,
-      language: this.language,
-      background_playback: this.backgroundPlayback,
-      autoplay_related: this.autoplayRelated,
-      theme_mode: this.themeMode,
-    };
-    try {
-      await api.saveSession(session);
-    } catch {
-      // ignore
+    if (this.persistTimer !== null) {
+      window.clearTimeout(this.persistTimer);
     }
+    this.persistTimer = window.setTimeout(() => {
+      this.persistTimer = null;
+      const session: SessionState = {
+        sidebar_collapsed: !this.sidebarOpen,
+        queue: this.queue,
+        unshuffled_queue: this.unshuffledQueue,
+        current_index: this.currentIndex,
+        source_name: this.sourceName,
+        user_volume: this.volume,
+        shuffle: this.shuffle,
+        repeat: this.repeat,
+        position_secs: this.positionSecs,
+        crossfade_secs: this.crossfadeSecs,
+        language: this.language,
+        background_playback: this.backgroundPlayback,
+        autoplay_related: this.autoplayRelated,
+        theme_mode: this.themeMode,
+      };
+      void api.saveSession(session).catch(() => {});
+    }, 350);
   }
 }
 

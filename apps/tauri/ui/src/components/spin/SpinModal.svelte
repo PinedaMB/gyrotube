@@ -26,7 +26,7 @@
 {#if player.spinOpen}
   <div
     transition:fade={{ duration: 160 }}
-    class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-md"
+    class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70"
     role="presentation"
     onclick={(e) => {
       if (e.target === e.currentTarget) player.spinOpen = false;

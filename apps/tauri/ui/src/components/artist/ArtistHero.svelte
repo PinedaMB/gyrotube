@@ -76,9 +76,9 @@
   <div class="relative z-10 w-full max-w-[1280px] mx-auto px-6 pt-4 pb-8 flex-1 flex flex-col justify-between">
     <div>
       <button
-        class="w-9 h-9 rounded-full inline-flex items-center justify-center bg-black/45 hover:bg-black/65 backdrop-blur-md border border-white/15 text-white transition-all active:scale-95"
+        class="w-9 h-9 rounded-full inline-flex items-center justify-center bg-black/60 hover:bg-black/75 border border-white/15 text-white transition-all active:scale-95"
         title={t("nav.back")}
-        onclick={() => player.navigateTab("explore")}
+        onclick={() => player.goBack()}
       >
         <ArrowLeft size={17} />
       </button>
@@ -127,7 +127,7 @@
         </button>
 
         <button
-          class="pill-btn !px-4 !py-2 !text-[13.5px] bg-white/[0.08] hover:bg-white/[0.14] border-white/15 backdrop-blur-md"
+          class="pill-btn !px-4 !py-2 !text-[13.5px] bg-black/45 hover:bg-black/60 border-white/15"
           disabled={!details?.tracks.length}
           onclick={shufflePlay}
         >
@@ -136,7 +136,7 @@
         </button>
 
         <button
-          class="pill-btn !px-4 !py-2 !text-[13.5px] bg-white/[0.08] hover:bg-white/[0.14] border-white/15 backdrop-blur-md"
+          class="pill-btn !px-4 !py-2 !text-[13.5px] bg-black/45 hover:bg-black/60 border-white/15"
           disabled={!details?.tracks.length || startingMix}
           onclick={() => void startArtistMix()}
         >

@@ -175,7 +175,7 @@
           <!-- Card content -->
           <div class="relative z-10 flex items-center justify-end md:justify-between gap-2">
             <span
-              class="hidden md:inline px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-black/40 backdrop-blur-sm"
+              class="hidden md:inline px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-black/55"
               style="color: {c};"
             >
               {t("home.station_badge")}
