@@ -21,7 +21,8 @@ export class DualDeckAudioEngine {
   private volume = 1.0;
   private crossfadeSecs = 0;
   private crossfadeFired = false;
-  private fadeRaf: number | null = null;
+  private fadeTimer: number | null = null;
+  private fadeStep: (() => void) | null = null;
   private loading = false;
   private callbacks: AudioCallbacks;
 
@@ -36,6 +37,12 @@ export class DualDeckAudioEngine {
 
     audio.addEventListener("timeupdate", () => {
       if (index !== this.activeIndex) return;
+      // Keep crossfade progressing even if background timers are throttled by the OS
+      if (this.fadeStep) {
+        this.fadeStep();
+      } else if (Math.abs(audio.volume - this.volume) > 0.01) {
+        audio.volume = this.volume;
+      }
       const pos = Number.isFinite(audio.currentTime) ? audio.currentTime : 0;
       const dur = Number.isFinite(audio.duration) ? audio.duration : 0;
       this.callbacks.onTimeUpdate(pos, dur);
@@ -80,10 +87,11 @@ export class DualDeckAudioEngine {
   }
 
   private cancelFade(): void {
-    if (this.fadeRaf !== null) {
-      cancelAnimationFrame(this.fadeRaf);
-      this.fadeRaf = null;
+    if (this.fadeTimer !== null) {
+      window.clearInterval(this.fadeTimer);
+      this.fadeTimer = null;
     }
+    this.fadeStep = null;
   }
 
   public get activeDeck(): HTMLAudioElement {
@@ -138,15 +146,16 @@ export class DualDeckAudioEngine {
         await incoming.play();
 
         const durationMs = this.crossfadeSecs * 1000;
-        const startedAt = performance.now();
-        const step = (now: number) => {
-          const t = Math.min(1, (now - startedAt) / durationMs);
+        const startedAt = Date.now();
+        const step = () => {
+          const t = Math.min(1, (Date.now() - startedAt) / durationMs);
           outgoing.volume = Math.max(0, startVolOut * (1 - t));
           incoming.volume = Math.min(1, this.volume * t);
-          if (t < 1 && this.activeIndex === incomingIndex) {
-            this.fadeRaf = requestAnimationFrame(step);
-          } else {
-            this.fadeRaf = null;
+          if (t >= 1 || this.activeIndex !== incomingIndex) {
+            this.cancelFade();
+            if (this.activeIndex === incomingIndex) {
+              incoming.volume = this.volume;
+            }
             if (this.activeIndex !== outgoingIndex) {
               outgoing.pause();
               outgoing.removeAttribute("src");
@@ -154,7 +163,9 @@ export class DualDeckAudioEngine {
             }
           }
         };
-        this.fadeRaf = requestAnimationFrame(step);
+        this.fadeStep = step;
+        this.fadeTimer = window.setInterval(step, 50);
+        step();
       } else {
         if (outgoingIndex !== incomingIndex) {
           outgoing.pause();
