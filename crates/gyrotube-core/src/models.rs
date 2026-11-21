@@ -9,6 +9,8 @@ pub struct Track {
     // Older proof flags could be supplied by guests and must be checked again.
     #[serde(default, rename = "verified_catalog_audio")]
     pub is_music: bool,
+    #[serde(default)]
+    pub is_video: bool,
     pub id: String,
     pub title: String,
     pub artist: String,
@@ -64,8 +66,20 @@ pub struct ArtistDetails {
     pub subscriber_count: Option<u64>,
     pub tracks: Vec<Track>,
     pub albums: Vec<Album>,
+    #[serde(default)]
+    pub singles: Vec<Album>,
+    #[serde(default)]
+    pub videos: Vec<Track>,
     pub playlists: Vec<Playlist>,
     pub similar_artists: Vec<Artist>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VideoStreamInfo {
+    pub url: String,
+    pub quality_label: String,
+    pub width: u32,
+    pub height: u32,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -194,6 +208,7 @@ impl From<&TrackItem> for Track {
 
         Self {
             is_music: item.track_type == rustypipe::model::TrackType::Track,
+            is_video: item.track_type == rustypipe::model::TrackType::Video,
             id: item.id.clone(),
             title: clean_track_title(&item.name),
             artist,
@@ -536,6 +551,14 @@ pub fn load_search_history() -> Vec<String> {
 
 pub fn save_search_history(history: &[String]) -> std::io::Result<()> {
     save_json_file("search_history.json", history)
+}
+
+pub fn load_followed_artists() -> Vec<Artist> {
+    load_json_file("followed_artists.json")
+}
+
+pub fn save_followed_artists(artists: &[Artist]) -> std::io::Result<()> {
+    save_json_file("followed_artists.json", artists)
 }
 
 fn default_volume() -> f64 {

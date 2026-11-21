@@ -471,6 +471,7 @@ async fn poll_lan(target: &str, ui_tx: &async_channel::Sender<RemoteUpdate>) {
                 cover_url: n.cover_url.clone(),
                 cover_large_url: n.cover_url,
                 is_music: false,
+                is_video: false,
             });
             Ok(RemoteSyncPayload {
                 track,

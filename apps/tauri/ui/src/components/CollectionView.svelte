@@ -7,6 +7,8 @@
   import CollectionPlaylistModal from "./collection/CollectionPlaylistModal.svelte";
   import CollectionPlaylistsGrid from "./collection/CollectionPlaylistsGrid.svelte";
   import CollectionRecentlyPlayed from "./collection/CollectionRecentlyPlayed.svelte";
+  import Carousel from "./Carousel.svelte";
+  import CoverImage from "./CoverImage.svelte";
 
   type CollectionScreen =
     | { kind: "overview" }
@@ -94,6 +96,23 @@
       onOpenPlaylist={(id) => (screen = { kind: "playlist", id })}
       onEditPlaylist={openEditModal}
     />
+
+    {#if player.followedArtists.length > 0}
+      <div class="mt-7">
+        <Carousel title={t("collection.followed_artists")} minCardWidth={148}>
+          {#each player.followedArtists as artist (artist.id)}
+            <button
+              type="button"
+              class="p-2.5 rounded-2xl hover:bg-white/[0.06] flex flex-col items-center gap-2 text-center transition-colors"
+              onclick={() => player.openArtist(artist.id, artist.name)}
+            >
+              <CoverImage class="artist-avatar" src={artist.avatar_url} alt={artist.name} fallbackIcon="👤" />
+              <strong class="text-[13.5px] font-bold truncate w-full">{artist.name}</strong>
+            </button>
+          {/each}
+        </Carousel>
+      </div>
+    {/if}
 
     <CollectionRecentlyPlayed />
   </div>

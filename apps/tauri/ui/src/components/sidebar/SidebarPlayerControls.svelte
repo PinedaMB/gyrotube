@@ -2,6 +2,8 @@
   import {
     ChevronRight,
     Disc3,
+    Film,
+    Music,
     Pause,
     Play,
     Repeat,
@@ -15,6 +17,7 @@
   import { player } from "../../lib/stores/player.svelte";
   import { formatDuration } from "../../lib/types";
   import CoverImage from "../CoverImage.svelte";
+  import SyncedVideoPlayer from "../SyncedVideoPlayer.svelte";
   import SidebarActionPopovers from "./SidebarActionPopovers.svelte";
 
   interface Props {
@@ -36,20 +39,50 @@
   );
 </script>
 
-<div in:fade={{ duration: 180 }} class="flex-1 flex flex-col items-center justify-between py-4 gap-5">
-  <!-- Centered large cover art -->
-  <div class="flex-1 flex items-center justify-center w-full py-2">
-    {#key player.currentTrack?.id ?? "none"}
-      <div in:scale={{ start: 0.94, duration: 260, easing: cubicOut }}>
-        <CoverImage
-          class="cover-large !w-[264px] !h-[264px] !rounded-2xl border border-white/10 shadow-[0_22px_50px_rgba(0,0,0,0.48)] transition-transform duration-300 hover:scale-[1.015]"
-          src={player.currentTrack?.cover_large_url}
-          fallbackSrc={player.currentTrack?.cover_url}
-          alt={player.currentTrack?.title ?? ""}
-          eager={true}
-        />
-      </div>
-    {/key}
+<div in:fade={{ duration: 180 }} class="flex-1 flex flex-col items-center justify-between py-3 gap-4">
+  <!-- Song / Video mode toggle -->
+  {#if player.currentTrack}
+    <div class="inline-flex items-center p-0.5 rounded-full bg-[var(--surface)] border border-[var(--border)]">
+      <button
+        type="button"
+        class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11.5px] font-bold transition-colors {!player.videoMode
+          ? 'bg-[var(--accent)] text-white shadow-sm'
+          : 'text-[var(--text-muted)] hover:text-[var(--text)]'}"
+        onclick={() => player.setVideoMode(false)}
+      >
+        <Music size={12} />
+        <span>{t("player.mode_song")}</span>
+      </button>
+      <button
+        type="button"
+        class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11.5px] font-bold transition-colors {player.videoMode
+          ? 'bg-[var(--accent)] text-white shadow-sm'
+          : 'text-[var(--text-muted)] hover:text-[var(--text)]'}"
+        onclick={() => player.setVideoMode(true)}
+      >
+        <Film size={12} />
+        <span>{t("player.mode_video")}</span>
+      </button>
+    </div>
+  {/if}
+
+  <!-- Centered large cover art or synced video -->
+  <div class="flex-1 flex items-center justify-center w-full py-1">
+    {#if player.videoMode && player.currentTrack}
+      <SyncedVideoPlayer class="w-full aspect-video rounded-2xl" />
+    {:else}
+      {#key player.currentTrack?.id ?? "none"}
+        <div in:scale={{ start: 0.94, duration: 260, easing: cubicOut }}>
+          <CoverImage
+            class="cover-large !w-[264px] !h-[264px] !rounded-2xl border border-white/10 shadow-[0_22px_50px_rgba(0,0,0,0.48)] transition-transform duration-300 hover:scale-[1.015]"
+            src={player.currentTrack?.cover_large_url}
+            fallbackSrc={player.currentTrack?.cover_url}
+            alt={player.currentTrack?.title ?? ""}
+            eager={true}
+          />
+        </div>
+      {/key}
+    {/if}
   </div>
 
   <!-- Lower controls stack -->

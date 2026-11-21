@@ -216,5 +216,17 @@
   "collection.modal_name_ph": "Late Night Drive, Chill Mix…",
   "collection.modal_new": "New playlist",
   "collection.modal_save": "Save changes",
-  "collection.untitled": "Untitled playlist"
+  "collection.untitled": "Untitled playlist",
+  "artist.follow": "Follow",
+  "artist.following": "Following",
+  "artist.singles": "Singles & EPs",
+  "artist.videos": "Music videos",
+  "artist.in_library": "In your library",
+  "artist.in_library_one": "You have 1 saved song by this artist",
+  "artist.in_library_many": "You have {count} saved songs by this artist",
+  "collection.followed_artists": "Followed artists",
+  "player.mode_song": "Song",
+  "player.mode_video": "Video",
+  "player.video_fullscreen": "Fullscreen",
+  "player.video_unavailable": "Video unavailable for this track"
 }

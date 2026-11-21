@@ -1,5 +1,6 @@
 <script lang="ts">
   import {
+    Film,
     Heart,
     LocateFixed,
     Music,
@@ -18,6 +19,7 @@
   import { player } from "../lib/stores/player.svelte";
   import { formatDuration } from "../lib/types";
   import CoverImage from "./CoverImage.svelte";
+  import SyncedVideoPlayer from "./SyncedVideoPlayer.svelte";
 
   let lineRefs = $state<Record<number, HTMLButtonElement>>({});
   let autoScrollPaused = $state(false);
@@ -100,23 +102,52 @@
 
   <!-- Main 2-column stage -->
   <div class="flex-1 min-h-0 overflow-y-auto lg:overflow-hidden grid grid-cols-1 lg:grid-cols-[440px_minmax(0,1fr)] gap-8 lg:gap-10 px-5 sm:px-8 lg:px-10 pb-8 max-w-[1440px] w-full mx-auto">
-    <!-- Left column: Art + Info + Controls + Up Next -->
+    <!-- Left column: Art / Synced Video + Info + Controls + Up Next -->
     <div class="flex flex-col items-center justify-center gap-5">
-      {#key player.currentTrack?.id ?? "none"}
-        <div in:scale={{ start: 0.94, duration: 280, easing: cubicOut }}>
-          <CoverImage
-            class="party-cover !w-[210px] !h-[210px] sm:!w-[260px] sm:!h-[260px] lg:!w-[292px] lg:!h-[292px] !rounded-[22px] border border-white/12 shadow-[0_26px_64px_rgba(0,0,0,0.58)]"
-            src={player.currentTrack?.cover_large_url}
-            fallbackSrc={player.currentTrack?.cover_url}
-            alt={player.currentTrack?.title ?? ""}
-            eager={true}
-          />
+      {#if player.currentTrack}
+        <div class="inline-flex items-center p-0.5 rounded-full bg-white/[0.06] border border-white/10">
+          <button
+            type="button"
+            class="inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full text-[12px] font-bold transition-colors {!player.videoMode
+              ? 'bg-[var(--accent)] text-white shadow-sm'
+              : 'text-[var(--text-muted)] hover:text-white'}"
+            onclick={() => player.setVideoMode(false)}
+          >
+            <Music size={13} />
+            <span>{t("player.mode_song")}</span>
+          </button>
+          <button
+            type="button"
+            class="inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full text-[12px] font-bold transition-colors {player.videoMode
+              ? 'bg-[var(--accent)] text-white shadow-sm'
+              : 'text-[var(--text-muted)] hover:text-white'}"
+            onclick={() => player.setVideoMode(true)}
+          >
+            <Film size={13} />
+            <span>{t("player.mode_video")}</span>
+          </button>
         </div>
-      {/key}
+      {/if}
+
+      {#if player.videoMode && player.currentTrack}
+        <SyncedVideoPlayer class="w-full max-w-[420px] aspect-video rounded-[20px]" />
+      {:else}
+        {#key player.currentTrack?.id ?? "none"}
+          <div in:scale={{ start: 0.94, duration: 280, easing: cubicOut }}>
+            <CoverImage
+              class="party-cover !w-[210px] !h-[210px] sm:!w-[260px] sm:!h-[260px] lg:!w-[292px] lg:!h-[292px] !rounded-[22px] border border-white/12 shadow-[0_26px_64px_rgba(0,0,0,0.58)]"
+              src={player.currentTrack?.cover_large_url}
+              fallbackSrc={player.currentTrack?.cover_url}
+              alt={player.currentTrack?.title ?? ""}
+              eager={true}
+            />
+          </div>
+        {/key}
+      {/if}
 
       <div class="w-[340px] text-center space-y-1">
         <h1 class="text-[28px] font-black tracking-[-0.03em] leading-tight line-clamp-2">
-          {player.currentTrack?.title ?? "Nothing playing"}
+          {player.currentTrack?.title ?? t("player.nothing_playing")}
         </h1>
         <p class="text-[16px] font-medium text-[var(--text-muted)] truncate">
           {player.currentTrack?.artist ?? ""}
@@ -152,7 +183,7 @@
               ? 'text-[var(--coral)]'
               : 'text-[var(--text-muted)] hover:text-[var(--text)]'}"
             disabled={!player.currentTrack}
-            title={isFav ? "Remove from favorites" : "Add to favorites"}
+            title={isFav ? t("player.favorite_remove") : t("player.favorite_add")}
             onclick={() => player.currentTrack && player.toggleFavorite(player.currentTrack)}
           >
             <Heart size={18} fill={isFav ? "currentColor" : "none"} />

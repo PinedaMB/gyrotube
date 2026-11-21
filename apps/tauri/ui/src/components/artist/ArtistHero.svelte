@@ -1,16 +1,19 @@
 <script lang="ts">
-  import { ArrowLeft, Play, Radio, Shuffle } from "lucide-svelte";
+  import { ArrowLeft, Play, Radio, Shuffle, UserCheck, UserPlus } from "lucide-svelte";
   import { api, isTauriRuntime } from "../../lib/api";
   import { t } from "../../lib/i18n.svelte";
   import { player } from "../../lib/stores/player.svelte";
   import { formatSubscribers, type ArtistDetails } from "../../lib/types";
 
   interface Props {
+    artistId: string;
     artistName: string;
     details: ArtistDetails | null;
   }
 
-  let { artistName, details }: Props = $props();
+  let { artistId, artistName, details }: Props = $props();
+
+  let following = $derived(player.isFollowingArtist(artistId));
 
   let bannerLoaded = $state(false);
   let startingMix = $state(false);
@@ -118,7 +121,7 @@
 
       <div class="flex flex-wrap items-center gap-2.5 pt-2">
         <button
-          class="pill-btn primary !px-5 !py-2 !text-[13.5px] shadow-[0_6px_20px_rgba(33,144,164,0.35)]"
+          class="pill-btn primary !px-5 !py-2 !text-[13.5px] shadow-[0_6px_20px_rgba(16,185,129,0.35)]"
           disabled={!details?.tracks.length}
           onclick={() => details && player.replaceQueueAndPlay(details.tracks, 0, details.name)}
         >
@@ -146,6 +149,28 @@
             <Radio size={15} />
           {/if}
           {t("artist.mix")}
+        </button>
+
+        <button
+          type="button"
+          class="pill-btn !px-4 !py-2 !text-[13.5px] {following
+            ? '!bg-[var(--accent-soft)] !border-[var(--accent-border)] !text-[var(--accent-bright)]'
+            : 'bg-black/45 hover:bg-black/60 border-white/15'}"
+          onclick={() =>
+            player.toggleFollowArtist({
+              id: artistId,
+              name: details?.name ?? artistName,
+              avatar_url: details?.header_url ?? null,
+              subscriber_count: details?.subscriber_count ?? null,
+            })}
+        >
+          {#if following}
+            <UserCheck size={15} />
+            {t("artist.following")}
+          {:else}
+            <UserPlus size={15} />
+            {t("artist.follow")}
+          {/if}
         </button>
       </div>
     </div>

@@ -216,5 +216,17 @@
   "collection.modal_name_ph": "Viaje nocturno, Chill Mix…",
   "collection.modal_new": "Nueva playlist",
   "collection.modal_save": "Guardar cambios",
-  "collection.untitled": "Playlist sin título"
+  "collection.untitled": "Playlist sin título",
+  "artist.follow": "Seguir",
+  "artist.following": "Siguiendo",
+  "artist.singles": "Sencillos y EPs",
+  "artist.videos": "Videos musicales",
+  "artist.in_library": "En tu colección",
+  "artist.in_library_one": "Tienes 1 canción guardada de este artista",
+  "artist.in_library_many": "Tienes {count} canciones guardadas de este artista",
+  "collection.followed_artists": "Artistas seguidos",
+  "player.mode_song": "Canción",
+  "player.mode_video": "Video",
+  "player.video_fullscreen": "Pantalla completa",
+  "player.video_unavailable": "Video no disponible para esta pista"
 }

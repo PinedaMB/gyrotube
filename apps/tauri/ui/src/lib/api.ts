@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
+  Artist,
   ArtistDetails,
   Genre,
   HomeFeed,
@@ -13,6 +14,7 @@ import type {
   StreamInfo,
   Track,
   UserPlaylist,
+  VideoStreamInfo,
 } from "./types";
 
 declare global {
@@ -42,6 +44,8 @@ export const api = {
     call("save_user_playlists_cmd", { playlists }),
   saveSearchHistory: (history: string[]): Promise<void> =>
     call("save_search_history_cmd", { history }),
+  saveFollowedArtists: (artists: Artist[]): Promise<void> =>
+    call("save_followed_artists_cmd", { artists }),
 
   getHomeFeed: (forceRefresh = false, country: string | null = null): Promise<HomeFeed> =>
     call("get_home_feed", { forceRefresh, country }),
@@ -79,6 +83,8 @@ export const api = {
 
   resolveAudioStream: (track: Track): Promise<StreamInfo> =>
     call("resolve_audio_stream", { track }),
+  resolveVideoStream: (trackId: string, maxHeight = 720): Promise<VideoStreamInfo> =>
+    call("resolve_video_stream", { trackId, maxHeight }),
   prefetchAudio: (track: Track): Promise<void> => call("prefetch_audio", { track }),
   cancelStaleStreams: (keepIds: string[]): Promise<void> =>
     call("cancel_stale_streams", { keepIds }),

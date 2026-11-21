@@ -126,6 +126,7 @@ pub async fn get_lyrics(
 ) -> Result<LyricsPayload, String> {
     let stub = Track {
         is_music: true,
+        is_video: false,
         id: track_id.unwrap_or_default(),
         title,
         artist,

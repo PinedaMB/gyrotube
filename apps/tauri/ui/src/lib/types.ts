@@ -10,6 +10,7 @@ export interface Track {
   cover_url?: string | null;
   cover_large_url?: string | null;
   verified_music?: boolean;
+  is_video?: boolean;
 }
 
 export interface Album {
@@ -41,6 +42,8 @@ export interface ArtistDetails {
   subscriber_count?: number | null;
   tracks: Track[];
   albums: Album[];
+  singles?: Album[];
+  videos?: Track[];
   playlists: Playlist[];
   similar_artists: Artist[];
 }
@@ -77,6 +80,13 @@ export interface SearchResults {
 export interface StreamInfo {
   url: string;
   quality_label: string;
+}
+
+export interface VideoStreamInfo {
+  url: string;
+  quality_label: string;
+  width: number;
+  height: number;
 }
 
 export interface SyncedLyricLine {
@@ -132,6 +142,7 @@ export interface InitialAppData {
   recent_tracks: Track[];
   user_playlists: UserPlaylist[];
   search_history: string[];
+  followed_artists?: Artist[];
 }
 
 export interface SpinStatus {

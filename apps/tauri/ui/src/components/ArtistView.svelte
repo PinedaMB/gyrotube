@@ -1,5 +1,7 @@
 <script lang="ts">
+  import { Heart, Play } from "lucide-svelte";
   import { api, isTauriRuntime } from "../lib/api";
+  import { t } from "../lib/i18n.svelte";
   import { player } from "../lib/stores/player.svelte";
   import type { ArtistDetails } from "../lib/types";
   import ArtistAllSongsPage from "./artist/ArtistAllSongsPage.svelte";
@@ -12,6 +14,15 @@
   let details = $state<ArtistDetails | null>(null);
   let loading = $state(false);
   let showingAllSongs = $state(false);
+
+  let savedByArtist = $derived.by(() => {
+    const targetName = (details?.name ?? artistName).trim().toLowerCase();
+    return player.favorites.filter(
+      (tr) =>
+        tr.artist_id === artistId ||
+        (targetName.length > 0 && tr.artist.toLowerCase().includes(targetName)),
+    );
+  });
 
   $effect(() => {
     const id = artistId;
@@ -50,9 +61,41 @@
   />
 {:else}
   <div class="w-full pb-28">
-    <ArtistHero {artistName} {details} />
+    <ArtistHero {artistId} {artistName} {details} />
 
-    <div class="w-full max-w-[1280px] mx-auto px-6 space-y-8">
+    <div class="w-full max-w-[1400px] mx-auto px-6 space-y-8">
+      {#if savedByArtist.length > 0}
+        <div class="flex items-center justify-between gap-4 px-4 py-3 rounded-2xl bg-[var(--surface)] border border-[var(--border)]">
+          <div class="flex items-center gap-3 min-w-0">
+            <span class="w-10 h-10 rounded-xl bg-[var(--fav-coral)]/18 text-[var(--fav-coral)] flex items-center justify-center shrink-0">
+              <Heart size={18} fill="currentColor" />
+            </span>
+            <div class="min-w-0">
+              <div class="text-[11px] font-bold uppercase tracking-[0.07em] text-[var(--accent-bright)]">
+                {t("artist.in_library")}
+              </div>
+              <div class="text-[14px] font-semibold truncate">
+                {savedByArtist.length === 1
+                  ? t("artist.in_library_one")
+                  : t("artist.in_library_many", { count: savedByArtist.length })}
+              </div>
+            </div>
+          </div>
+          <button
+            type="button"
+            class="pill-btn primary shrink-0"
+            onclick={() =>
+              player.replaceQueueAndPlay(
+                savedByArtist,
+                0,
+                `${details?.name ?? artistName} · ${t("collection.favorites")}`,
+              )}
+          >
+            <Play size={14} fill="currentColor" />
+            {t("artist.play")}
+          </button>
+        </div>
+      {/if}
       {#if loading}
         <div class="space-y-6 animate-pulse pt-2" aria-busy="true">
           <div class="h-5 w-40 rounded bg-white/[0.08]"></div>

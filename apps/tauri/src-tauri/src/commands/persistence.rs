@@ -2,9 +2,10 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
 use gyrotube_core::models::{
-    SessionState, Track, UserPlaylist, load_favorites, load_recent_tracks, load_search_history,
-    load_session_state, load_user_playlists, save_favorites, save_recent_tracks,
-    save_search_history, save_session_state, save_user_playlists,
+    Artist, SessionState, Track, UserPlaylist, load_favorites, load_followed_artists,
+    load_recent_tracks, load_search_history, load_session_state, load_user_playlists,
+    save_favorites, save_followed_artists, save_recent_tracks, save_search_history,
+    save_session_state, save_user_playlists,
 };
 use serde::Serialize;
 use tauri::State;
@@ -18,6 +19,7 @@ pub struct InitialAppData {
     pub recent_tracks: Vec<Track>,
     pub user_playlists: Vec<UserPlaylist>,
     pub search_history: Vec<String>,
+    pub followed_artists: Vec<Artist>,
 }
 
 #[tauri::command]
@@ -32,6 +34,7 @@ pub async fn load_initial_state(state: State<'_, AppCoreState>) -> Result<Initia
             recent_tracks: load_recent_tracks(),
             user_playlists: load_user_playlists(),
             search_history: load_search_history(),
+            followed_artists: load_followed_artists(),
         }
     })
     .await
@@ -75,6 +78,13 @@ pub async fn save_user_playlists_cmd(playlists: Vec<UserPlaylist>) -> Result<(),
 #[tauri::command]
 pub async fn save_search_history_cmd(history: Vec<String>) -> Result<(), String> {
     tokio::task::spawn_blocking(move || save_search_history(&history).map_err(|e| e.to_string()))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn save_followed_artists_cmd(artists: Vec<Artist>) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || save_followed_artists(&artists).map_err(|e| e.to_string()))
         .await
         .map_err(|e| e.to_string())?
 }

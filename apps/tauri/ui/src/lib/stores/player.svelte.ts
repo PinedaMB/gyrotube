@@ -19,6 +19,7 @@ import {
 import type {
   ActiveView,
   AppLanguage,
+  Artist,
   Genre,
   HomeFeed,
   LyricsData,
@@ -30,6 +31,7 @@ import type {
   ThemeMode,
   Track,
   UserPlaylist,
+  VideoStreamInfo,
 } from "../types";
 
 export interface ToastItem {
@@ -88,6 +90,14 @@ class PlayerStore {
   recentTracks = $state<Track[]>([]);
   userPlaylists = $state<UserPlaylist[]>([]);
   searchHistory = $state<string[]>([]);
+  followedArtists = $state<Artist[]>([]);
+
+  // Video mode (hybrid synced <video muted> alongside master audio deck)
+  videoMode = $state(false);
+  videoStream = $state<VideoStreamInfo | null>(null);
+  videoLoading = $state(false);
+  videoError = $state<string | null>(null);
+  private videoGen = 0;
 
   // Catalog data
   homeFeed = $state<HomeFeed | null>(null);
@@ -134,6 +144,7 @@ class PlayerStore {
   );
 
   private favoriteIdSet = $derived(new Set(this.favorites.map((t) => t.id)));
+  private followedArtistIdSet = $derived(new Set(this.followedArtists.map((a) => a.id)));
 
   constructor() {
     this.engine = new DualDeckAudioEngine({
@@ -184,6 +195,7 @@ class PlayerStore {
       this.recentTracks = initial.recent_tracks;
       this.userPlaylists = initial.user_playlists;
       this.searchHistory = initial.search_history;
+      this.followedArtists = initial.followed_artists ?? [];
 
       const s = initial.session;
       this.sidebarOpen = !s.sidebar_collapsed;
@@ -574,6 +586,59 @@ class PlayerStore {
     return this.favoriteIdSet.has(trackId);
   }
 
+  public isFollowingArtist(artistId: string): boolean {
+    return this.followedArtistIdSet.has(artistId);
+  }
+
+  public toggleFollowArtist(artist: Artist): void {
+    const exists = this.followedArtistIdSet.has(artist.id);
+    this.followedArtists = exists
+      ? this.followedArtists.filter((a) => a.id !== artist.id)
+      : [artist, ...this.followedArtists];
+    if (isTauriRuntime()) void api.saveFollowedArtists(this.followedArtists);
+  }
+
+  public setVideoMode(enabled: boolean): void {
+    if (this.videoMode === enabled) return;
+    this.videoMode = enabled;
+    if (!enabled) {
+      ++this.videoGen;
+      this.videoLoading = false;
+      this.videoError = null;
+      return;
+    }
+    void this.loadVideoForCurrent();
+  }
+
+  public async loadVideoForCurrent(): Promise<void> {
+    const track = this.currentTrack;
+    if (!track || !this.videoMode || !isTauriRuntime()) {
+      this.videoStream = null;
+      this.videoLoading = false;
+      this.videoError = null;
+      return;
+    }
+    const gen = ++this.videoGen;
+    this.videoLoading = true;
+    this.videoError = null;
+    this.videoStream = null;
+    const maxHeight = typeof window !== "undefined" && window.innerWidth < 768 ? 720 : 1080;
+    try {
+      const info = await api.resolveVideoStream(track.id, maxHeight);
+      if (this.videoGen === gen && this.currentTrack?.id === track.id && this.videoMode) {
+        this.videoStream = info;
+      }
+    } catch (err) {
+      if (this.videoGen === gen) {
+        this.videoError = String(err);
+      }
+    } finally {
+      if (this.videoGen === gen) {
+        this.videoLoading = false;
+      }
+    }
+  }
+
   public toggleFavorite(track: Track): void {
     if (this.isFavorite(track.id)) {
       this.favorites = this.favorites.filter((t) => t.id !== track.id);
@@ -677,6 +742,11 @@ class PlayerStore {
     this.durationSecs = track.duration_secs ?? 0;
     this.lyrics = { type: "None" };
     this.activeLyricIndex = null;
+    this.videoStream = null;
+    this.videoError = null;
+    if (track.is_video) {
+      this.videoMode = true;
+    }
 
     // Record recent
     this.recentTracks = [track, ...this.recentTracks.filter((t) => t.id !== track.id)].slice(0, 30);
@@ -717,6 +787,9 @@ class PlayerStore {
       if (startPaused) this.isLoadingAudio = false;
       void this.syncSpinSnapshot();
 
+      if (this.videoMode) {
+        void this.loadVideoForCurrent();
+      }
       // Load lyrics & related suggestions asynchronously
       this.lyricsLoading = true;
       void api

@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex, OnceLock, RwLock};
 use std::time::{Duration, Instant};
 
 use rustypipe::client::RustyPipe;
-use rustypipe::model::TrackType;
+use rustypipe::model::{AlbumType, TrackType};
 use ytmapi_rs::YtMusic;
 use ytmapi_rs::auth::noauth::NoAuthToken;
 use ytmapi_rs::common::{
@@ -18,7 +18,7 @@ use crate::audio_cache;
 use crate::i18n::tr;
 use crate::models::{
     Album, Artist, ArtistDetails, Genre, LyricsData, Playlist, SearchResults, StreamInfo, Track,
-    cache_dir, clean_track_title, color_to_hex, parse_lrc,
+    VideoStreamInfo, cache_dir, clean_track_title, color_to_hex, parse_lrc,
 };
 
 const MUSIC_PROOF_TTL: Duration = Duration::from_secs(15 * 60);
@@ -582,9 +582,53 @@ impl Backend {
     }
 
     pub async fn fetch_artist(&self, artist_id: &str) -> Result<ArtistDetails, String> {
-        if let Ok(ytm) = self.primary().await
-            && let Ok(artist) = ytm.get_artist(ArtistChannelID::from_raw(artist_id)).await
-        {
+        let ytm_fut = async {
+            let ytm = self.primary().await.ok()?;
+            ytm.get_artist(ArtistChannelID::from_raw(artist_id)).await.ok()
+        };
+        let rp_fut = async { self.rp.query().music_artist(artist_id, true).await.ok() };
+        let (ytm_artist, rp_artist) = tokio::join!(ytm_fut, rp_fut);
+
+        let rp_view_counts: HashMap<String, u64> = rp_artist
+            .as_ref()
+            .map(|rp| {
+                rp.tracks
+                    .iter()
+                    .filter_map(|t| t.view_count.map(|vc| (t.id.clone(), vc)))
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        let rp_videos: Vec<Track> = rp_artist
+            .as_ref()
+            .map(|rp| {
+                rp.tracks
+                    .iter()
+                    .filter(|t| t.track_type == TrackType::Video && !t.unavailable)
+                    .map(|t| {
+                        let mut tr = Track::from(t);
+                        tr.is_music = true;
+                        tr.is_video = true;
+                        if tr.artist_id.is_none() {
+                            tr.artist_id = Some(artist_id.to_string());
+                        }
+                        tr
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        let rp_playlists: Vec<Playlist> = rp_artist
+            .as_ref()
+            .map(|rp| rp.playlists.iter().map(Playlist::from).collect())
+            .unwrap_or_default();
+
+        let rp_similar: Vec<Artist> = rp_artist
+            .as_ref()
+            .map(|rp| rp.similar_artists.iter().map(Artist::from).collect())
+            .unwrap_or_default();
+
+        if let Some(artist) = ytm_artist {
             let name = artist.name.clone();
             let GetArtistTopReleases {
                 songs,
@@ -614,9 +658,12 @@ impl Backend {
                                     .map(|a| a.name)
                                     .collect::<Vec<_>>()
                                     .join(", ");
+                                let vid = ps.video_id.get_raw().to_string();
+                                let vc = rp_view_counts.get(&vid).copied();
                                 Some(Track {
                                     is_music: true,
-                                    id: ps.video_id.get_raw().to_string(),
+                                    is_video: false,
+                                    id: vid,
                                     title: clean_track_title(&ps.title),
                                     artist: if artist_str.is_empty() {
                                         name.clone()
@@ -627,7 +674,7 @@ impl Backend {
                                     album: Some(ps.album.name),
                                     album_id: Some(ps.album.id.get_raw().to_string()),
                                     duration_secs: parse_mm_ss(&ps.duration),
-                                    view_count: None,
+                                    view_count: vc,
                                     cover_url: best_ytm_thumb(&ps.thumbnails),
                                     cover_large_url: best_ytm_thumb(&ps.thumbnails),
                                 })
@@ -652,8 +699,10 @@ impl Backend {
                                 .iter()
                                 .find_map(|a| a.id.as_ref().map(|aid| aid.get_raw().to_string()))
                                 .or_else(|| Some(artist_id.to_string()));
+                            let vc = rp_view_counts.get(&id).copied();
                             Track {
                                 is_music: false,
+                                is_video: false,
                                 id,
                                 title: clean_track_title(&t.title),
                                 artist: if t.artists.is_empty() {
@@ -669,7 +718,7 @@ impl Backend {
                                 album: Some(t.album.name),
                                 album_id: Some(t.album.id.get_raw().to_string()),
                                 duration_secs: None,
-                                view_count: None,
+                                view_count: vc,
                                 cover_url: cover.clone(),
                                 cover_large_url: cover,
                             }
@@ -680,10 +729,10 @@ impl Backend {
                 Vec::new()
             };
 
-            let mut all_albums = Vec::new();
+            let mut studio_albums = Vec::new();
             if let Some(a) = albums {
                 for item in a.results {
-                    all_albums.push(Album {
+                    studio_albums.push(Album {
                         id: item.album_id.get_raw().to_string(),
                         title: item.title,
                         artist: name.clone(),
@@ -692,9 +741,10 @@ impl Backend {
                     });
                 }
             }
+            let mut single_releases = Vec::new();
             if let Some(s) = singles {
                 for item in s.results {
-                    all_albums.push(Album {
+                    single_releases.push(Album {
                         id: item.album_id.get_raw().to_string(),
                         title: item.title,
                         artist: name.clone(),
@@ -706,33 +756,52 @@ impl Backend {
 
             return Ok(ArtistDetails {
                 name,
-                header_url: best_ytm_banner(&artist.thumbnails),
-                subscriber_count: artist.subscribers.as_deref().and_then(parse_sub_count),
-                description: artist.description,
+                header_url: best_ytm_banner(&artist.thumbnails)
+                    .or_else(|| rp_artist.as_ref().and_then(|rp| crate::models::pick_cover(&rp.header_image, 1000))),
+                subscriber_count: artist
+                    .subscribers
+                    .as_deref()
+                    .and_then(parse_sub_count)
+                    .or_else(|| rp_artist.as_ref().and_then(|rp| rp.subscriber_count)),
+                description: artist
+                    .description
+                    .or_else(|| rp_artist.as_ref().and_then(|rp| rp.description.clone())),
                 tracks,
-                albums: all_albums,
-                playlists: Vec::new(),
-                similar_artists: Vec::new(),
+                albums: studio_albums,
+                singles: single_releases,
+                videos: rp_videos,
+                playlists: rp_playlists,
+                similar_artists: rp_similar,
             });
         }
 
-        if let Ok(rp_artist) = self.rp.query().music_artist(artist_id, true).await {
+        if let Some(rp_artist) = rp_artist {
             let tracks: Vec<Track> = rp_artist
                 .tracks
                 .iter()
                 .filter(|t| t.track_type == TrackType::Track && !t.unavailable)
                 .map(Track::from)
                 .collect();
-            if !tracks.is_empty() || !rp_artist.albums.is_empty() {
+            let mut studio_albums = Vec::new();
+            let mut single_releases = Vec::new();
+            for alb in &rp_artist.albums {
+                match alb.album_type {
+                    AlbumType::Single | AlbumType::Ep => single_releases.push(Album::from(alb)),
+                    _ => studio_albums.push(Album::from(alb)),
+                }
+            }
+            if !tracks.is_empty() || !studio_albums.is_empty() || !single_releases.is_empty() {
                 return Ok(ArtistDetails {
                     name: rp_artist.name,
                     header_url: crate::models::pick_cover(&rp_artist.header_image, 1000),
                     description: rp_artist.description,
                     subscriber_count: rp_artist.subscriber_count,
                     tracks,
-                    albums: rp_artist.albums.iter().map(Album::from).collect(),
-                    playlists: rp_artist.playlists.iter().map(Playlist::from).collect(),
-                    similar_artists: rp_artist.similar_artists.iter().map(Artist::from).collect(),
+                    albums: studio_albums,
+                    singles: single_releases,
+                    videos: rp_videos,
+                    playlists: rp_playlists,
+                    similar_artists: rp_similar,
                 });
             }
         }
@@ -859,6 +928,149 @@ impl Backend {
             }
         }
         self.resolve_audio_stream(&track.id).await
+    }
+
+    pub async fn resolve_video_stream(
+        &self,
+        video_id: &str,
+        max_height: u32,
+    ) -> Result<VideoStreamInfo, String> {
+        validate_video_id(video_id)?;
+        let visitor_data = self.rp.query().get_visitor_data(true).await.ok();
+        let profiles = [
+            (
+                "com.google.android.apps.youtube.vr.oculus/1.65.10 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip",
+                "28",
+                "1.65.10",
+                serde_json::json!({
+                    "context": { "client": {
+                        "clientName": "ANDROID_VR",
+                        "clientVersion": "1.65.10",
+                        "deviceMake": "Oculus",
+                        "deviceModel": "Quest 3",
+                        "androidSdkVersion": 32,
+                        "osName": "Android",
+                        "osVersion": "12L",
+                        "hl": "en",
+                        "gl": "US"
+                    } },
+                    "videoId": video_id,
+                    "contentCheckOk": true,
+                    "racyCheckOk": true,
+                }),
+            ),
+            (
+                "Mozilla/5.0 (ChromiumStylePlatform) Cobalt/Version",
+                "85",
+                "2.0",
+                serde_json::json!({
+                    "context": {
+                        "client": {
+                            "clientName": "TVHTML5_SIMPLY_EMBEDDED_PLAYER",
+                            "clientVersion": "2.0",
+                            "hl": "en",
+                            "gl": "US"
+                        },
+                        "thirdParty": { "embedUrl": "https://www.youtube.com" }
+                    },
+                    "videoId": video_id,
+                    "contentCheckOk": true,
+                    "racyCheckOk": true,
+                }),
+            ),
+            (
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 15_7_3) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15",
+                "101",
+                "1.02",
+                serde_json::json!({
+                    "context": { "client": {
+                        "clientName": "VISIONOS",
+                        "clientVersion": "1.02",
+                        "deviceMake": "Apple",
+                        "deviceModel": "RealityDevice17,1",
+                        "osName": "visionOS",
+                        "osVersion": "26.5.23O471"
+                    } },
+                    "videoId": video_id,
+                }),
+            ),
+        ];
+
+        for (user_agent, client_name_hdr, client_version_hdr, mut payload) in profiles {
+            if let Some(ref vd) = visitor_data
+                && let Some(client_obj) = payload["context"]["client"].as_object_mut()
+            {
+                client_obj.insert("visitorData".to_string(), serde_json::Value::String(vd.clone()));
+            }
+            let mut req = self
+                .http
+                .post("https://www.youtube.com/youtubei/v1/player?prettyPrint=false")
+                .timeout(Duration::from_secs(6))
+                .header("User-Agent", user_agent)
+                .header("X-YouTube-Client-Name", client_name_hdr)
+                .header("X-YouTube-Client-Version", client_version_hdr);
+            if let Some(ref vd) = visitor_data {
+                req = req.header("X-Goog-Visitor-Id", vd);
+            }
+            let Ok(resp) = req.json(&payload).send().await else {
+                continue;
+            };
+            let Ok(resp) = resp.error_for_status() else {
+                continue;
+            };
+            let Ok(json) = resp.json::<serde_json::Value>().await else {
+                continue;
+            };
+            let adaptive = json["streamingData"]["adaptiveFormats"].as_array();
+            let muxed = json["streamingData"]["formats"].as_array();
+            let all_formats: Vec<&serde_json::Value> = adaptive
+                .into_iter()
+                .flatten()
+                .chain(muxed.into_iter().flatten())
+                .collect();
+
+            // Prefer H.264 MP4 (avc1) video streams <= max_height for universal HW decode on WebKitGTK & Android
+            let mut best: Option<(u32, u64, VideoStreamInfo)> = None;
+            for f in all_formats {
+                let Some(mime) = f["mimeType"].as_str() else { continue };
+                if !mime.starts_with("video/mp4") || !mime.contains("avc1") {
+                    continue;
+                }
+                let Some(url_str) = f["url"].as_str() else { continue };
+                let Some(parsed) = reqwest::Url::parse(url_str).ok() else { continue };
+                if parsed.scheme() != "https"
+                    || !parsed.host_str().is_some_and(|h| h.ends_with(".googlevideo.com"))
+                {
+                    continue;
+                }
+                let height = f["height"].as_u64().unwrap_or(0) as u32;
+                let width = f["width"].as_u64().unwrap_or(0) as u32;
+                if height == 0 || height > max_height {
+                    continue;
+                }
+                let bitrate = f["bitrate"].as_u64().unwrap_or(0);
+                let replace = match &best {
+                    None => true,
+                    Some((bh, bb, _)) => height > *bh || (height == *bh && bitrate > *bb),
+                };
+                if replace {
+                    best = Some((
+                        height,
+                        bitrate,
+                        VideoStreamInfo {
+                            url: parsed.into(),
+                            quality_label: format!("{height}p"),
+                            width,
+                            height,
+                        },
+                    ));
+                }
+            }
+            if let Some((_, _, info)) = best {
+                return Ok(info);
+            }
+        }
+        Err(String::from("No hay stream de video MP4 disponible para esta pista"))
     }
 
     #[cfg(not(target_os = "android"))]
@@ -1781,6 +1993,7 @@ fn tracks_from_ytm_playlist(items: Vec<PlaylistItem>) -> Vec<Track> {
                     .find_map(|a| a.id.as_ref().map(|id| id.get_raw().to_string()));
                 Some(Track {
                     is_music: true,
+                    is_video: false,
                     id: song.video_id.get_raw().to_string(),
                     title: clean_track_title(&song.title),
                     artist: song
@@ -1808,6 +2021,7 @@ fn track_from_ytm_song(song: SearchResultSong) -> Track {
     let album_id = song.album.as_ref().map(|a| a.id.get_raw().to_string());
     Track {
         is_music: false,
+        is_video: false,
         id: song.video_id.get_raw().to_string(),
         title: clean_track_title(&song.title),
         artist: if song.artist.is_empty() {

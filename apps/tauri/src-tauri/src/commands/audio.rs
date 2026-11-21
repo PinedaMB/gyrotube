@@ -1,5 +1,5 @@
 use gyrotube_core::audio_streamer::AudioStreamer;
-use gyrotube_core::models::{Track, cache_dir};
+use gyrotube_core::models::{Track, VideoStreamInfo, cache_dir};
 use serde::Serialize;
 use tauri::State;
 
@@ -37,6 +37,18 @@ pub async fn resolve_audio_stream(
         url: stream_url,
         quality_label: info.quality_label,
     })
+}
+
+#[tauri::command]
+pub async fn resolve_video_stream(
+    state: State<'_, AppCoreState>,
+    track_id: String,
+    max_height: Option<u32>,
+) -> Result<VideoStreamInfo, String> {
+    state
+        .backend
+        .resolve_video_stream(&track_id, max_height.unwrap_or(720))
+        .await
 }
 
 #[tauri::command]
