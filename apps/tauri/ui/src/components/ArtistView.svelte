@@ -1,9 +1,24 @@
+<script module lang="ts">
+  import type { ArtistDetails } from "../lib/types";
+
+  const ARTIST_CACHE_MAX = 20;
+  const artistCache = new Map<string, ArtistDetails>();
+
+  function cacheArtist(id: string, data: ArtistDetails): void {
+    if (artistCache.has(id)) artistCache.delete(id);
+    artistCache.set(id, data);
+    if (artistCache.size > ARTIST_CACHE_MAX) {
+      const oldestKey = artistCache.keys().next().value;
+      if (oldestKey !== undefined) artistCache.delete(oldestKey);
+    }
+  }
+</script>
+
 <script lang="ts">
   import { Heart, Play } from "lucide-svelte";
   import { api, isTauriRuntime } from "../lib/api";
   import { t } from "../lib/i18n.svelte";
   import { player } from "../lib/stores/player.svelte";
-  import type { ArtistDetails } from "../lib/types";
   import ArtistAllSongsPage from "./artist/ArtistAllSongsPage.svelte";
   import ArtistDiscography from "./artist/ArtistDiscography.svelte";
   import ArtistHero from "./artist/ArtistHero.svelte";
@@ -14,6 +29,8 @@
   let details = $state<ArtistDetails | null>(null);
   let loading = $state(false);
   let showingAllSongs = $state(false);
+  let rootEl = $state<HTMLDivElement | null>(null);
+  let loadedId: string | null = null;
 
   let savedByArtist = $derived.by(() => {
     const targetName = (details?.name ?? artistName).trim().toLowerCase();
@@ -24,19 +41,38 @@
     );
   });
 
+  function scrollPaneTop(behavior: ScrollBehavior = "auto") {
+    rootEl?.closest(".scroll-y")?.scrollTo({ top: 0, behavior });
+  }
+
   $effect(() => {
     const id = artistId;
     const name = artistName;
-    details = null;
+    if (loadedId === id && (details !== null || loading)) return;
+    loadedId = id;
     showingAllSongs = false;
+    scrollPaneTop("auto");
+
+    const cached = artistCache.get(id);
+    if (cached) {
+      details = cached;
+      loading = false;
+      return;
+    }
+
+    details = null;
     if (!isTauriRuntime()) return;
     loading = true;
     void api
       .getArtist(id, name)
       .then((res) => {
+        cacheArtist(id, res);
         if (artistId === id) details = res;
       })
-      .catch((err) => player.showToast(String(err)))
+      .catch((err) => {
+        if (artistId === id) loadedId = null;
+        player.showToast(String(err));
+      })
       .finally(() => {
         if (artistId === id) loading = false;
       });
@@ -44,15 +80,16 @@
 
   function openAllSongs() {
     showingAllSongs = true;
-    document.querySelector("main")?.scrollTo({ top: 0, behavior: "smooth" });
+    scrollPaneTop("smooth");
   }
 
   function backToArtist() {
     showingAllSongs = false;
-    document.querySelector("main")?.scrollTo({ top: 0, behavior: "smooth" });
+    scrollPaneTop("smooth");
   }
 </script>
 
+<div bind:this={rootEl} class="w-full">
 {#if showingAllSongs && details}
   <ArtistAllSongsPage
     artistName={details.name}
@@ -136,3 +173,4 @@
     </div>
   </div>
 {/if}
+</div>

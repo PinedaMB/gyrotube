@@ -11,6 +11,16 @@
 
   let { results }: { results: SearchResults } = $props();
   let filter = $state<FilterTab>("all");
+  let filterBarEl = $state<HTMLDivElement | null>(null);
+  let lastResults: SearchResults | null = null;
+
+  $effect(() => {
+    if (results !== lastResults) {
+      lastResults = results;
+      filter = "all";
+      filterBarEl?.closest(".scroll-y")?.scrollTo({ top: 0 });
+    }
+  });
 
   let topArtist = $derived(results.artists[0] ?? null);
   let topFourSongs = $derived(results.tracks.slice(0, 4));
@@ -19,7 +29,7 @@
   );
 </script>
 
-<div class="flex flex-wrap gap-2 mb-5">
+<div bind:this={filterBarEl} class="flex flex-wrap gap-2 mb-5">
   <button
     type="button"
     class="px-3.5 py-1.5 rounded-full text-[13px] font-semibold bg-[var(--surface)] border border-[var(--border)] hover:bg-[var(--surface-hover)] transition-colors"

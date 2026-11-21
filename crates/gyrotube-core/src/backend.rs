@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
 use std::time::{Duration, Instant};
 
@@ -637,6 +637,21 @@ impl Backend {
             .map(|rp| rp.similar_artists.iter().map(Artist::from).collect())
             .unwrap_or_default();
 
+        let (rp_studio_albums, rp_single_releases): (Vec<Album>, Vec<Album>) = rp_artist
+            .as_ref()
+            .map(|rp| {
+                let mut albums = Vec::new();
+                let mut singles = Vec::new();
+                for alb in &rp.albums {
+                    match alb.album_type {
+                        AlbumType::Single | AlbumType::Ep => singles.push(Album::from(alb)),
+                        _ => albums.push(Album::from(alb)),
+                    }
+                }
+                (albums, singles)
+            })
+            .unwrap_or_default();
+
         if let Some(artist) = ytm_artist {
             let name = artist.name.clone();
             let GetArtistTopReleases {
@@ -739,27 +754,48 @@ impl Backend {
             };
 
             let mut studio_albums = Vec::new();
+            let mut seen_album_ids = HashSet::new();
             if let Some(a) = albums {
                 for item in a.results {
-                    studio_albums.push(Album {
-                        id: item.album_id.get_raw().to_string(),
-                        title: item.title,
-                        artist: name.clone(),
-                        year: item.year.parse::<u16>().ok(),
-                        cover_url: best_ytm_thumb(&item.thumbnails),
-                    });
+                    let id = item.album_id.get_raw().to_string();
+                    if seen_album_ids.insert(id.clone()) {
+                        studio_albums.push(Album {
+                            id,
+                            title: item.title,
+                            artist: name.clone(),
+                            year: item.year.parse::<u16>().ok(),
+                            cover_url: best_ytm_thumb(&item.thumbnails),
+                        });
+                    }
                 }
             }
+            for alb in rp_studio_albums {
+                if seen_album_ids.insert(alb.id.clone()) {
+                    studio_albums.push(alb);
+                }
+            }
+
             let mut single_releases = Vec::new();
+            let mut seen_single_ids = HashSet::new();
             if let Some(s) = singles {
                 for item in s.results {
-                    single_releases.push(Album {
-                        id: item.album_id.get_raw().to_string(),
-                        title: item.title,
-                        artist: name.clone(),
-                        year: item.year.parse::<u16>().ok(),
-                        cover_url: best_ytm_thumb(&item.thumbnails),
-                    });
+                    let id = item.album_id.get_raw().to_string();
+                    if !seen_album_ids.contains(&id) && seen_single_ids.insert(id.clone()) {
+                        single_releases.push(Album {
+                            id,
+                            title: item.title,
+                            artist: name.clone(),
+                            year: item.year.parse::<u16>().ok(),
+                            cover_url: best_ytm_thumb(&item.thumbnails),
+                        });
+                    }
+                }
+            }
+            // ytmapi-rs 0.3.x misses YouTube Music's renamed "Singles & EPs" shelf;
+            // supplement/populate singles & EPs from RustyPipe's full discography.
+            for alb in rp_single_releases {
+                if !seen_album_ids.contains(&alb.id) && seen_single_ids.insert(alb.id.clone()) {
+                    single_releases.push(alb);
                 }
             }
 
@@ -791,23 +827,15 @@ impl Backend {
                 .filter(|t| t.track_type == TrackType::Track && !t.unavailable)
                 .map(Track::from)
                 .collect();
-            let mut studio_albums = Vec::new();
-            let mut single_releases = Vec::new();
-            for alb in &rp_artist.albums {
-                match alb.album_type {
-                    AlbumType::Single | AlbumType::Ep => single_releases.push(Album::from(alb)),
-                    _ => studio_albums.push(Album::from(alb)),
-                }
-            }
-            if !tracks.is_empty() || !studio_albums.is_empty() || !single_releases.is_empty() {
+            if !tracks.is_empty() || !rp_studio_albums.is_empty() || !rp_single_releases.is_empty() {
                 return Ok(ArtistDetails {
                     name: rp_artist.name,
                     header_url: crate::models::pick_cover(&rp_artist.header_image, 1000),
                     description: rp_artist.description,
                     subscriber_count: rp_artist.subscriber_count,
                     tracks,
-                    albums: studio_albums,
-                    singles: single_releases,
+                    albums: rp_studio_albums,
+                    singles: rp_single_releases,
                     videos: rp_videos,
                     playlists: rp_playlists,
                     similar_artists: rp_similar,

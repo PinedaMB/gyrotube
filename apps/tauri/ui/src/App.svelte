@@ -31,13 +31,19 @@
     });
   }
 
-  let viewKey = $derived(
-    player.activeView.kind === "artist"
-      ? `artist:${player.activeView.artistId}`
-      : player.activeView.kind === "album"
-        ? `album:${player.activeView.id}`
-        : player.activeView.kind,
-  );
+  let exploreMounted = $state(false);
+  let lastArtist = $state<{ artistId: string; artistName: string } | null>(null);
+
+  $effect(() => {
+    if (player.activeView.kind === "explore") {
+      exploreMounted = true;
+    } else if (player.activeView.kind === "artist") {
+      lastArtist = {
+        artistId: player.activeView.artistId,
+        artistName: player.activeView.artistName,
+      };
+    }
+  });
 
   $effect(() => {
     const rgb = player.ambientRgb;
@@ -60,25 +66,42 @@
     <!-- Center scrollable main view (static ambient layer behind scrollport for GPU-composited scrolling) -->
     <div class="flex-1 min-w-0 h-full relative overflow-hidden">
       <div class="pointer-events-none absolute inset-0 ambient-surface" aria-hidden="true"></div>
-      <main class="relative z-10 w-full h-full overflow-y-auto overflow-x-hidden scroll-y">
-        {#key viewKey}
-          <div>
-            {#if player.activeView.kind === "home"}
-              <HomeView />
-            {:else if player.activeView.kind === "explore"}
-              <ExploreView />
-            {:else if player.activeView.kind === "collection"}
-              <CollectionView />
-            {:else if player.activeView.kind === "artist"}
-              {@const artistView = player.activeView}
-              {#await import("./components/ArtistView.svelte") then { default: ArtistView }}
-                <ArtistView
-                  artistId={artistView.artistId}
-                  artistName={artistView.artistName}
-                />
-              {/await}
-            {:else if player.activeView.kind === "album"}
-              {@const albumView = player.activeView}
+      <main class="relative z-10 w-full h-full overflow-hidden">
+        {#if exploreMounted}
+          <div
+            class="w-full h-full overflow-y-auto overflow-x-hidden scroll-y"
+            class:hidden={player.activeView.kind !== "explore"}
+          >
+            <ExploreView />
+          </div>
+        {/if}
+
+        {#if lastArtist}
+          <div
+            class="w-full h-full overflow-y-auto overflow-x-hidden scroll-y"
+            class:hidden={player.activeView.kind !== "artist"}
+          >
+            {#await import("./components/ArtistView.svelte") then { default: ArtistView }}
+              <ArtistView
+                artistId={lastArtist.artistId}
+                artistName={lastArtist.artistName}
+              />
+            {/await}
+          </div>
+        {/if}
+
+        {#if player.activeView.kind === "home"}
+          <div class="w-full h-full overflow-y-auto overflow-x-hidden scroll-y">
+            <HomeView />
+          </div>
+        {:else if player.activeView.kind === "collection"}
+          <div class="w-full h-full overflow-y-auto overflow-x-hidden scroll-y">
+            <CollectionView />
+          </div>
+        {:else if player.activeView.kind === "album"}
+          {@const albumView = player.activeView}
+          {#key albumView.id}
+            <div class="w-full h-full overflow-y-auto overflow-x-hidden scroll-y">
               {#await import("./components/AlbumView.svelte") then { default: AlbumView }}
                 <AlbumView
                   id={albumView.id}
@@ -87,9 +110,9 @@
                   isPlaylist={albumView.isPlaylist}
                 />
               {/await}
-            {/if}
-          </div>
-        {/key}
+            </div>
+          {/key}
+        {/if}
       </main>
     </div>
 

@@ -10,3 +10,12 @@ default-members = ["apps/gtk"]
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
+
+[profile.dev.package."*"]
+debug = false
+
+[profile.release]
+opt-level = "s"
+lto = "thin"
+codegen-units = 1
+strip = true

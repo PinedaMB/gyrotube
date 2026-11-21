@@ -423,14 +423,15 @@ class PlayerStore {
       // On Android / desktop Back button, dismiss open modals before navigating away
       if (this.dismissTopOverlay()) {
         const keepPlayer = window.innerWidth < 1024 && this.sidebarOpen;
+        const plainView = $state.snapshot(this.activeView);
         const keep: RouteState = {
-          view: this.activeView,
+          view: plainView,
           tab: this.activeTab,
           depth: this.routeDepth + 1,
           playerOpen: keepPlayer,
         };
         this.routeDepth = keep.depth;
-        window.history.pushState(keep, "", viewToHash(this.activeView, keepPlayer));
+        window.history.pushState(keep, "", viewToHash(plainView, keepPlayer));
         return;
       }
 
@@ -448,7 +449,6 @@ class PlayerStore {
       if (window.innerWidth < 1024) {
         this.sidebarOpen = Boolean(st?.playerOpen ?? parsed.playerOpen);
       }
-      document.querySelector("main")?.scrollTo({ top: 0 });
     });
   }
 
@@ -457,13 +457,14 @@ class PlayerStore {
     this.sidebarOpen = true;
     if (typeof window !== "undefined" && window.innerWidth < 1024) {
       this.routeDepth += 1;
+      const plainView = $state.snapshot(this.activeView);
       const state: RouteState = {
-        view: this.activeView,
+        view: plainView,
         tab: this.activeTab,
         depth: this.routeDepth,
         playerOpen: true,
       };
-      window.history.pushState(state, "", viewToHash(this.activeView, true));
+      window.history.pushState(state, "", viewToHash(plainView, true));
     } else {
       void this.persistSession();
     }
@@ -478,13 +479,14 @@ class PlayerStore {
         return;
       }
       this.sidebarOpen = false;
+      const plainView = $state.snapshot(this.activeView);
       const nextState: RouteState = {
-        view: this.activeView,
+        view: plainView,
         tab: this.activeTab,
         depth: this.routeDepth,
         playerOpen: false,
       };
-      window.history.replaceState(nextState, "", viewToHash(this.activeView, false));
+      window.history.replaceState(nextState, "", viewToHash(plainView, false));
       return;
     }
     this.sidebarOpen = false;
@@ -530,10 +532,10 @@ class PlayerStore {
     this.activeView = view;
     if (typeof window !== "undefined" && (changed || wasCompactPlayer)) {
       this.routeDepth += 1;
-      const state: RouteState = { view, tab, depth: this.routeDepth, playerOpen: false };
-      window.history.pushState(state, "", viewToHash(view, false));
+      const plainView = $state.snapshot(view);
+      const state: RouteState = { view: plainView, tab, depth: this.routeDepth, playerOpen: false };
+      window.history.pushState(state, "", viewToHash(plainView, false));
     }
-    document.querySelector("main")?.scrollTo({ top: 0 });
   }
 
   public goBack(): void {
