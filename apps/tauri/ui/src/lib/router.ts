@@ -4,52 +4,59 @@ export interface RouteState {
   view: ActiveView;
   tab: MainTab;
   depth: number;
+  playerOpen?: boolean;
 }
 
-export function viewToHash(view: ActiveView): string {
+export function viewToHash(view: ActiveView, playerOpen = false): string {
+  const params = new URLSearchParams();
+  let path: string;
   if (view.kind === "artist") {
-    const params = new URLSearchParams();
     if (view.artistName) params.set("name", view.artistName);
-    const qs = params.toString();
-    return `#/artist/${encodeURIComponent(view.artistId)}${qs ? `?${qs}` : ""}`;
-  }
-  if (view.kind === "album") {
-    const params = new URLSearchParams();
+    path = `#/artist/${encodeURIComponent(view.artistId)}`;
+  } else if (view.kind === "album") {
     if (view.title) params.set("title", view.title);
     if (view.isPlaylist) params.set("pl", "1");
     if (view.coverUrl) params.set("cover", view.coverUrl);
-    const qs = params.toString();
-    return `#/album/${encodeURIComponent(view.id)}${qs ? `?${qs}` : ""}`;
+    path = `#/album/${encodeURIComponent(view.id)}`;
+  } else {
+    path = `#/${view.kind}`;
   }
-  return `#/${view.kind}`;
+  if (playerOpen) params.set("player", "1");
+  const qs = params.toString();
+  return `${path}${qs ? `?${qs}` : ""}`;
 }
 
-export function hashToView(rawHash: string): { view: ActiveView; tab: MainTab } {
+export function hashToView(rawHash: string): {
+  view: ActiveView;
+  tab: MainTab;
+  playerOpen: boolean;
+} {
   const cleaned = (rawHash || "#/home").replace(/^#\/?/, "");
   const [pathPart, queryPart] = cleaned.split("?");
   const segments = pathPart.split("/").filter(Boolean);
   const params = new URLSearchParams(queryPart ?? "");
   const head = segments[0] ?? "home";
+  const playerOpen = params.get("player") === "1";
 
   if (head === "explore") {
-    return { view: { kind: "explore" }, tab: "explore" };
+    return { view: { kind: "explore" }, tab: "explore", playerOpen };
   }
   if (head === "collection") {
-    return { view: { kind: "collection" }, tab: "collection" };
+    return { view: { kind: "collection" }, tab: "collection", playerOpen };
   }
   if (head === "artist" && segments[1]) {
     const artistId = decodeURIComponent(segments[1]);
     const artistName = params.get("name") || "Artist";
-    return { view: { kind: "artist", artistId, artistName }, tab: "explore" };
+    return { view: { kind: "artist", artistId, artistName }, tab: "explore", playerOpen };
   }
   if (head === "album" && segments[1]) {
     const id = decodeURIComponent(segments[1]);
     const title = params.get("title") || "Album";
     const isPlaylist = params.get("pl") === "1";
     const coverUrl = params.get("cover");
-    return { view: { kind: "album", id, title, coverUrl, isPlaylist }, tab: "home" };
+    return { view: { kind: "album", id, title, coverUrl, isPlaylist }, tab: "home", playerOpen };
   }
-  return { view: { kind: "home" }, tab: "home" };
+  return { view: { kind: "home" }, tab: "home", playerOpen };
 }
 
 export function isSameView(a: ActiveView, b: ActiveView): boolean {

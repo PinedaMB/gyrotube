@@ -57,8 +57,7 @@
     class:active={player.sidebarOpen}
     title={t("header.toggle_sidebar")}
     onclick={() => {
-      player.sidebarOpen = !player.sidebarOpen;
-      void player.persistSession();
+      player.togglePlayerSheet();
     }}
   >
     <PanelRight size={18} />

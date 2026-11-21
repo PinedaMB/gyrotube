@@ -42,7 +42,7 @@
       <button
         type="button"
         class="group flex-1 min-w-0 flex items-center gap-3 text-left rounded-xl -my-1 py-1 pr-1 hover:bg-white/[0.04] transition-colors"
-        onclick={() => (player.sidebarOpen = true)}
+        onclick={() => player.openPlayerSheet()}
       >
         <div class="relative shrink-0">
           <CoverImage

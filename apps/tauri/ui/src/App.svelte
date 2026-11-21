@@ -100,8 +100,7 @@
         role="presentation"
         transition:fade={{ duration: 160 }}
         onclick={() => {
-          player.sidebarOpen = false;
-          void player.persistSession();
+          player.closePlayerSheet();
         }}
       ></div>
       <div

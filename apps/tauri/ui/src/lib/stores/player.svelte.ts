@@ -182,6 +182,7 @@ class PlayerStore {
       onPlayStateChange: (playing) => {
         this.isPlaying = playing;
         if (playing) this.isLoadingAudio = false;
+        this.syncAndroidForegroundService(playing);
         void this.syncSpinSnapshot();
       },
       onEnded: () => {
@@ -398,39 +399,100 @@ class PlayerStore {
     this.activeView = initial.view;
     this.activeTab = initial.tab;
     this.routeDepth = 0;
+    const isCompact = window.innerWidth < 1024;
+    if (isCompact) {
+      this.sidebarOpen = initial.playerOpen;
+    }
     const initialState: RouteState = {
       view: initial.view,
       tab: initial.tab,
       depth: 0,
+      playerOpen: isCompact ? initial.playerOpen : false,
     };
-    window.history.replaceState(initialState, "", viewToHash(initial.view));
+    window.history.replaceState(
+      initialState,
+      "",
+      viewToHash(initial.view, Boolean(initialState.playerOpen)),
+    );
 
     window.addEventListener("popstate", (event) => {
-      // On Android / desktop Back button, dismiss open overlays before navigating away
+      // On Android / desktop Back button, dismiss open modals before navigating away
       if (this.dismissTopOverlay()) {
+        const keepPlayer = window.innerWidth < 1024 && this.sidebarOpen;
         const keep: RouteState = {
           view: this.activeView,
           tab: this.activeTab,
           depth: this.routeDepth + 1,
+          playerOpen: keepPlayer,
         };
         this.routeDepth = keep.depth;
-        window.history.pushState(keep, "", viewToHash(this.activeView));
+        window.history.pushState(keep, "", viewToHash(this.activeView, keepPlayer));
         return;
       }
 
       const st = event.state as RouteState | null;
+      const parsed = hashToView(window.location.hash);
       if (st?.view) {
         this.activeView = st.view;
         this.activeTab = st.tab;
         this.routeDepth = st.depth ?? 0;
       } else {
-        const parsed = hashToView(window.location.hash);
         this.activeView = parsed.view;
         this.activeTab = parsed.tab;
         this.routeDepth = 0;
       }
+      if (window.innerWidth < 1024) {
+        this.sidebarOpen = Boolean(st?.playerOpen ?? parsed.playerOpen);
+      }
       document.querySelector("main")?.scrollTo({ top: 0 });
     });
+  }
+
+  public openPlayerSheet(): void {
+    if (this.sidebarOpen) return;
+    this.sidebarOpen = true;
+    if (typeof window !== "undefined" && window.innerWidth < 1024) {
+      this.routeDepth += 1;
+      const state: RouteState = {
+        view: this.activeView,
+        tab: this.activeTab,
+        depth: this.routeDepth,
+        playerOpen: true,
+      };
+      window.history.pushState(state, "", viewToHash(this.activeView, true));
+    } else {
+      void this.persistSession();
+    }
+  }
+
+  public closePlayerSheet(): void {
+    if (!this.sidebarOpen) return;
+    if (typeof window !== "undefined" && window.innerWidth < 1024) {
+      const st = window.history.state as RouteState | null;
+      if (st?.playerOpen && this.routeDepth > 0) {
+        window.history.back();
+        return;
+      }
+      this.sidebarOpen = false;
+      const nextState: RouteState = {
+        view: this.activeView,
+        tab: this.activeTab,
+        depth: this.routeDepth,
+        playerOpen: false,
+      };
+      window.history.replaceState(nextState, "", viewToHash(this.activeView, false));
+      return;
+    }
+    this.sidebarOpen = false;
+    void this.persistSession();
+  }
+
+  public togglePlayerSheet(): void {
+    if (this.sidebarOpen) {
+      this.closePlayerSheet();
+    } else {
+      this.openPlayerSheet();
+    }
   }
 
   private dismissTopOverlay(): boolean {
@@ -450,22 +512,22 @@ class PlayerStore {
       this.spinOpen = false;
       return true;
     }
-    if (this.sidebarOpen && typeof window !== "undefined" && window.innerWidth < 1024) {
-      this.sidebarOpen = false;
-      void this.persistSession();
-      return true;
-    }
     return false;
   }
 
   private commitRoute(view: ActiveView, tab: MainTab): void {
     const changed = !isSameView(this.activeView, view);
+    const wasCompactPlayer =
+      typeof window !== "undefined" && window.innerWidth < 1024 && this.sidebarOpen;
+    if (wasCompactPlayer) {
+      this.sidebarOpen = false;
+    }
     this.activeTab = tab;
     this.activeView = view;
-    if (typeof window !== "undefined" && changed) {
+    if (typeof window !== "undefined" && (changed || wasCompactPlayer)) {
       this.routeDepth += 1;
-      const state: RouteState = { view, tab, depth: this.routeDepth };
-      window.history.pushState(state, "", viewToHash(view));
+      const state: RouteState = { view, tab, depth: this.routeDepth, playerOpen: false };
+      window.history.pushState(state, "", viewToHash(view, false));
     }
     document.querySelector("main")?.scrollTo({ top: 0 });
   }
@@ -977,6 +1039,7 @@ class PlayerStore {
     const gen = ++this.loadGen;
     this.inFlightTransitionGen = gen;
     this.currentIndex = index;
+    this.syncAndroidForegroundService(!startPaused);
     this.isLoadingAudio = true;
     this.positionSecs = 0;
     this.durationSecs = track.duration_secs ?? 0;
@@ -1213,6 +1276,22 @@ class PlayerStore {
     } catch {
       // ignore
     }
+  }
+
+  private syncAndroidForegroundService(playing: boolean): void {
+    if (typeof window === "undefined") return;
+    const bridge = (
+      window as unknown as {
+        __GYROTUBE_ANDROID__?: {
+          setPlaybackActive: (playing: boolean, title: string, artist: string) => void;
+        };
+      }
+    ).__GYROTUBE_ANDROID__;
+    if (!bridge) return;
+    // Keep the foreground service & WebView alive during track-to-track transitions
+    const keepAlive = playing || this.inFlightTransitionGen !== null;
+    const cur = this.currentTrack;
+    bridge.setPlaybackActive(keepAlive, cur?.title ?? "GyroTube", cur?.artist ?? "");
   }
 
   public async syncSpinSnapshot(): Promise<void> {

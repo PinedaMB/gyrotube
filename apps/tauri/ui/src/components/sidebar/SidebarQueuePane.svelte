@@ -139,6 +139,7 @@
             {#snippet leading()}
               <span
                 role="presentation"
+                data-drag-handle
                 class="inline-flex items-center justify-center p-1.5 -ml-1.5 rounded-md cursor-grab active:cursor-grabbing text-[var(--text-muted)] opacity-55 md:opacity-35 group-hover:opacity-90 touch-none select-none shrink-0"
                 style="touch-action: none;"
                 onpointerdown={(e) => startPointerDrag(e, i)}

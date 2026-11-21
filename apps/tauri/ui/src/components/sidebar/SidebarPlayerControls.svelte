@@ -34,6 +34,99 @@
   let seekDraft = $state(0);
   let resolvingArtist = $state(false);
 
+  // Horizontal swipe (next/prev) & double-tap (±10s seek) gestures on cover stage
+  let swipeX = $state(0);
+  let swipeActive = false;
+  let swipeStartX = 0;
+  let swipeStartY = 0;
+  let swipeLockedHorizontal = false;
+
+  let lastTapAt = 0;
+  let lastTapSide: "left" | "right" | null = null;
+  let seekFeedback = $state<{ side: "left" | "right"; delta: number } | null>(null);
+  let seekFeedbackTimer: number | null = null;
+
+  function triggerSeekFeedback(side: "left" | "right") {
+    const step = side === "right" ? 10 : -10;
+    const target = Math.max(
+      0,
+      Math.min(player.durationSecs || 0, player.getExactPositionSecs() + step),
+    );
+    player.seek(target);
+    const prevDelta = seekFeedback && seekFeedback.side === side ? seekFeedback.delta : 0;
+    seekFeedback = { side, delta: prevDelta + step };
+    if (seekFeedbackTimer !== null) window.clearTimeout(seekFeedbackTimer);
+    seekFeedbackTimer = window.setTimeout(() => {
+      seekFeedback = null;
+      seekFeedbackTimer = null;
+    }, 650);
+  }
+
+  function handleCoverTouchStart(e: TouchEvent) {
+    if (e.touches.length !== 1 || !player.currentTrack) return;
+    const t0 = e.touches[0];
+    swipeActive = true;
+    swipeLockedHorizontal = false;
+    swipeStartX = t0.clientX;
+    swipeStartY = t0.clientY;
+    swipeX = 0;
+  }
+
+  function handleCoverTouchMove(e: TouchEvent) {
+    if (!swipeActive || e.touches.length !== 1) return;
+    const t0 = e.touches[0];
+    const dx = t0.clientX - swipeStartX;
+    const dy = t0.clientY - swipeStartY;
+    if (!swipeLockedHorizontal) {
+      if (Math.abs(dx) < 12 && Math.abs(dy) < 12) return;
+      if (Math.abs(dx) > Math.abs(dy) * 1.25) {
+        swipeLockedHorizontal = true;
+      } else {
+        // Vertical gesture — let SidebarPlayer handle swipe-down to close
+        swipeActive = false;
+        swipeX = 0;
+        return;
+      }
+    }
+    e.stopPropagation();
+    swipeX = Math.max(-84, Math.min(84, dx * 0.72));
+  }
+
+  function handleCoverTouchEnd(e: TouchEvent) {
+    if (!swipeActive) return;
+    const dx = swipeX;
+    const wasHorizontal = swipeLockedHorizontal;
+    swipeActive = false;
+    swipeLockedHorizontal = false;
+    swipeX = 0;
+
+    if (wasHorizontal) {
+      e.stopPropagation();
+      if (dx < -44) {
+        void player.next();
+      } else if (dx > 44) {
+        void player.prev();
+      }
+      return;
+    }
+
+    // Check for double-tap on left or right half of the cover stage
+    const touch = e.changedTouches[0];
+    const el = e.currentTarget as HTMLElement | null;
+    if (!touch || !el) return;
+    const rect = el.getBoundingClientRect();
+    const side: "left" | "right" = touch.clientX < rect.left + rect.width / 2 ? "left" : "right";
+    const now = performance.now();
+    if (now - lastTapAt < 320 && lastTapSide === side) {
+      lastTapAt = 0;
+      lastTapSide = null;
+      triggerSeekFeedback(side);
+    } else {
+      lastTapAt = now;
+      lastTapSide = side;
+    }
+  }
+
   let modeOptions = $derived<SegmentedOption<MediaMode>[]>([
     {
       value: "song",
@@ -70,12 +163,28 @@
   {/if}
 
   <!-- Centered large cover art or synced video -->
-  <div class="flex-1 flex items-center justify-center w-full py-1">
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div
+    class="relative flex-1 flex items-center justify-center w-full py-1"
+    ontouchstart={handleCoverTouchStart}
+    ontouchmove={handleCoverTouchMove}
+    ontouchend={handleCoverTouchEnd}
+    ontouchcancel={() => {
+      swipeActive = false;
+      swipeLockedHorizontal = false;
+      swipeX = 0;
+    }}
+  >
     {#if player.videoMode && player.currentTrack}
       <SyncedVideoPlayer class="w-full aspect-video rounded-2xl" />
     {:else}
       {#key player.currentTrack?.id ?? "none"}
-        <div in:scale={{ start: 0.94, duration: 260, easing: cubicOut }}>
+        <div
+          in:scale={{ start: 0.94, duration: 260, easing: cubicOut }}
+          style={swipeX !== 0
+            ? `transform: translateX(${swipeX}px); opacity: ${Math.max(0.55, 1 - Math.abs(swipeX) / 180)}; transition: none;`
+            : "transition: transform 180ms cubic-bezier(0.22, 1, 0.36, 1), opacity 180ms ease;"}
+        >
           <CoverImage
             class="cover-large !w-[264px] !h-[264px] !rounded-2xl border border-white/10 shadow-[0_22px_50px_rgba(0,0,0,0.48)] transition-transform duration-300 hover:scale-[1.015]"
             src={player.currentTrack?.cover_large_url}
@@ -85,6 +194,17 @@
           />
         </div>
       {/key}
+    {/if}
+
+    {#if seekFeedback}
+      <div
+        transition:fade={{ duration: 120 }}
+        class="pointer-events-none absolute top-1/2 -translate-y-1/2 px-3.5 py-2 rounded-full bg-black/75 text-white text-[13px] font-extrabold numeric shadow-lg border border-white/15 {seekFeedback.side === 'left'
+          ? 'left-4'
+          : 'right-4'}"
+      >
+        {seekFeedback.delta > 0 ? `+${seekFeedback.delta}s` : `${seekFeedback.delta}s`}
+      </div>
     {/if}
   </div>
 

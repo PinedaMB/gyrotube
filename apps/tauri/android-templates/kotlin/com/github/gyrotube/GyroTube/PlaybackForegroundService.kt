@@ -9,12 +9,14 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
+import android.os.PowerManager
 
 /**
  * Foreground media playback service keeping GyroTube's local AudioStreamer
  * and WebView audio active while the screen is locked or app is backgrounded.
  */
 class PlaybackForegroundService : Service() {
+    private var wakeLock: PowerManager.WakeLock? = null
 
     companion object {
         const val CHANNEL_ID = "gyrotube_playback"
@@ -26,6 +28,10 @@ class PlaybackForegroundService : Service() {
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
+        val pm = getSystemService(PowerManager::class.java)
+        wakeLock = pm?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "GyroTube::PlaybackWakeLock")?.apply {
+            setReferenceCounted(false)
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -42,7 +48,18 @@ class PlaybackForegroundService : Service() {
         } else {
             startForeground(NOTIFICATION_ID, notification)
         }
+        if (wakeLock?.isHeld == false) {
+            wakeLock?.acquire(4 * 60 * 60 * 1000L)
+        }
         return START_STICKY
+    }
+
+    override fun onDestroy() {
+        if (wakeLock?.isHeld == true) {
+            wakeLock?.release()
+        }
+        wakeLock = null
+        super.onDestroy()
     }
 
     override fun onBind(intent: Intent?): IBinder? = null

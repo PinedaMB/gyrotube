@@ -11,6 +11,60 @@
   let sleepRemainingSecs = $state<number | null>(null);
   let sleepInterval: number | undefined;
 
+  // Swipe-down to dismiss player sheet on mobile/compact viewports
+  let scrollPaneEl = $state<HTMLDivElement | null>(null);
+  let swipeDownY = $state(0);
+  let swipeTracking = false;
+  let swipeStartX = 0;
+  let swipeStartY = 0;
+  let swipeStartAt = 0;
+
+  function handleTouchStart(e: TouchEvent) {
+    if (window.innerWidth >= 1024 || e.touches.length !== 1) return;
+    const target = e.target as HTMLElement | null;
+    if (target?.closest("input[type='range'], [data-drag-handle]")) return;
+    // Allow pull-down from top bar anytime, or from the content pane when scrolled to top
+    const inHeader = Boolean(target?.closest("[data-player-header]"));
+    const atTop = !scrollPaneEl || scrollPaneEl.scrollTop <= 2;
+    if (!inHeader && !atTop) return;
+    const touch = e.touches[0];
+    swipeTracking = true;
+    swipeStartX = touch.clientX;
+    swipeStartY = touch.clientY;
+    swipeStartAt = performance.now();
+    swipeDownY = 0;
+  }
+
+  function handleTouchMove(e: TouchEvent) {
+    if (!swipeTracking || e.touches.length !== 1) return;
+    const touch = e.touches[0];
+    const dx = touch.clientX - swipeStartX;
+    const dy = touch.clientY - swipeStartY;
+    if (swipeDownY === 0) {
+      if (dy < 8) {
+        if (Math.abs(dx) > 12 || dy < -8) swipeTracking = false;
+        return;
+      }
+      if (Math.abs(dx) * 1.25 > dy) {
+        swipeTracking = false;
+        return;
+      }
+    }
+    swipeDownY = Math.max(0, Math.min(260, dy));
+  }
+
+  function handleTouchEnd() {
+    if (!swipeTracking) return;
+    const dy = swipeDownY;
+    const elapsed = Math.max(1, performance.now() - swipeStartAt);
+    const velocity = dy / elapsed;
+    swipeTracking = false;
+    swipeDownY = 0;
+    if (dy > 90 || (dy > 48 && velocity > 0.45)) {
+      player.closePlayerSheet();
+    }
+  }
+
   function setSleepTimer(minutes: number | null) {
     window.clearInterval(sleepInterval);
     sleepInterval = undefined;
@@ -36,17 +90,30 @@
 
 <aside
   class="w-full md:w-[388px] lg:w-[360px] xl:w-[388px] shrink-0 h-full flex flex-col border-l max-md:border-l-0 border-[var(--border)] bg-[var(--bg-sidebar)] overflow-hidden relative select-none"
-  style="background-image: linear-gradient(180deg, rgba(var(--ambient-rgb), 0.22) 0%, rgba(var(--ambient-rgb), 0.08) 52%, transparent 100%);"
+  style="background-image: linear-gradient(180deg, rgba(var(--ambient-rgb), 0.22) 0%, rgba(var(--ambient-rgb), 0.08) 52%, transparent 100%);{swipeDownY > 0
+    ? ` transform: translateY(${swipeDownY}px); transition: none;`
+    : ' transition: transform 180ms cubic-bezier(0.22, 1, 0.36, 1);'}"
+  ontouchstart={handleTouchStart}
+  ontouchmove={handleTouchMove}
+  ontouchend={handleTouchEnd}
+  ontouchcancel={handleTouchEnd}
 >
+  <!-- Mobile pull-down handle -->
+  <div
+    data-player-header
+    class="lg:hidden shrink-0 flex justify-center pt-[max(0.6rem,env(safe-area-inset-top))] pb-0.5"
+    aria-hidden="true"
+  >
+    <div class="w-10 h-1 rounded-full bg-[var(--border-strong)]"></div>
+  </div>
+
   <!-- Top context bar -->
-  <div class="shrink-0 flex items-center justify-between gap-3 px-5 pt-4 pb-2">
+  <div data-player-header class="shrink-0 flex items-center justify-between gap-3 px-5 pt-2 lg:pt-4 pb-2">
     <button
+      type="button"
       class="icon-btn shrink-0 text-[var(--text-muted)] hover:text-[var(--text)]"
       title={t("player.collapse")}
-      onclick={() => {
-        player.sidebarOpen = false;
-        void player.persistSession();
-      }}
+      onclick={() => player.closePlayerSheet()}
     >
       <ChevronDown size={20} class="md:hidden" />
       <ChevronRight size={19} class="hidden md:block" />
@@ -61,6 +128,7 @@
 
   <!-- Active pane -->
   <div
+    bind:this={scrollPaneEl}
     class="flex-1 min-h-0 px-7 pb-4 flex flex-col {player.sidebarTab === 'lyrics'
       ? 'overflow-hidden'
       : 'overflow-y-auto scroll-y'}"
