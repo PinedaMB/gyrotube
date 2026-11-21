@@ -805,6 +805,7 @@ impl Backend {
         self.resolve_audio_stream(&track.id).await
     }
 
+    #[cfg(not(target_os = "android"))]
     async fn extract_fast_ios_stream(
         &self,
         video_id: &str,
@@ -848,35 +849,139 @@ impl Backend {
     }
 
     #[cfg(target_os = "android")]
-    async fn extract_visionos_stream(
+    async fn extract_innertube_direct_stream(
         &self,
         video_id: &str,
+        profile: &str,
+        visitor_data: Option<&str>,
     ) -> Result<(StreamInfo, &'static str, Option<u64>), String> {
-        const USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 15_7_3) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15";
-        let response: serde_json::Value = self.http
+        let (user_agent, client_name_hdr, client_version_hdr, mut payload) = match profile {
+            "ANDROID_VR" => (
+                "com.google.android.apps.youtube.vr.oculus/1.65.10 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip",
+                "28",
+                "1.65.10",
+                serde_json::json!({
+                    "context": { "client": {
+                        "clientName": "ANDROID_VR",
+                        "clientVersion": "1.65.10",
+                        "deviceMake": "Oculus",
+                        "deviceModel": "Quest 3",
+                        "androidSdkVersion": 32,
+                        "osName": "Android",
+                        "osVersion": "12L",
+                        "hl": "en",
+                        "gl": "US"
+                    } },
+                    "videoId": video_id,
+                    "contentCheckOk": true,
+                    "racyCheckOk": true,
+                }),
+            ),
+            "ANDROID_VR_LEGACY" => (
+                "com.google.android.apps.youtube.vr.oculus/1.43.32 (Linux; U; Android 12; Quest 2) gzip",
+                "28",
+                "1.43.32",
+                serde_json::json!({
+                    "context": { "client": {
+                        "clientName": "ANDROID_VR",
+                        "clientVersion": "1.43.32",
+                        "deviceMake": "Oculus",
+                        "deviceModel": "Quest 2",
+                        "androidSdkVersion": 32,
+                        "osName": "Android",
+                        "osVersion": "12",
+                        "hl": "en",
+                        "gl": "US"
+                    } },
+                    "videoId": video_id,
+                    "contentCheckOk": true,
+                    "racyCheckOk": true,
+                }),
+            ),
+            "TV_EMBEDDED" => (
+                "Mozilla/5.0 (ChromiumStylePlatform) Cobalt/Version",
+                "85",
+                "2.0",
+                serde_json::json!({
+                    "context": {
+                        "client": {
+                            "clientName": "TVHTML5_SIMPLY_EMBEDDED_PLAYER",
+                            "clientVersion": "2.0",
+                            "hl": "en",
+                            "gl": "US"
+                        },
+                        "thirdParty": {
+                            "embedUrl": "https://www.youtube.com"
+                        }
+                    },
+                    "videoId": video_id,
+                    "contentCheckOk": true,
+                    "racyCheckOk": true,
+                }),
+            ),
+            _ => (
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 15_7_3) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15",
+                "101",
+                "1.02",
+                serde_json::json!({
+                    "context": { "client": {
+                        "clientName": "VISIONOS", "clientVersion": "1.02",
+                        "deviceMake": "Apple", "deviceModel": "RealityDevice17,1",
+                        "osName": "visionOS", "osVersion": "26.5.23O471"
+                    } },
+                    "videoId": video_id,
+                }),
+            ),
+        };
+
+        if let Some(vd) = visitor_data
+            && let Some(client_obj) = payload["context"]["client"].as_object_mut()
+        {
+            client_obj.insert("visitorData".to_string(), serde_json::Value::String(vd.to_string()));
+        }
+
+        let mut req = self.http
             .post("https://www.youtube.com/youtubei/v1/player?prettyPrint=false")
-            .timeout(Duration::from_secs(5))
-            .header("User-Agent", USER_AGENT)
-            .header("X-YouTube-Client-Name", "101")
-            .header("X-YouTube-Client-Version", "1.02")
-            .json(&serde_json::json!({
-                "context": { "client": {
-                    "clientName": "VISIONOS", "clientVersion": "1.02",
-                    "deviceMake": "Apple", "deviceModel": "RealityDevice17,1",
-                    "osName": "visionOS", "osVersion": "26.5.23O471"
-                } },
-                "videoId": video_id,
-            }))
+            .timeout(Duration::from_secs(6))
+            .header("User-Agent", user_agent)
+            .header("X-YouTube-Client-Name", client_name_hdr)
+            .header("X-YouTube-Client-Version", client_version_hdr);
+        if let Some(vd) = visitor_data {
+            req = req.header("X-Goog-Visitor-Id", vd);
+        }
+
+        let response: serde_json::Value = req
+            .json(&payload)
             .send().await.and_then(reqwest::Response::error_for_status)
             .map_err(|err| err.without_url().to_string())?
             .json().await.map_err(|err| err.without_url().to_string())?;
-        let formats = response["streamingData"]["adaptiveFormats"].as_array().ok_or_else(|| {
+
+        let adaptive = response["streamingData"]["adaptiveFormats"].as_array();
+        let muxed = response["streamingData"]["formats"].as_array();
+        if adaptive.is_none() && muxed.is_none() {
             let status = response["playabilityStatus"]["status"].as_str()
                 .filter(|status| status.len() <= 40 && status.bytes().all(|b| b.is_ascii_uppercase() || b == b'_'));
-            format!("El reproductor no ofreció audio ({})", status.unwrap_or("SIN_FORMATOS"))
-        })?;
-        for (itag, extension) in [(251, "webm"), (140, "m4a")] {
-            let Some(format) = formats.iter().find(|f| f["itag"].as_u64() == Some(itag) && f["url"].is_string()) else {
+            return Err(format!("El reproductor no ofreció audio ({})", status.unwrap_or("SIN_FORMATOS")));
+        }
+
+        let all_formats: Vec<&serde_json::Value> = adaptive
+            .into_iter()
+            .flatten()
+            .chain(muxed.into_iter().flatten())
+            .collect();
+
+        for (itag, extension) in [
+            (251u64, "webm"),
+            (140u64, "m4a"),
+            (250u64, "webm"),
+            (249u64, "webm"),
+            (139u64, "m4a"),
+            (18u64, "mp4"),
+        ] {
+            let Some(format) = all_formats
+                .iter()
+                .find(|f| f["itag"].as_u64() == Some(itag) && f["url"].is_string())
+            else {
                 continue;
             };
             let Some(url) = format["url"].as_str().and_then(|url| reqwest::Url::parse(url).ok()) else {
@@ -890,12 +995,58 @@ impl Backend {
             return Ok((StreamInfo {
                 url: url.into(),
                 quality_label: format!("{kbps}kbps ({})", extension.to_uppercase()),
-                user_agent: Some(USER_AGENT.into()),
+                user_agent: Some(user_agent.into()),
                 headers: HashMap::new(),
                 local_audio: None,
             }, extension, size));
         }
         Err("El reproductor no ofreció una URL directa de audio compatible".into())
+    }
+
+    #[cfg(target_os = "android")]
+    async fn extract_rustypipe_client_stream(
+        &self,
+        video_id: &str,
+        client: rustypipe::client::ClientType,
+    ) -> Result<(StreamInfo, &'static str, Option<u64>), String> {
+        use rustypipe::model::AudioFormat;
+        let player = tokio::time::timeout(
+            Duration::from_secs(6),
+            self.rp.query().player_from_client(video_id, client),
+        )
+        .await
+        .map_err(|_| format!("Timeout consultando cliente {client:?}"))?
+        .map_err(|e| format!("Error en cliente {client:?}: {e}"))?;
+
+        let stream = player
+            .audio_streams
+            .iter()
+            .find(|s| s.itag == 251)
+            .or_else(|| player.audio_streams.iter().find(|s| s.itag == 140))
+            .or_else(|| player.audio_streams.iter().max_by_key(|s| s.bitrate))
+            .ok_or_else(|| format!("Sin streams de audio en {client:?}"))?;
+
+        let ext = match stream.format {
+            AudioFormat::M4a => "m4a",
+            _ => "webm",
+        };
+        let kbps = (stream.bitrate / 1000).max(96);
+        let quality_label = format!("{kbps}kbps ({})", ext.to_uppercase());
+        let ua = self.rp.query().user_agent(client).into_owned();
+        let mut headers = HashMap::new();
+        headers.insert("User-Agent".to_string(), ua.clone());
+        let size = (stream.size > 0).then_some(stream.size);
+        Ok((
+            StreamInfo {
+                url: stream.url.clone(),
+                quality_label,
+                user_agent: Some(ua),
+                headers,
+                local_audio: None,
+            },
+            ext,
+            size,
+        ))
     }
 
     async fn resolve_audio_stream(&self, video_id: &str) -> Result<StreamInfo, String> {
@@ -915,11 +1066,20 @@ impl Backend {
 
         #[cfg(target_os = "android")]
         {
-            for source in ["visionOS", "iOS"] {
-                let extracted = if source == "visionOS" {
-                    self.extract_visionos_stream(video_id).await
-                } else {
-                    self.extract_fast_ios_stream(video_id).await
+            use rustypipe::client::ClientType;
+            let visitor_data = self.rp.query().get_visitor_data(false).await.ok();
+            let attempts = ["ANDROID_VR", "ANDROID_VR_LEGACY", "TV_EMBEDDED", "VISIONOS", "iOS"];
+            for source in attempts {
+                let extracted = match source {
+                    "iOS" => self.extract_rustypipe_client_stream(video_id, ClientType::Ios).await,
+                    profile => {
+                        self.extract_innertube_direct_stream(
+                            video_id,
+                            profile,
+                            visitor_data.as_deref(),
+                        )
+                        .await
+                    }
                 };
                 let (remote, ext, size_hint) = match extracted {
                     Ok(stream) => stream,
@@ -930,6 +1090,7 @@ impl Backend {
                 };
                 match streamer.start_chunked_http_stream(video_id, remote, ext, size_hint, &streams_dir).await {
                     Ok(local_stream) => {
+                        eprintln!("[audio-android] id={video_id} fuente={source} OK -> {}", local_stream.url);
                         if let Ok(mut cache) = self.stream_cache.write() {
                             cache.retain(|_, (ts, s)| stream_url_is_fresh(*ts, s));
                             cache.insert(video_id.to_owned(), (Instant::now(), local_stream.clone()));

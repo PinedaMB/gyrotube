@@ -2,6 +2,8 @@ package com.github.gyrotube.GyroTube
 
 import android.os.Bundle
 import android.view.View
+import android.webkit.WebSettings
+import android.webkit.WebView
 import androidx.activity.enableEdgeToEdge
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
@@ -22,5 +24,13 @@ class MainActivity : TauriActivity() {
       view.setPadding(bars.left, bars.top, bars.right, maxOf(bars.bottom, ime.bottom))
       WindowInsetsCompat.CONSUMED
     }
+  }
+
+  override fun onWebViewCreate(webView: WebView) {
+    super.onWebViewCreate(webView)
+    // Allow async HTML5 <audio>.play() after Tauri IPC resolves the stream URL,
+    // and allow loading http://127.0.0.1:<port>/stream/... from https://tauri.localhost.
+    webView.settings.mediaPlaybackRequiresUserGesture = false
+    webView.settings.mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
   }
 }
