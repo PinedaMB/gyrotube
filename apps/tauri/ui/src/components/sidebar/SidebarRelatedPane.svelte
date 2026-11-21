@@ -33,10 +33,10 @@
     <div class="space-y-3 animate-pulse pt-2" aria-busy="true">
       {#each [0, 1, 2, 3, 4] as _}
         <div class="flex items-center gap-3">
-          <div class="w-10 h-10 rounded-[8px] bg-white/[0.08] shrink-0"></div>
+          <div class="w-10 h-10 rounded-[8px] bg-[var(--skeleton)] shrink-0"></div>
           <div class="flex-1 space-y-1.5">
-            <div class="h-3.5 w-36 rounded bg-white/[0.08]"></div>
-            <div class="h-3 w-24 rounded bg-white/[0.05]"></div>
+            <div class="h-3.5 w-36 rounded bg-[var(--skeleton)]"></div>
+            <div class="h-3 w-24 rounded bg-[var(--skeleton-soft)]"></div>
           </div>
         </div>
       {/each}

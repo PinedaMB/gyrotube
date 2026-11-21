@@ -172,7 +172,7 @@
           step="0.01"
           value={player.volume}
           aria-label={t("player.volume")}
-          style="background: linear-gradient(to right, var(--accent-bright) {volumePct}%, rgba(255,255,255,0.16) {volumePct}%);"
+          style="background: linear-gradient(to right, var(--accent-bright) {volumePct}%, var(--control-track) {volumePct}%);"
           oninput={(e) => player.setVolume(Number((e.currentTarget as HTMLInputElement).value))}
         />
       </div>

@@ -78,7 +78,7 @@
         <div class="flex items-center gap-1.5">
           <button
             type="button"
-            class="w-8 h-8 rounded-full inline-flex items-center justify-center bg-white/[0.06] border border-white/10 hover:bg-white/[0.14] hover:border-white/20 disabled:opacity-25 disabled:pointer-events-none transition-colors active:scale-95"
+            class="w-8 h-8 rounded-full inline-flex items-center justify-center bg-[var(--surface)] border border-[var(--border)] hover:bg-[var(--surface-hover)] hover:border-[var(--border-strong)] disabled:opacity-25 disabled:pointer-events-none transition-colors active:scale-95"
             disabled={!canPrev}
             title={t("carousel.prev")}
             aria-label={t("carousel.prev")}
@@ -88,7 +88,7 @@
           </button>
           <button
             type="button"
-            class="w-8 h-8 rounded-full inline-flex items-center justify-center bg-white/[0.06] border border-white/10 hover:bg-white/[0.14] hover:border-white/20 disabled:opacity-25 disabled:pointer-events-none transition-colors active:scale-95"
+            class="w-8 h-8 rounded-full inline-flex items-center justify-center bg-[var(--surface)] border border-[var(--border)] hover:bg-[var(--surface-hover)] hover:border-[var(--border-strong)] disabled:opacity-25 disabled:pointer-events-none transition-colors active:scale-95"
             disabled={!canNext}
             title={t("carousel.next")}
             aria-label={t("carousel.next")}

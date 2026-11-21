@@ -108,7 +108,7 @@
         {#each releaseAlbums as album (album.id)}
           <button
             type="button"
-            class="group p-2 rounded-2xl hover:bg-white/[0.06] text-left flex flex-col gap-2 transition-colors"
+            class="group p-2 rounded-2xl hover:bg-[var(--surface-hover)] text-left flex flex-col gap-2 transition-colors"
             onclick={() => player.openAlbum(album.id, album.title, album.cover_url)}
           >
             <div class="relative w-full rounded-xl overflow-hidden shadow-[0_8px_22px_rgba(0,0,0,0.35)] border border-white/[0.07]">
@@ -143,7 +143,7 @@
         {#each topArtists as artist (artist.id)}
           <button
             type="button"
-            class="group p-2.5 rounded-2xl hover:bg-white/[0.06] flex flex-col items-center text-center gap-2 transition-colors"
+            class="group p-2.5 rounded-2xl hover:bg-[var(--surface-hover)] flex flex-col items-center text-center gap-2 transition-colors"
             onclick={() => player.openArtist(artist.id, artist.name)}
           >
             <div class="w-full aspect-square rounded-full overflow-hidden shadow-[0_8px_22px_rgba(0,0,0,0.35)] border border-white/[0.08]">

@@ -5,6 +5,7 @@
   import { player } from "../lib/stores/player.svelte";
   import type { AppLanguage, ThemeMode } from "../lib/types";
   import ModalSheet from "./ModalSheet.svelte";
+  import SegmentedControl, { type SegmentedOption } from "./SegmentedControl.svelte";
 
   let cacheBytes = $state(0);
 
@@ -25,12 +26,17 @@
     player.showToast("Audio cache cleared");
   }
 
-  const THEMES: ThemeMode[] = ["system", "dark", "light"];
-  const LANGUAGES: { id: AppLanguage; label: string }[] = [
-    { id: "Auto", label: "Auto" },
-    { id: "Es", label: "Español" },
-    { id: "En", label: "English" },
-  ];
+  let themeOptions = $derived<SegmentedOption<ThemeMode>[]>([
+    { value: "system", label: t("settings.theme_system"), icon: Monitor },
+    { value: "dark", label: t("settings.theme_dark"), icon: Moon },
+    { value: "light", label: t("settings.theme_light"), icon: Sun },
+  ]);
+
+  let languageOptions = $derived<SegmentedOption<AppLanguage>[]>([
+    { value: "Auto", label: t("settings.lang_auto") },
+    { value: "Es", label: "Español" },
+    { value: "En", label: "English" },
+  ]);
 </script>
 
 <ModalSheet
@@ -58,28 +64,12 @@
                 <div class="text-[14px] font-semibold">{t("settings.theme")}</div>
                 <div class="text-[12px] text-[var(--text-muted)]">{t("settings.theme_sub")}</div>
               </div>
-              <div class="inline-flex p-1 rounded-xl bg-black/20 border border-[var(--border)] gap-1 shrink-0">
-                {#each THEMES as mode}
-                  <button
-                    type="button"
-                    class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[12px] font-semibold transition-all {player.themeMode === mode
-                      ? 'bg-[var(--accent)] text-white shadow-sm'
-                      : 'text-[var(--text-muted)] hover:text-[var(--text)]'}"
-                    onclick={() => player.setThemeMode(mode)}
-                  >
-                    {#if mode === "system"}
-                      <Monitor size={13} />
-                      {t("settings.theme_system")}
-                    {:else if mode === "dark"}
-                      <Moon size={13} />
-                      {t("settings.theme_dark")}
-                    {:else}
-                      <Sun size={13} />
-                      {t("settings.theme_light")}
-                    {/if}
-                  </button>
-                {/each}
-              </div>
+              <SegmentedControl
+                options={themeOptions}
+                value={player.themeMode}
+                ariaLabel={t("settings.theme")}
+                onchange={(mode) => player.setThemeMode(mode)}
+              />
             </div>
 
             <div class="p-3.5 flex items-center justify-between gap-3">
@@ -90,19 +80,12 @@
                 </div>
                 <div class="text-[12px] text-[var(--text-muted)]">{t("settings.language_sub")}</div>
               </div>
-              <div class="inline-flex p-1 rounded-xl bg-black/20 border border-[var(--border)] gap-1 shrink-0">
-                {#each LANGUAGES as lang}
-                  <button
-                    type="button"
-                    class="px-2.5 py-1.5 rounded-lg text-[12px] font-semibold transition-all {player.language === lang.id
-                      ? 'bg-[var(--accent)] text-white shadow-sm'
-                      : 'text-[var(--text-muted)] hover:text-[var(--text)]'}"
-                    onclick={() => player.setLanguage(lang.id)}
-                  >
-                    {lang.id === "Auto" ? t("settings.lang_auto") : lang.label}
-                  </button>
-                {/each}
-              </div>
+              <SegmentedControl
+                options={languageOptions}
+                value={player.language}
+                ariaLabel={t("settings.language")}
+                onchange={(lang) => player.setLanguage(lang)}
+              />
             </div>
           </div>
         </section>
@@ -130,7 +113,7 @@
                 step="1"
                 value={player.crossfadeSecs}
                 aria-label={t("settings.crossfade")}
-                style="background: linear-gradient(to right, var(--accent-bright) {crossfadePct}%, rgba(255,255,255,0.16) {crossfadePct}%);"
+                style="background: linear-gradient(to right, var(--accent-bright) {crossfadePct}%, var(--control-track) {crossfadePct}%);"
                 oninput={(e) => player.setCrossfadeSecs(Number((e.currentTarget as HTMLInputElement).value))}
               />
             </div>
@@ -147,7 +130,7 @@
                 aria-label={t("settings.autoplay")}
                 class="w-11 h-6 rounded-full p-0.5 transition-colors shrink-0 {player.autoplayRelated
                   ? 'bg-[var(--accent)]'
-                  : 'bg-white/15'}"
+                  : 'bg-[var(--control-track)]'}"
                 onclick={() => player.setAutoplay(!player.autoplayRelated)}
               >
                 <span
@@ -170,7 +153,7 @@
                 aria-label={t("settings.background")}
                 class="w-11 h-6 rounded-full p-0.5 transition-colors shrink-0 {player.backgroundPlayback
                   ? 'bg-[var(--accent)]'
-                  : 'bg-white/15'}"
+                  : 'bg-[var(--control-track)]'}"
                 onclick={() => player.setBackgroundPlayback(!player.backgroundPlayback)}
               >
                 <span
@@ -198,7 +181,7 @@
                 <div class="text-[12px] text-[var(--text-muted)] numeric">
                   {t("settings.cache_sub", { mb: cacheMb })}
                 </div>
-                <div class="h-1.5 w-full max-w-[240px] rounded-full bg-white/10 overflow-hidden">
+                <div class="h-1.5 w-full max-w-[240px] rounded-full bg-[var(--control-track)] overflow-hidden">
                   <div
                     class="h-full rounded-full bg-[var(--accent-bright)] transition-[width] duration-300"
                     style="width: {cachePct}%"

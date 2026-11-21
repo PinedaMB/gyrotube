@@ -49,7 +49,7 @@
 
 <div in:fade={{ duration: 150 }} class="flex flex-col gap-2 pt-1 flex-1 min-h-0">
   <!-- Compact track header -->
-  <div class="flex items-center justify-between gap-2.5 pb-3 border-b border-white/[0.08]">
+  <div class="flex items-center justify-between gap-2.5 pb-3 border-b border-[var(--border)]">
     <div class="flex items-center gap-2.5 min-w-0">
       {#if player.currentTrack}
         <CoverImage
@@ -85,7 +85,7 @@
   {#if player.lyricsLoading && player.currentTrack}
     <div class="flex-1 flex flex-col gap-3.5 pt-8 px-1 animate-pulse" aria-busy="true">
       {#each [72, 58, 84, 66, 48, 78, 62, 52] as w}
-        <div class="h-4 rounded-md bg-white/[0.08]" style="width: {w}%;"></div>
+        <div class="h-4 rounded-md bg-[var(--skeleton)]" style="width: {w}%;"></div>
       {/each}
     </div>
   {:else if player.lyrics.type === "Synced"}
@@ -173,6 +173,6 @@
 
   .sb-lyric-line.active-line {
     transform: scale(1.045);
-    color: #ffffff;
+    color: var(--text);
   }
 </style>

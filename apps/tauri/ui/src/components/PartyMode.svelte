@@ -1,6 +1,5 @@
 <script lang="ts">
   import {
-    Film,
     Heart,
     LocateFixed,
     Music,
@@ -92,7 +91,7 @@
     </div>
 
     <button
-      class="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full text-[13px] font-semibold bg-white/8 hover:bg-white/14 border border-white/10 transition-colors"
+      class="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full text-[13px] font-semibold bg-[var(--surface)] hover:bg-[var(--surface-hover)] border border-[var(--border)] transition-colors"
       onclick={() => (player.partyMode = false)}
     >
       <X size={15} />
@@ -104,39 +103,6 @@
   <div class="flex-1 min-h-0 overflow-y-auto lg:overflow-hidden grid grid-cols-1 lg:grid-cols-[440px_minmax(0,1fr)] gap-8 lg:gap-10 px-5 sm:px-8 lg:px-10 pb-8 max-w-[1440px] w-full mx-auto">
     <!-- Left column: Art / Synced Video + Info + Controls + Up Next -->
     <div class="flex flex-col items-center justify-center gap-5">
-      {#if player.currentTrack}
-        {@const songDisabled = player.videoMode && !player.canSwitchVideoMode}
-        {@const videoDisabled = !player.videoMode && !player.canSwitchVideoMode}
-        <div class="inline-flex items-center p-0.5 rounded-full bg-white/[0.06] border border-white/10">
-          <button
-            type="button"
-            disabled={songDisabled}
-            class="inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full text-[12px] font-bold transition-colors {!player.videoMode
-              ? 'bg-[var(--accent)] text-white shadow-sm'
-              : songDisabled
-                ? 'text-[var(--text-muted)] opacity-40 cursor-not-allowed'
-                : 'text-[var(--text-muted)] hover:text-white'}"
-            onclick={() => player.setVideoMode(false)}
-          >
-            <Music size={13} />
-            <span>{t("player.mode_song")}</span>
-          </button>
-          <button
-            type="button"
-            disabled={videoDisabled}
-            class="inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full text-[12px] font-bold transition-colors {player.videoMode
-              ? 'bg-[var(--accent)] text-white shadow-sm'
-              : videoDisabled
-                ? 'text-[var(--text-muted)] opacity-40 cursor-not-allowed'
-                : 'text-[var(--text-muted)] hover:text-white'}"
-            onclick={() => player.setVideoMode(true)}
-          >
-            <Film size={13} />
-            <span>{t("player.mode_video")}</span>
-          </button>
-        </div>
-      {/if}
-
       {#if player.videoMode && player.currentTrack}
         <SyncedVideoPlayer class="w-full max-w-[420px] aspect-video rounded-[20px]" />
       {:else}
@@ -165,7 +131,7 @@
       <!-- Interactive progress bar -->
       <div class="w-[340px] space-y-2.5">
         <div
-          class="h-1.5 w-full rounded-full bg-white/15 cursor-pointer overflow-hidden group"
+          class="h-1.5 w-full rounded-full bg-[var(--control-track)] cursor-pointer overflow-hidden group"
           role="slider"
           tabindex="0"
           aria-label="Seek"
@@ -263,7 +229,7 @@
       <!-- Up Next card -->
       {#if player.nextTrack}
         <button
-          class="w-[340px] hidden md:flex items-center gap-3 p-3 rounded-2xl bg-white/[0.05] hover:bg-white/[0.08] border border-white/10 text-left transition-colors"
+          class="w-[340px] hidden md:flex items-center gap-3 p-3 rounded-2xl bg-[var(--surface)] hover:bg-[var(--surface-hover)] border border-[var(--border)] text-left transition-colors"
           onclick={() => void player.next()}
         >
           <CoverImage class="up-next-cover !w-11 !h-11 !rounded-[8px]" src={player.nextTrack.cover_url} alt="" />
@@ -301,7 +267,7 @@
       {#if player.lyricsLoading && player.currentTrack}
         <div class="flex-1 flex flex-col justify-center gap-6 py-10 pr-8 animate-pulse" aria-busy="true">
           {#each [68, 52, 80, 60, 44, 74] as w}
-            <div class="h-7 rounded-lg bg-white/[0.08]" style="width: {w}%;"></div>
+            <div class="h-7 rounded-lg bg-[var(--skeleton)]" style="width: {w}%;"></div>
           {/each}
         </div>
       {:else if player.lyrics.type === "Synced"}
@@ -345,7 +311,7 @@
         </div>
       {:else if player.lyrics.type === "Plain"}
         <div class="party-lyrics-scroll flex-1 min-h-0 overflow-y-auto py-12 pr-6">
-          <pre class="whitespace-pre-wrap font-sans text-[24px] font-bold leading-[1.6] tracking-[-0.02em] text-white/80">{player.lyrics.text}</pre>
+          <pre class="whitespace-pre-wrap font-sans text-[24px] font-bold leading-[1.6] tracking-[-0.02em] text-[var(--text)]/85">{player.lyrics.text}</pre>
         </div>
       {:else}
         <div class="flex-1 flex flex-col items-center justify-center text-center gap-3 text-[var(--text-muted)]">
@@ -389,6 +355,6 @@
 
   .party-line.active-line {
     transform: scale(1.045);
-    color: #ffffff;
+    color: var(--text);
   }
 </style>

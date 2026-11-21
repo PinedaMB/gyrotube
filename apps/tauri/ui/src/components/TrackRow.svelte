@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { AudioLines, Check, Ellipsis, Heart, ListPlus, Pause, Play, Plus, Trash2, X } from "lucide-svelte";
+  import { Check, Ellipsis, Heart, ListPlus, Pause, Play, Plus, Trash2, X } from "lucide-svelte";
   import type { Snippet } from "svelte";
   import { cubicOut } from "svelte/easing";
   import { fly } from "svelte/transition";
@@ -24,6 +24,9 @@
   let playing = $derived(current && player.isPlaying);
   let playbackLabel = $derived(t(playing ? "player.playing" : "player.paused"));
   let favorite = $derived(player.isFavorite(track.id));
+  let displayDuration = $derived(
+    track.duration_secs ?? (current && player.durationSecs > 0 ? Math.round(player.durationSecs) : null),
+  );
   let pickerOpen = $state(false);
   let pickerId = $props.id();
 </script>
@@ -34,8 +37,8 @@
     class="group relative flex min-w-0 items-center gap-2 rounded-xl px-2 py-1.5 transition-colors {playing
       ? 'bg-[var(--accent-soft)]'
       : current
-        ? 'bg-white/[0.07]'
-        : 'hover:bg-white/[0.06]'}"
+        ? 'bg-[var(--surface-hover)]'
+        : 'hover:bg-[var(--surface-hover)]'}"
     oncontextmenu={(e) => contextMenu.openTrackMenu(e, track, { onPlay, onRemove, removeLabel })}
   >
     {@render leading?.()}
@@ -63,7 +66,12 @@
             title={playbackLabel}
           >
             {#if playing}
-              <AudioLines size={16} />
+              <span class="eq-bars">
+                <span class="eq-bar"></span>
+                <span class="eq-bar"></span>
+                <span class="eq-bar"></span>
+                <span class="eq-bar"></span>
+              </span>
             {:else}
               <Pause size={15} fill="currentColor" />
             {/if}
@@ -93,20 +101,20 @@
       </div>
 
       {#if track.view_count}
-        <span class="hidden lg:inline text-[11.5px] text-[var(--text-muted)] tabular-nums shrink-0 mr-1 md:group-hover:hidden md:group-focus-within:hidden">
+        <span class="hidden lg:inline text-[11.5px] text-[var(--text-muted)] tabular-nums shrink-0 mr-1 md:group-hover:hidden md:group-has-[:focus-visible]:hidden">
           {t("artist.plays", { count: formatPlays(track.view_count) })}
         </span>
       {/if}
 
       {#if favorite}
-        <span class="text-[var(--fav-coral)] shrink-0 {pickerOpen ? 'hidden' : 'md:group-hover:hidden md:group-focus-within:hidden'}" aria-hidden="true">
+        <span class="text-[var(--fav-coral)] shrink-0 {pickerOpen ? 'hidden' : 'md:group-hover:hidden md:group-has-[:focus-visible]:hidden'}" aria-hidden="true">
           <Heart size={14} fill="currentColor" />
         </span>
       {/if}
 
-      {#if track.duration_secs != null}
-        <span class="text-[12px] text-[var(--text-muted)] tabular-nums shrink-0 {pickerOpen ? 'hidden' : 'md:group-hover:hidden md:group-focus-within:hidden'}">
-          {formatDuration(track.duration_secs)}
+      {#if displayDuration != null}
+        <span class="text-[12px] text-[var(--text-muted)] tabular-nums shrink-0 min-w-[34px] text-right {pickerOpen ? 'hidden' : 'md:group-hover:hidden md:group-has-[:focus-visible]:hidden'}">
+          {formatDuration(displayDuration)}
         </span>
       {/if}
     </button>
@@ -119,7 +127,7 @@
     <div
       class="items-center gap-0.5 shrink-0 {pickerOpen
         ? 'hidden md:flex'
-        : 'hidden md:group-hover:flex md:group-focus-within:flex'}"
+        : 'hidden md:group-hover:flex md:group-has-[:focus-visible]:flex'}"
     >
       <button
         type="button"
@@ -240,3 +248,55 @@
     </div>
   {/if}
 </div>
+
+<style>
+  .eq-bars {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 2.5px;
+    height: 16px;
+  }
+
+  .eq-bar {
+    width: 2.5px;
+    height: 15px;
+    border-radius: 999px;
+    background: currentColor;
+    transform-origin: center;
+    will-change: transform;
+    animation: eq-bounce 0.72s ease-in-out infinite alternate;
+  }
+
+  .eq-bar:nth-child(1) {
+    animation-duration: 0.74s;
+    animation-delay: -0.15s;
+  }
+
+  .eq-bar:nth-child(2) {
+    animation-duration: 0.56s;
+    animation-delay: -0.42s;
+  }
+
+  .eq-bar:nth-child(3) {
+    animation-duration: 0.82s;
+    animation-delay: -0.28s;
+  }
+
+  .eq-bar:nth-child(4) {
+    animation-duration: 0.64s;
+    animation-delay: -0.52s;
+  }
+
+  @keyframes eq-bounce {
+    0% {
+      transform: scaleY(0.24);
+    }
+    50% {
+      transform: scaleY(0.95);
+    }
+    100% {
+      transform: scaleY(0.38);
+    }
+  }
+</style>

@@ -22,6 +22,11 @@
   --surface-hover: rgba(255, 255, 255, 0.09);
   --border: rgba(255, 255, 255, 0.08);
   --border-strong: rgba(255, 255, 255, 0.15);
+  --control-track: rgba(255, 255, 255, 0.16);
+  --segmented-bg: rgba(0, 0, 0, 0.25);
+  --skeleton: rgba(255, 255, 255, 0.085);
+  --skeleton-soft: rgba(255, 255, 255, 0.05);
+  --scrollbar-thumb: rgba(255, 255, 255, 0.16);
   --text: #f5f4f8;
   --text-muted: rgba(245, 244, 248, 0.72);
   --ambient-rgb: 16, 185, 129;
@@ -49,6 +54,11 @@
     --surface-hover: rgba(22, 20, 28, 0.08);
     --border: rgba(22, 20, 28, 0.09);
     --border-strong: rgba(22, 20, 28, 0.16);
+    --control-track: rgba(22, 20, 28, 0.2);
+    --segmented-bg: rgba(22, 20, 28, 0.065);
+    --skeleton: rgba(22, 20, 28, 0.11);
+    --skeleton-soft: rgba(22, 20, 28, 0.07);
+    --scrollbar-thumb: rgba(22, 20, 28, 0.2);
     --text: #16141c;
     --text-muted: rgba(22, 20, 28, 0.7);
   }
@@ -71,6 +81,11 @@
   --surface-hover: rgba(22, 20, 28, 0.08);
   --border: rgba(22, 20, 28, 0.09);
   --border-strong: rgba(22, 20, 28, 0.16);
+  --control-track: rgba(22, 20, 28, 0.2);
+  --segmented-bg: rgba(22, 20, 28, 0.065);
+  --skeleton: rgba(22, 20, 28, 0.11);
+  --skeleton-soft: rgba(22, 20, 28, 0.07);
+  --scrollbar-thumb: rgba(22, 20, 28, 0.2);
   --text: #16141c;
   --text-muted: rgba(22, 20, 28, 0.7);
 }
@@ -248,7 +263,7 @@
 .scroll-y {
   overflow-y: auto;
   scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.16) transparent;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
 }
 
 /* Track rows */
@@ -368,7 +383,7 @@ input[type="range"] {
   appearance: none;
   height: 5px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.16);
+  background: var(--control-track);
   accent-color: var(--accent);
   cursor: pointer;
 }

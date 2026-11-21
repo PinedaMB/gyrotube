@@ -28,7 +28,7 @@
   >
     <!-- Live thin progress bar (top on mobile, bottom on desktop; GPU scaleX) -->
     <div
-      class="pointer-events-none absolute left-0 right-0 top-0 md:top-auto md:bottom-0 h-[2.5px] bg-white/[0.07]"
+      class="pointer-events-none absolute left-0 right-0 top-0 md:top-auto md:bottom-0 h-[2.5px] bg-[var(--control-track)]"
       aria-hidden="true"
     >
       <div

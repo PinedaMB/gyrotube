@@ -17,8 +17,11 @@
   import { player } from "../../lib/stores/player.svelte";
   import { formatDuration } from "../../lib/types";
   import CoverImage from "../CoverImage.svelte";
+  import SegmentedControl, { type SegmentedOption } from "../SegmentedControl.svelte";
   import SyncedVideoPlayer from "../SyncedVideoPlayer.svelte";
   import SidebarActionPopovers from "./SidebarActionPopovers.svelte";
+
+  type MediaMode = "song" | "video";
 
   interface Props {
     sleepRemainingSecs: number | null;
@@ -31,6 +34,21 @@
   let seekDraft = $state(0);
   let resolvingArtist = $state(false);
 
+  let modeOptions = $derived<SegmentedOption<MediaMode>[]>([
+    {
+      value: "song",
+      label: t("player.mode_song"),
+      icon: Music,
+      disabled: player.videoMode && !player.canSwitchVideoMode,
+    },
+    {
+      value: "video",
+      label: t("player.mode_video"),
+      icon: Film,
+      disabled: !player.videoMode && !player.canSwitchVideoMode,
+    },
+  ]);
+
   let displayPos = $derived(seeking ? seekDraft : player.positionSecs);
   let progressPct = $derived(
     player.durationSecs > 0
@@ -42,36 +60,13 @@
 <div in:fade={{ duration: 180 }} class="flex-1 flex flex-col items-center justify-between py-3 gap-4">
   <!-- Song / Video mode toggle -->
   {#if player.currentTrack}
-    {@const songDisabled = player.videoMode && !player.canSwitchVideoMode}
-    {@const videoDisabled = !player.videoMode && !player.canSwitchVideoMode}
-    <div class="inline-flex items-center p-0.5 rounded-full bg-[var(--surface)] border border-[var(--border)]">
-      <button
-        type="button"
-        disabled={songDisabled}
-        class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11.5px] font-bold transition-colors {!player.videoMode
-          ? 'bg-[var(--accent)] text-white shadow-sm'
-          : songDisabled
-            ? 'text-[var(--text-muted)] opacity-40 cursor-not-allowed'
-            : 'text-[var(--text-muted)] hover:text-[var(--text)]'}"
-        onclick={() => player.setVideoMode(false)}
-      >
-        <Music size={12} />
-        <span>{t("player.mode_song")}</span>
-      </button>
-      <button
-        type="button"
-        disabled={videoDisabled}
-        class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11.5px] font-bold transition-colors {player.videoMode
-          ? 'bg-[var(--accent)] text-white shadow-sm'
-          : videoDisabled
-            ? 'text-[var(--text-muted)] opacity-40 cursor-not-allowed'
-            : 'text-[var(--text-muted)] hover:text-[var(--text)]'}"
-        onclick={() => player.setVideoMode(true)}
-      >
-        <Film size={12} />
-        <span>{t("player.mode_video")}</span>
-      </button>
-    </div>
+    <SegmentedControl
+      options={modeOptions}
+      value={player.videoMode ? "video" : "song"}
+      size="sm"
+      ariaLabel={t("player.mode_song")}
+      onchange={(mode) => player.setVideoMode(mode === "video")}
+    />
   {/if}
 
   <!-- Centered large cover art or synced video -->
@@ -177,7 +172,7 @@
         value={displayPos}
         disabled={!player.currentTrack}
         aria-label="Seek"
-        style="background: linear-gradient(to right, var(--accent-bright) {progressPct}%, rgba(255,255,255,0.16) {progressPct}%);"
+        style="background: linear-gradient(to right, var(--accent-bright) {progressPct}%, var(--control-track) {progressPct}%);"
         onpointerdown={() => {
           seeking = true;
           seekDraft = player.positionSecs;

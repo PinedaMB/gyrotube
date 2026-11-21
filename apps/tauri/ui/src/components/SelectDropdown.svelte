@@ -89,7 +89,7 @@
           aria-selected={active}
           class="w-full flex items-center justify-between gap-2 px-3 py-2 rounded-xl text-[13px] text-left transition-colors {active
             ? 'bg-[var(--accent-soft)] text-[var(--accent-bright)] font-semibold'
-            : 'text-[var(--text)] hover:bg-white/[0.07]'}"
+            : 'text-[var(--text)] hover:bg-[var(--surface-hover)]'}"
           onclick={() => select(opt)}
         >
           <span class="truncate">{opt.label}</span>

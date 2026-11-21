@@ -164,6 +164,10 @@ class PlayerStore {
         }
         if (dur > 0 && Math.abs(dur - this.durationSecs) >= 0.5) {
           this.durationSecs = dur;
+          const cur = this.currentTrack;
+          if (cur && cur.duration_secs == null) {
+            this.backfillTrackDuration(cur.id, Math.round(dur));
+          }
         }
         if (!this.videoMode) {
           this.updateActiveLyric(pos);
@@ -804,11 +808,45 @@ class PlayerStore {
     }
   }
 
+  private backfillTrackDuration(trackId: string, durationSecs: number): void {
+    if (durationSecs <= 0) return;
+    const patch = (list: Track[]): [Track[], boolean] => {
+      let changed = false;
+      const next = list.map((t) => {
+        if (t.id === trackId && t.duration_secs == null) {
+          changed = true;
+          return { ...t, duration_secs: durationSecs };
+        }
+        return t;
+      });
+      return [next, changed];
+    };
+    const [nextQueue, qChanged] = patch(this.queue);
+    if (qChanged) this.queue = nextQueue;
+    const [nextUnshuffled, uChanged] = patch(this.unshuffledQueue);
+    if (uChanged) this.unshuffledQueue = nextUnshuffled;
+    const [nextRecent, rChanged] = patch(this.recentTracks);
+    if (rChanged) {
+      this.recentTracks = nextRecent;
+      if (isTauriRuntime()) void api.saveRecentTracks(this.recentTracks);
+    }
+    const [nextFavs, fChanged] = patch(this.favorites);
+    if (fChanged) {
+      this.favorites = nextFavs;
+      if (isTauriRuntime()) void api.saveFavorites(this.favorites);
+    }
+    if (qChanged || uChanged) void this.persistSession();
+  }
+
   public toggleFavorite(track: Track): void {
     if (this.isFavorite(track.id)) {
       this.favorites = this.favorites.filter((t) => t.id !== track.id);
     } else {
-      this.favorites = [track, ...this.favorites];
+      const withDuration =
+        track.duration_secs == null && this.currentTrack?.id === track.id && this.durationSecs > 0
+          ? { ...track, duration_secs: Math.round(this.durationSecs) }
+          : track;
+      this.favorites = [withDuration, ...this.favorites];
     }
     if (isTauriRuntime()) void api.saveFavorites(this.favorites);
   }

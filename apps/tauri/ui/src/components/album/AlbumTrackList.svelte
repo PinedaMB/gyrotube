@@ -15,15 +15,15 @@
 
 <section class="min-w-0">
   {#if loading}
-    <div class="divide-y divide-white/[0.06] animate-pulse" aria-busy="true">
+    <div class="divide-y divide-[var(--border)] animate-pulse" aria-busy="true">
       {#each [0, 1, 2, 3, 4, 5, 6, 7] as _}
         <div class="flex items-center gap-4 py-3.5 px-3">
-          <div class="w-6 h-4 rounded bg-white/[0.07]"></div>
+          <div class="w-6 h-4 rounded bg-[var(--skeleton-soft)]"></div>
           <div class="flex-1 space-y-2">
-            <div class="h-3.5 w-48 rounded bg-white/[0.09]"></div>
-            <div class="h-3 w-28 rounded bg-white/[0.05]"></div>
+            <div class="h-3.5 w-48 rounded bg-[var(--skeleton)]"></div>
+            <div class="h-3 w-28 rounded bg-[var(--skeleton-soft)]"></div>
           </div>
-          <div class="h-3 w-10 rounded bg-white/[0.06]"></div>
+          <div class="h-3 w-10 rounded bg-[var(--skeleton-soft)]"></div>
         </div>
       {/each}
     </div>

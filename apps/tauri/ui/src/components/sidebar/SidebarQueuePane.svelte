@@ -89,7 +89,7 @@
       aria-label="Toggle autoplay"
       class="w-10 h-6 rounded-full p-0.5 transition-colors shrink-0 {player.autoplayRelated
         ? 'bg-[var(--accent)]'
-        : 'bg-white/15'}"
+        : 'bg-[var(--control-track)]'}"
       onclick={() => player.setAutoplay(!player.autoplayRelated)}
     >
       <span

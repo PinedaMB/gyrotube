@@ -16,18 +16,18 @@
 {#if player.genresLoading && genres.length === 0}
   <section class="mt-6 space-y-6 animate-pulse" aria-busy="true">
     <div class="space-y-3">
-      <div class="h-6 w-40 rounded-md bg-white/[0.08]"></div>
+      <div class="h-6 w-40 rounded-md bg-[var(--skeleton)]"></div>
       <div class="grid grid-cols-2 md:grid-cols-4 gap-2.5">
         {#each [0, 1, 2, 3, 4, 5, 6, 7] as _}
-          <div class="h-14 rounded-xl bg-[var(--surface)] border border-[var(--border)]"></div>
+          <div class="h-14 rounded-xl bg-[var(--skeleton-soft)] border border-[var(--border)]"></div>
         {/each}
       </div>
     </div>
     <div class="space-y-3">
-      <div class="h-6 w-32 rounded-md bg-white/[0.08]"></div>
+      <div class="h-6 w-32 rounded-md bg-[var(--skeleton)]"></div>
       <div class="grid grid-cols-2 md:grid-cols-4 gap-2.5">
         {#each [0, 1, 2, 3, 4, 5, 6, 7] as _}
-          <div class="h-12 rounded-xl bg-[var(--surface)] border border-[var(--border)]"></div>
+          <div class="h-12 rounded-xl bg-[var(--skeleton-soft)] border border-[var(--border)]"></div>
         {/each}
       </div>
     </div>

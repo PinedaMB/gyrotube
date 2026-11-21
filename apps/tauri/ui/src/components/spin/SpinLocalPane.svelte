@@ -46,7 +46,7 @@
         disabled={busy}
         class="relative w-11 h-6 rounded-full transition-colors shrink-0 disabled:opacity-50 {player.spinStatus.local_active
           ? 'bg-[var(--accent)]'
-          : 'bg-white/15'}"
+          : 'bg-[var(--control-track)]'}"
         onclick={() => void toggleLocal()}
       >
         <span
@@ -70,7 +70,7 @@
         aria-label={t("spin.allow_controls")}
         class="relative w-11 h-6 rounded-full transition-colors shrink-0 {player.spinStatus.allow_controls
           ? 'bg-[var(--accent)]'
-          : 'bg-white/15'}"
+          : 'bg-[var(--control-track)]'}"
         onclick={() => void toggleAllowControls()}
       >
         <span

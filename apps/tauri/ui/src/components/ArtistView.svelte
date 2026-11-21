@@ -98,28 +98,28 @@
       {/if}
       {#if loading}
         <div class="space-y-6 animate-pulse pt-2" aria-busy="true">
-          <div class="h-5 w-40 rounded bg-white/[0.08]"></div>
-          <div class="divide-y divide-white/[0.06]">
+          <div class="h-5 w-40 rounded bg-[var(--skeleton)]"></div>
+          <div class="divide-y divide-[var(--border)]">
             {#each [0, 1, 2, 3, 4] as _}
               <div class="flex items-center gap-4 py-3">
-                <div class="w-9 h-9 rounded-[6px] bg-white/[0.08]"></div>
+                <div class="w-9 h-9 rounded-[6px] bg-[var(--skeleton)]"></div>
                 <div class="flex-1 space-y-2">
-                  <div class="h-3.5 w-48 rounded bg-white/[0.09]"></div>
-                  <div class="h-3 w-32 rounded bg-white/[0.05]"></div>
+                  <div class="h-3.5 w-48 rounded bg-[var(--skeleton)]"></div>
+                  <div class="h-3 w-32 rounded bg-[var(--skeleton-soft)]"></div>
                 </div>
-                <div class="h-3 w-28 rounded bg-white/[0.05] hidden lg:block"></div>
-                <div class="h-3 w-10 rounded bg-white/[0.06]"></div>
+                <div class="h-3 w-28 rounded bg-[var(--skeleton-soft)] hidden lg:block"></div>
+                <div class="h-3 w-10 rounded bg-[var(--skeleton-soft)]"></div>
               </div>
             {/each}
           </div>
           <div class="pt-4 space-y-3">
-            <div class="h-5 w-36 rounded bg-white/[0.08]"></div>
+            <div class="h-5 w-36 rounded bg-[var(--skeleton)]"></div>
             <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3.5">
               {#each [0, 1, 2, 3, 4] as _}
                 <div class="space-y-2.5">
-                  <div class="aspect-square w-full rounded-xl bg-white/[0.08]"></div>
-                  <div class="h-3.5 w-4/5 rounded bg-white/[0.08]"></div>
-                  <div class="h-3 w-1/2 rounded bg-white/[0.05]"></div>
+                  <div class="aspect-square w-full rounded-xl bg-[var(--skeleton)]"></div>
+                  <div class="h-3.5 w-4/5 rounded bg-[var(--skeleton)]"></div>
+                  <div class="h-3 w-1/2 rounded bg-[var(--skeleton-soft)]"></div>
                 </div>
               {/each}
             </div>
