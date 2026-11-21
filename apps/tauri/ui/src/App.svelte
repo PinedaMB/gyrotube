@@ -7,6 +7,7 @@
   import ArtistView from "./components/ArtistView.svelte";
   import CollectionView from "./components/CollectionView.svelte";
   import CollectionPlaylistModal from "./components/collection/CollectionPlaylistModal.svelte";
+  import ContextMenu from "./components/ContextMenu.svelte";
   import CoverImage from "./components/CoverImage.svelte";
   import ExploreView from "./components/ExploreView.svelte";
   import HeaderBar from "./components/HeaderBar.svelte";
@@ -17,6 +18,7 @@
   import SettingsModal from "./components/SettingsModal.svelte";
   import SidebarPlayer from "./components/SidebarPlayer.svelte";
   import SpinModal from "./components/spin/SpinModal.svelte";
+  import { contextMenu } from "./lib/stores/contextMenu.svelte";
   import { player } from "./lib/stores/player.svelte";
 
   onMount(() => {
@@ -50,6 +52,8 @@
     );
   });
 </script>
+
+<svelte:window oncontextmenu={(e) => contextMenu.openAppMenu(e)} />
 
 <div class="h-screen w-screen overflow-hidden flex flex-col bg-[var(--bg)] text-[var(--text)]">
   <HeaderBar />
@@ -168,6 +172,7 @@
 
   <SettingsModal />
   <SpinModal />
+  <ContextMenu />
   {#if player.playlistDraftTrack}
     <CollectionPlaylistModal
       open={true}

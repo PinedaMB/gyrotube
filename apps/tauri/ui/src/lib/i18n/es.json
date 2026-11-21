@@ -222,5 +222,11 @@
   "spin.connecting": "Conectando a la sala SPIN…",
   "spin.copy": "Copiar",
   "spin.copied": "Copiado",
-  "spin.copy_failed": "No se pudo copiar al portapapeles"
+  "spin.copy_failed": "No se pudo copiar al portapapeles",
+
+  "ctx.go_artist": "Ir al artista",
+  "ctx.go_album": "Ir al álbum",
+  "ctx.copy_link": "Copiar enlace",
+  "ctx.link_copied": "Enlace copiado",
+  "ctx.start_radio": "Iniciar radio"
 }

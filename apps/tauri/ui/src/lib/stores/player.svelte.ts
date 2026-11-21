@@ -2,6 +2,7 @@ import { listen } from "@tauri-apps/api/event";
 import { api, isTauriRuntime } from "../api";
 import { DualDeckAudioEngine, extractDominantRgb } from "../audioEngine";
 import { hashToView, isSameView, type RouteState, viewToHash } from "../router";
+import { contextMenu } from "./contextMenu.svelte";
 import type {
   ActiveView,
   AppLanguage,
@@ -410,6 +411,10 @@ class PlayerStore {
   }
 
   private dismissTopOverlay(): boolean {
+    if (contextMenu.open) {
+      contextMenu.close();
+      return true;
+    }
     if (this.partyMode) {
       this.partyMode = false;
       return true;

@@ -2,6 +2,7 @@
   import { AudioLines, Ellipsis, Heart, ListPlus, Pause, Play, Plus, Trash2 } from "lucide-svelte";
   import type { Snippet } from "svelte";
   import { t } from "../lib/i18n.svelte";
+  import { contextMenu } from "../lib/stores/contextMenu.svelte";
   import { player } from "../lib/stores/player.svelte";
   import { formatDuration, formatPlays, type Track } from "../lib/types";
   import CoverImage from "./CoverImage.svelte";
@@ -22,17 +23,18 @@
   let playbackLabel = $derived(t(playing ? "player.playing" : "player.paused"));
   let favorite = $derived(player.isFavorite(track.id));
   let pickerOpen = $state(false);
-  let mobileActionsOpen = $state(false);
   let pickerId = $props.id();
 </script>
 
 <div>
   <div
+    role="group"
     class="group relative flex min-w-0 items-center gap-2 rounded-xl px-2 py-1.5 transition-colors {playing
       ? 'bg-[var(--accent-soft)]'
       : current
         ? 'bg-white/[0.07]'
         : 'hover:bg-white/[0.06]'}"
+    oncontextmenu={(e) => contextMenu.openTrackMenu(e, track, { onPlay, onRemove, removeLabel })}
   >
     {@render leading?.()}
 
@@ -158,61 +160,16 @@
       {/if}
     </div>
 
-    <!-- Mobile compact menu trigger (keeps full width for titles on phones) -->
+    <!-- Mobile compact menu trigger (opens native Bottom Sheet context menu) -->
     <button
       type="button"
       class="md:hidden icon-btn !w-8 !h-8 shrink-0 text-[var(--text-muted)]"
-      class:active={mobileActionsOpen || pickerOpen}
       aria-label="Track actions"
-      onclick={() => {
-        mobileActionsOpen = !mobileActionsOpen;
-        if (!mobileActionsOpen) pickerOpen = false;
-      }}
+      onclick={() => contextMenu.openTrackSheet(track, { onPlay, onRemove, removeLabel })}
     >
       <Ellipsis size={16} />
     </button>
   </div>
-
-  {#if mobileActionsOpen}
-    <div class="md:hidden flex items-center gap-1.5 px-3 py-1.5">
-      <button
-        type="button"
-        class="pill-btn !py-1 !text-[12px]"
-        class:text-[var(--fav-coral)]={favorite}
-        onclick={() => player.toggleFavorite(track)}
-      >
-        <Heart size={13} fill={favorite ? "currentColor" : "none"} />
-        {favorite ? t("player.favorite_remove") : t("player.favorite_add")}
-      </button>
-      <button
-        type="button"
-        class="pill-btn !py-1 !text-[12px]"
-        onclick={() => {
-          player.enqueueTrack(track);
-          mobileActionsOpen = false;
-        }}
-      >
-        <ListPlus size={13} />
-        {t("queue.add")}
-      </button>
-      <button
-        type="button"
-        class="pill-btn !py-1 !text-[12px]"
-        onclick={() => (pickerOpen = !pickerOpen)}
-      >
-        <Plus size={13} />
-      </button>
-      {#if onRemove}
-        <button
-          type="button"
-          class="pill-btn !py-1 !text-[12px] hover:!text-red-400"
-          onclick={onRemove}
-        >
-          <Trash2 size={13} />
-        </button>
-      {/if}
-    </div>
-  {/if}
 
   {#if pickerOpen}
     <div id={pickerId} class="flex flex-wrap items-center gap-2 rounded-xl bg-[var(--surface)] border border-[var(--border)] mx-2 my-1 px-3 py-2">
@@ -224,7 +181,6 @@
           onclick={() => {
             player.addTrackToPlaylist(playlist.id, track);
             pickerOpen = false;
-            mobileActionsOpen = false;
           }}
         >
           <PlaylistIcon name={playlist.icon_name} size={13} />
@@ -236,7 +192,6 @@
         class="pill-btn primary"
         onclick={() => {
           pickerOpen = false;
-          mobileActionsOpen = false;
           player.playlistDraftTrack = track;
         }}
       >

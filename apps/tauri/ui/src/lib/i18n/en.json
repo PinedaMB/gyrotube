@@ -222,5 +222,11 @@
   "spin.connecting": "Connecting to SPIN room…",
   "spin.copy": "Copy",
   "spin.copied": "Copied",
-  "spin.copy_failed": "Could not copy to clipboard"
+  "spin.copy_failed": "Could not copy to clipboard",
+
+  "ctx.go_artist": "Go to artist",
+  "ctx.go_album": "Go to album",
+  "ctx.copy_link": "Copy link",
+  "ctx.link_copied": "Link copied",
+  "ctx.start_radio": "Start radio"
 }
