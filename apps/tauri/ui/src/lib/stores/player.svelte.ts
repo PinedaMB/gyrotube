@@ -476,7 +476,6 @@ class PlayerStore {
       if (clean) localStorage.setItem("gyrotube.chartCountry", clean);
       else localStorage.removeItem("gyrotube.chartCountry");
     }
-    void this.loadHome(true);
   }
 
   public async loadHome(forceRefresh = false): Promise<void> {

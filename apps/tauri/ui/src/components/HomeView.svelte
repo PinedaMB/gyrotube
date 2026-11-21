@@ -5,6 +5,7 @@
   import { formatSubscribers } from "../lib/types";
   import Carousel from "./Carousel.svelte";
   import CoverImage from "./CoverImage.svelte";
+  import SelectDropdown from "./SelectDropdown.svelte";
   import HomeFeaturedHero from "./home/HomeFeaturedHero.svelte";
   import HomeListenAgain from "./home/HomeListenAgain.svelte";
   import HomeQuickCards from "./home/HomeQuickCards.svelte";
@@ -35,6 +36,16 @@
     { code: "KR", label: "Korea" },
   ];
 
+  let countryOptions = $derived(
+    POPULAR_COUNTRIES.map((c) => ({
+      value: c.code,
+      label: c.code === "" ? t("home.country_global") : c.label,
+    })),
+  );
+  let countryChanged = $derived(
+    (player.chartCountry ?? null) !== (player.homeFeed?.country ?? null),
+  );
+
   let listenAgain = $derived(player.recentTracks.slice(0, 6));
   let featuredAlbum = $derived(player.homeFeed?.new_albums[0] ?? null);
   let releaseAlbums = $derived(
@@ -53,24 +64,27 @@
       <p class="text-[13px] text-[var(--text-muted)] mt-0.5">{t("home.subtitle")}</p>
     </div>
     <div class="flex items-center gap-1.5 shrink-0">
-      <label
-        class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[12px] font-semibold bg-[var(--surface)] border border-[var(--border)] hover:border-[var(--border-strong)] transition-colors cursor-pointer"
+      <SelectDropdown
+        value={player.chartCountry ?? ""}
+        options={countryOptions}
+        ariaLabel={t("home.country_global")}
+        onChange={(val) => player.setChartCountry(val || null)}
       >
-        <Globe size={13} class="text-[var(--text-muted)] shrink-0" />
-        <select
-          class="bg-transparent outline-none cursor-pointer text-[12px] font-semibold"
-          value={player.chartCountry ?? ""}
-          onchange={(e) => player.setChartCountry((e.currentTarget as HTMLSelectElement).value || null)}
-        >
-          {#each POPULAR_COUNTRIES as c}
-            <option value={c.code} class="bg-[var(--bg-elevated)] text-[var(--text)]">
-              {c.code === "" ? t("home.country_global") : c.label}
-            </option>
-          {/each}
-        </select>
-      </label>
-      <button class="icon-btn" title={t("home.reload")} onclick={() => void player.loadHome(true)}>
+        {#snippet leading()}
+          <Globe size={14} />
+        {/snippet}
+      </SelectDropdown>
+      <button
+        type="button"
+        class="icon-btn relative"
+        class:active={countryChanged}
+        title={t("home.reload")}
+        onclick={() => void player.loadHome(true)}
+      >
         <RefreshCw size={16} class={player.homeLoading ? "animate-spin" : ""} />
+        {#if countryChanged && !player.homeLoading}
+          <span class="w-2 h-2 rounded-full bg-[var(--accent-bright)] absolute top-1 right-1"></span>
+        {/if}
       </button>
     </div>
   </div>
