@@ -159,6 +159,10 @@ class PlayerStore {
   constructor() {
     this.engine = new DualDeckAudioEngine({
       onTimeUpdate: (pos, dur) => {
+        // While a new track is resolving, ignore trailing timeupdate ticks from the outgoing deck
+        if (this.inFlightTransitionGen === this.loadGen && this.isLoadingAudio) {
+          return;
+        }
         const minDelta = !this.videoMode && this.lyrics.type === "Synced" ? 0.1 : 0.25;
         if (Math.abs(pos - this.positionSecs) >= minDelta || pos === 0) {
           this.positionSecs = pos;
@@ -1038,10 +1042,13 @@ class PlayerStore {
     const track = this.queue[index];
     const gen = ++this.loadGen;
     this.inFlightTransitionGen = gen;
+    if (!useCrossfade) {
+      this.engine.stop();
+    }
     this.currentIndex = index;
     this.syncAndroidForegroundService(!startPaused);
     this.isLoadingAudio = true;
-    this.positionSecs = 0;
+    this.positionSecs = startPositionSecs;
     this.durationSecs = track.duration_secs ?? 0;
     this.lyrics = { type: "None" };
     this.activeLyricIndex = null;
@@ -1173,6 +1180,7 @@ class PlayerStore {
   public async togglePlay(): Promise<void> {
     if (!this.currentTrack || this.currentIndex == null) return;
     if (!this.engine.activeDeck.src) {
+      if (this.isLoadingAudio) return;
       await this.playIndex(this.currentIndex);
       return;
     }
