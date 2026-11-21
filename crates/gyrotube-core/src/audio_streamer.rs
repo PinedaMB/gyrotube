@@ -35,9 +35,17 @@ struct StreamSession {
     progress_rx: watch::Receiver<ChunkProgress>,
 }
 
+#[derive(Clone)]
+struct ProxyTarget {
+    url: String,
+    user_agent: String,
+    mime_type: String,
+}
+
 pub struct AudioStreamer {
     port: u16,
     sessions: Arc<RwLock<HashMap<String, Arc<StreamSession>>>>,
+    proxies: Arc<RwLock<HashMap<String, ProxyTarget>>>,
     in_flight: Arc<RwLock<HashMap<String, (String, tokio::task::AbortHandle)>>>,
     client: reqwest::Client,
     next_id: AtomicU64,
@@ -46,6 +54,32 @@ pub struct AudioStreamer {
 static GLOBAL_STREAMER: OnceLock<Arc<AudioStreamer>> = OnceLock::new();
 
 impl AudioStreamer {
+    pub fn serve_remote_proxy(
+        &self,
+        video_id: &str,
+        url: &str,
+        user_agent: &str,
+        mime_type: &str,
+    ) -> String {
+        let seq = self.next_id.fetch_add(1, Ordering::Relaxed);
+        let ext = if mime_type.contains("webm") { "webm" } else { "mp4" };
+        let key = format!("{video_id}-{seq}.{ext}");
+        if let Ok(mut map) = self.proxies.write() {
+            if map.len() > 24 {
+                map.clear();
+            }
+            map.insert(
+                key.clone(),
+                ProxyTarget {
+                    url: url.to_string(),
+                    user_agent: user_agent.to_string(),
+                    mime_type: mime_type.to_string(),
+                },
+            );
+        }
+        format!("http://127.0.0.1:{}/proxy/{key}", self.port)
+    }
+
     pub fn try_global() -> Option<Arc<Self>> {
         GLOBAL_STREAMER.get().cloned()
     }
@@ -69,6 +103,8 @@ impl AudioStreamer {
             .port();
         let sessions: Arc<RwLock<HashMap<String, Arc<StreamSession>>>> =
             Arc::new(RwLock::new(HashMap::new()));
+        let proxies: Arc<RwLock<HashMap<String, ProxyTarget>>> =
+            Arc::new(RwLock::new(HashMap::new()));
         let client = crate::tls::http_client_builder()
             .connect_timeout(Duration::from_secs(4))
             .read_timeout(Duration::from_secs(12))
@@ -77,14 +113,18 @@ impl AudioStreamer {
             .map_err(|e| format!("Failed to build chunked HTTP client: {e}"))?;
 
         let sessions_for_loop = sessions.clone();
+        let proxies_for_loop = proxies.clone();
+        let client_for_loop = client.clone();
         tokio::spawn(async move {
             loop {
                 let Ok((socket, _)) = listener.accept().await else {
                     break;
                 };
                 let sessions_ref = sessions_for_loop.clone();
+                let proxies_ref = proxies_for_loop.clone();
+                let client_ref = client_for_loop.clone();
                 tokio::spawn(async move {
-                    let _ = handle_client(socket, sessions_ref).await;
+                    let _ = handle_client(socket, sessions_ref, proxies_ref, client_ref).await;
                 });
             }
         });
@@ -92,6 +132,7 @@ impl AudioStreamer {
         Ok(Arc::new(Self {
             port,
             sessions,
+            proxies,
             in_flight: Arc::new(RwLock::new(HashMap::new())),
             client,
             next_id: AtomicU64::new(1),
@@ -872,6 +913,8 @@ fn stream_session_key(path: &str) -> Option<&str> {
 async fn handle_client(
     socket: TcpStream,
     sessions: Arc<RwLock<HashMap<String, Arc<StreamSession>>>>,
+    proxies: Arc<RwLock<HashMap<String, ProxyTarget>>>,
+    client: reqwest::Client,
 ) -> Result<(), std::io::Error> {
     let (read_half, mut write_half) = socket.into_split();
     let mut reader = BufReader::new(read_half);
@@ -909,6 +952,78 @@ async fn handle_client(
             "HTTP/1.1 204 No Content\r\n{CORS_HEADERS}Content-Length: 0\r\nConnection: close\r\n\r\n"
         );
         write_half.write_all(hdr.as_bytes()).await?;
+        return Ok(());
+    }
+
+    if let Some(proxy_key) = path.strip_prefix("/proxy/") {
+        let proxy_key = proxy_key.split('?').next().unwrap_or(proxy_key);
+        let target = proxies.read().ok().and_then(|m| m.get(proxy_key).cloned());
+        let Some(target) = target else {
+            let hdr = format!(
+                "HTTP/1.1 404 Not Found\r\n{CORS_HEADERS}Content-Length: 0\r\nConnection: close\r\n\r\n"
+            );
+            write_half.write_all(hdr.as_bytes()).await?;
+            return Ok(());
+        };
+        let mut req = if method.eq_ignore_ascii_case("HEAD") {
+            client.head(&target.url)
+        } else {
+            client.get(&target.url)
+        }
+        .header("User-Agent", &target.user_agent);
+        if let Some(ref range) = range_header {
+            req = req.header("Range", range);
+        }
+        let Ok(mut upstream) = req.send().await else {
+            eprintln!("[gyrotube-proxy] upstream send failed for {proxy_key}");
+            let hdr = format!(
+                "HTTP/1.1 502 Bad Gateway\r\n{CORS_HEADERS}Content-Length: 0\r\nConnection: close\r\n\r\n"
+            );
+            write_half.write_all(hdr.as_bytes()).await?;
+            return Ok(());
+        };
+        let status = upstream.status();
+        if !status.is_success() && status.as_u16() != 206 {
+            eprintln!("[gyrotube-proxy] upstream status {} for {}", status, proxy_key);
+        }
+        let status_line = format!(
+            "HTTP/1.1 {} {}",
+            status.as_u16(),
+            status.canonical_reason().unwrap_or("OK")
+        );
+        let content_type = upstream
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or(&target.mime_type)
+            .to_string();
+        let mut hdr = format!(
+            "{status_line}\r\n{CORS_HEADERS}Content-Type: {content_type}\r\nAccept-Ranges: bytes\r\n"
+        );
+        if let Some(cr) = upstream
+            .headers()
+            .get(reqwest::header::CONTENT_RANGE)
+            .and_then(|v| v.to_str().ok())
+        {
+            hdr.push_str(&format!("Content-Range: {cr}\r\n"));
+        }
+        if let Some(cl) = upstream
+            .headers()
+            .get(reqwest::header::CONTENT_LENGTH)
+            .and_then(|v| v.to_str().ok())
+        {
+            hdr.push_str(&format!("Content-Length: {cl}\r\n"));
+        }
+        hdr.push_str("Connection: close\r\n\r\n");
+        write_half.write_all(hdr.as_bytes()).await?;
+        if !method.eq_ignore_ascii_case("HEAD") {
+            while let Ok(Some(chunk)) = upstream.chunk().await {
+                if write_half.write_all(&chunk).await.is_err() {
+                    break;
+                }
+            }
+        }
+        let _ = write_half.shutdown().await;
         return Ok(());
     }
 

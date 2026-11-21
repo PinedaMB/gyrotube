@@ -115,11 +115,13 @@
 
   <button
     type="button"
+    disabled={player.videoMode}
     class="icon-btn !w-9 !h-9 {player.partyMode
       ? 'active'
       : 'text-[var(--text-muted)] hover:text-[var(--text)]'}"
     title={t("header.party_mode")}
     onclick={() => {
+      if (player.videoMode) return;
       openPopover = null;
       player.partyMode = true;
     }}

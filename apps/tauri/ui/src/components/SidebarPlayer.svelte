@@ -91,10 +91,11 @@
       <span class="truncate max-w-full px-0.5">{t("player.tab_player")}</span>
     </button>
     <button
+      disabled={player.videoMode}
       class="flex flex-col items-center justify-center gap-0.5 py-1.5 rounded-xl text-[11px] font-semibold border transition-colors {player.sidebarTab === 'lyrics'
         ? 'bg-[var(--accent-soft)] border-[var(--accent-border)] text-[var(--accent-bright)]'
         : 'border-transparent text-[var(--text-muted)] hover:bg-[var(--surface)] hover:text-[var(--text)]'}"
-      onclick={() => (player.sidebarTab = "lyrics")}
+      onclick={() => !player.videoMode && (player.sidebarTab = "lyrics")}
     >
       <MessageSquareQuote size={15} />
       <span class="truncate max-w-full px-0.5">{t("player.tab_lyrics")}</span>

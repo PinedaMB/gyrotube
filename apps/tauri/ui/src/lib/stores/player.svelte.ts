@@ -98,6 +98,7 @@ class PlayerStore {
   videoLoading = $state(false);
   videoError = $state<string | null>(null);
   private videoGen = 0;
+  private counterpartCache = new Map<string, Track>();
 
   // Catalog data
   homeFeed = $state<HomeFeed | null>(null);
@@ -149,14 +150,16 @@ class PlayerStore {
   constructor() {
     this.engine = new DualDeckAudioEngine({
       onTimeUpdate: (pos, dur) => {
-        const minDelta = this.lyrics.type === "Synced" ? 0.1 : 0.25;
+        const minDelta = !this.videoMode && this.lyrics.type === "Synced" ? 0.1 : 0.25;
         if (Math.abs(pos - this.positionSecs) >= minDelta || pos === 0) {
           this.positionSecs = pos;
         }
         if (dur > 0 && Math.abs(dur - this.durationSecs) >= 0.5) {
           this.durationSecs = dur;
         }
-        this.updateActiveLyric(pos);
+        if (!this.videoMode) {
+          this.updateActiveLyric(pos);
+        }
         const now = performance.now();
         if (this.spinStatus.local_active && this.isPlaying && !this.isLoadingAudio && now - this.lastLocalSpinUpdate >= 500) {
           this.lastLocalSpinUpdate = now;
@@ -601,13 +604,81 @@ class PlayerStore {
   public setVideoMode(enabled: boolean): void {
     if (this.videoMode === enabled) return;
     this.videoMode = enabled;
-    if (!enabled) {
-      ++this.videoGen;
+    if (enabled) {
+      this.partyMode = false;
+      if (this.sidebarTab === "lyrics") {
+        this.sidebarTab = "player";
+      }
+      this.activeLyricIndex = null;
+      this.lyricsLoading = false;
+    }
+    const gen = ++this.videoGen;
+    const cur = this.currentTrack;
+    const idx = this.currentIndex;
+
+    if (!cur || idx == null || !isTauriRuntime()) {
+      this.videoStream = null;
       this.videoLoading = false;
       this.videoError = null;
       return;
     }
-    void this.loadVideoForCurrent();
+
+    const needSwitch = Boolean(cur.is_video) !== enabled;
+    if (!needSwitch) {
+      if (!enabled) {
+        this.videoStream = null;
+        this.videoLoading = false;
+        this.videoError = null;
+        if (this.lyrics.type === "None") {
+          void this.loadLyricsForCurrent();
+        }
+      } else {
+        void this.loadVideoForCurrent();
+      }
+      return;
+    }
+
+    const cacheKey = `${cur.id}:${enabled ? "v" : "s"}`;
+    const cached = this.counterpartCache.get(cacheKey);
+    const applySwitch = (counterpart: Track) => {
+      if (this.videoGen !== gen || this.currentTrack?.id !== cur.id || this.currentIndex !== idx) {
+        return;
+      }
+      this.counterpartCache.set(cacheKey, counterpart);
+      this.counterpartCache.set(`${counterpart.id}:${enabled ? "s" : "v"}`, cur);
+      const wasPlaying = this.isPlaying;
+      const resumePos = this.positionSecs;
+      const nextQueue = [...this.queue];
+      nextQueue[idx] = counterpart;
+      this.queue = nextQueue;
+      void this.playIndex(idx, false, resumePos, !wasPlaying);
+    };
+
+    if (cached) {
+      applySwitch(cached);
+      return;
+    }
+
+    this.videoLoading = enabled;
+    this.videoError = null;
+    void api
+      .findCounterpartTrack(cur, enabled)
+      .then((counterpart) => {
+        if (this.videoGen !== gen || this.currentTrack?.id !== cur.id) return;
+        if (counterpart && counterpart.id !== cur.id) {
+          applySwitch(counterpart);
+        } else if (enabled) {
+          void this.loadVideoForCurrent();
+        } else {
+          this.videoStream = null;
+          this.videoLoading = false;
+        }
+      })
+      .catch(() => {
+        if (this.videoGen !== gen) return;
+        if (enabled) void this.loadVideoForCurrent();
+        else this.videoLoading = false;
+      });
   }
 
   public async loadVideoForCurrent(): Promise<void> {
@@ -746,6 +817,10 @@ class PlayerStore {
     this.videoError = null;
     if (track.is_video) {
       this.videoMode = true;
+      this.partyMode = false;
+      if (this.sidebarTab === "lyrics") {
+        this.sidebarTab = "player";
+      }
     }
 
     // Record recent
@@ -788,18 +863,12 @@ class PlayerStore {
       void this.syncSpinSnapshot();
 
       if (this.videoMode) {
+        this.lyricsLoading = false;
         void this.loadVideoForCurrent();
+      } else {
+        // Load lyrics asynchronously only in song mode
+        void this.loadLyricsForCurrent(gen);
       }
-      // Load lyrics & related suggestions asynchronously
-      this.lyricsLoading = true;
-      void api
-        .getLyrics(track.title, track.artist, track.duration_secs, track.id)
-        .then((data) => {
-          if (this.loadGen === gen) this.lyrics = data;
-        })
-        .finally(() => {
-          if (this.loadGen === gen) this.lyricsLoading = false;
-        });
       if (this.sidebarTab === "related") {
         void this.loadRelatedForCurrent(true);
       }
@@ -896,7 +965,28 @@ class PlayerStore {
     void this.persistSession();
   }
 
+  private loadLyricsForCurrent(expectedGen = this.loadGen): Promise<void> {
+    const track = this.currentTrack;
+    if (!track || this.videoMode || !isTauriRuntime()) {
+      this.lyricsLoading = false;
+      return Promise.resolve();
+    }
+    this.lyricsLoading = true;
+    return api
+      .getLyrics(track.title, track.artist, track.duration_secs, track.id)
+      .then((data) => {
+        if (this.loadGen === expectedGen && !this.videoMode) {
+          this.lyrics = data;
+          this.updateActiveLyric(this.positionSecs);
+        }
+      })
+      .finally(() => {
+        if (this.loadGen === expectedGen) this.lyricsLoading = false;
+      });
+  }
+
   private updateActiveLyric(pos: number): void {
+    if (this.videoMode) return;
     const found = findActiveLyricIndex(this.lyrics, pos);
     if (found !== this.activeLyricIndex) {
       this.activeLyricIndex = found;

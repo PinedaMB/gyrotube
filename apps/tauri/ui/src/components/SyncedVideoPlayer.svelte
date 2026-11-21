@@ -12,6 +12,7 @@
 
   let videoEl = $state<HTMLVideoElement | null>(null);
   let ready = $state(false);
+  let playbackError = $state(false);
   let hiddenDoc = $state(typeof document !== "undefined" ? document.hidden : false);
 
   function syncPlayback(forceSeek = false) {
@@ -41,6 +42,7 @@
   $effect(() => {
     void player.videoStream?.url;
     ready = false;
+    playbackError = false;
   });
 
   $effect(() => {
@@ -79,7 +81,7 @@
     <div class="absolute inset-0 flex flex-col items-center justify-center gap-2.5 bg-white/[0.04] animate-pulse">
       <div class="w-10 h-10 rounded-full border-2 border-white/15 border-t-[var(--accent-bright)] animate-spin"></div>
     </div>
-  {:else if player.videoStream}
+  {:else if player.videoStream && !playbackError}
     <video
       bind:this={videoEl}
       src={player.videoStream.url}
@@ -87,7 +89,7 @@
       playsinline
       preload="auto"
       class="w-full h-full object-contain transition-opacity duration-200 {ready ? 'opacity-100' : 'opacity-0'}"
-      onloadedmetadata={() => {
+      onloadeddata={() => {
         ready = true;
         syncPlayback(true);
       }}
@@ -95,7 +97,17 @@
         ready = true;
         syncPlayback(false);
       }}
+      onerror={() => {
+        ready = false;
+        playbackError = true;
+      }}
     ></video>
+
+    {#if !ready}
+      <div class="absolute inset-0 flex items-center justify-center bg-black/40 pointer-events-none">
+        <div class="w-9 h-9 rounded-full border-2 border-white/15 border-t-[var(--accent-bright)] animate-spin"></div>
+      </div>
+    {/if}
 
     <div class="absolute top-2.5 left-2.5 px-2 py-0.5 rounded-md text-[10.5px] font-bold bg-black/65 text-white/90 border border-white/10 numeric pointer-events-none">
       {player.videoStream.quality_label}

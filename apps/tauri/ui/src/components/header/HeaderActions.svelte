@@ -30,10 +30,11 @@
 
   <button
     type="button"
+    disabled={player.videoMode}
     class="icon-btn hidden sm:inline-flex"
     class:active={player.partyMode}
     title={t("header.party_mode")}
-    onclick={() => (player.partyMode = !player.partyMode)}
+    onclick={() => !player.videoMode && (player.partyMode = !player.partyMode)}
   >
     <PartyPopper size={18} />
   </button>

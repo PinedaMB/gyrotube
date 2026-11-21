@@ -85,6 +85,8 @@ export const api = {
     call("resolve_audio_stream", { track }),
   resolveVideoStream: (trackId: string, maxHeight = 720): Promise<VideoStreamInfo> =>
     call("resolve_video_stream", { trackId, maxHeight }),
+  findCounterpartTrack: (track: Track, wantVideo: boolean): Promise<Track | null> =>
+    call("find_counterpart_track", { track, wantVideo }),
   prefetchAudio: (track: Track): Promise<void> => call("prefetch_audio", { track }),
   cancelStaleStreams: (keepIds: string[]): Promise<void> =>
     call("cancel_stale_streams", { keepIds }),

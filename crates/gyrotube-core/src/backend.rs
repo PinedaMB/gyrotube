@@ -936,6 +936,66 @@ impl Backend {
         max_height: u32,
     ) -> Result<VideoStreamInfo, String> {
         validate_video_id(video_id)?;
+
+        // Desktop: prefer yt-dlp (solves YouTube n-parameter / PO-token reliably without 403)
+        #[cfg(not(target_os = "android"))]
+        {
+            #[cfg(target_os = "linux")]
+            let fmt = format!(
+                "bestvideo[vcodec^=vp9][height<={max_height}]/bestvideo[ext=webm][height<={max_height}]/bestvideo[vcodec^=avc1][height<={max_height}]/18"
+            );
+            #[cfg(not(target_os = "linux"))]
+            let fmt = format!(
+                "bestvideo[vcodec^=avc1][height<={max_height}]/bestvideo[ext=mp4][height<={max_height}]/bestvideo[ext=webm][height<={max_height}]/18"
+            );
+            let mut cmd = tokio::process::Command::new("yt-dlp");
+            cmd.kill_on_drop(true)
+                .args([
+                    "--ignore-config",
+                    "--no-playlist",
+                    "--no-warnings",
+                    "--socket-timeout",
+                    "5",
+                    "--retries",
+                    "1",
+                    "--dump-single-json",
+                    "--skip-download",
+                    "--extractor-args",
+                    "youtube:player_client=default,-tv_samsung;skip=hls,dash",
+                    "--js-runtimes",
+                    "node",
+                    "--remote-components",
+                    "ejs:github",
+                    "-f",
+                    &fmt,
+                    "--",
+                ])
+                .arg(format!("https://www.youtube.com/watch?v={video_id}"));
+            if let Ok(Ok(output)) = tokio::time::timeout(Duration::from_secs(12), cmd.output()).await
+                && output.status.success()
+                && let Ok(val) = serde_json::from_slice::<serde_json::Value>(&output.stdout)
+                && let Some(raw_url) = val["url"].as_str()
+                && let Ok(parsed) = reqwest::Url::parse(raw_url)
+                && matches!(parsed.scheme(), "http" | "https")
+            {
+                let height = val["height"].as_u64().unwrap_or(720) as u32;
+                let width = val["width"].as_u64().unwrap_or(1280) as u32;
+                let ext = val["ext"].as_str().unwrap_or("webm");
+                let mime_type = if ext == "webm" { "video/webm" } else { "video/mp4" };
+                let ua = val["http_headers"]["User-Agent"]
+                    .as_str()
+                    .unwrap_or("Mozilla/5.0");
+                let streamer = crate::audio_streamer::AudioStreamer::global().await?;
+                let proxied = streamer.serve_remote_proxy(video_id, parsed.as_str(), ua, mime_type);
+                return Ok(VideoStreamInfo {
+                    url: proxied,
+                    quality_label: format!("{height}p"),
+                    width,
+                    height,
+                });
+            }
+        }
+
         let visitor_data = self.rp.query().get_visitor_data(true).await.ok();
         let profiles = [
             (
@@ -1029,11 +1089,15 @@ impl Backend {
                 .chain(muxed.into_iter().flatten())
                 .collect();
 
-            // Prefer H.264 MP4 (avc1) video streams <= max_height for universal HW decode on WebKitGTK & Android
-            let mut best: Option<(u32, u64, VideoStreamInfo)> = None;
+            // On Linux (Fedora/WebKitGTK), prefer WebM VP9 (open-source, always decoded in GStreamer)
+            // with H.264 MP4 fallback; on Android/macOS/Windows prefer H.264 MP4 with WebM VP9 fallback.
+            let mut best_webm: Option<(u32, u64, String, u32, u32)> = None;
+            let mut best_mp4: Option<(u32, u64, String, u32, u32)> = None;
             for f in all_formats {
                 let Some(mime) = f["mimeType"].as_str() else { continue };
-                if !mime.starts_with("video/mp4") || !mime.contains("avc1") {
+                let is_webm_vp9 = mime.starts_with("video/webm") && (mime.contains("vp9") || mime.contains("vp09") || mime.contains("vp8"));
+                let is_mp4_h264 = mime.starts_with("video/mp4") && mime.contains("avc1");
+                if !is_webm_vp9 && !is_mp4_h264 {
                     continue;
                 }
                 let Some(url_str) = f["url"].as_str() else { continue };
@@ -1049,28 +1113,101 @@ impl Backend {
                     continue;
                 }
                 let bitrate = f["bitrate"].as_u64().unwrap_or(0);
-                let replace = match &best {
+                let slot = if is_webm_vp9 { &mut best_webm } else { &mut best_mp4 };
+                let replace = match slot {
                     None => true,
-                    Some((bh, bb, _)) => height > *bh || (height == *bh && bitrate > *bb),
+                    Some((bh, bb, _, _, _)) => height > *bh || (height == *bh && bitrate > *bb),
                 };
                 if replace {
-                    best = Some((
-                        height,
-                        bitrate,
-                        VideoStreamInfo {
-                            url: parsed.into(),
-                            quality_label: format!("{height}p"),
-                            width,
-                            height,
-                        },
-                    ));
+                    *slot = Some((height, bitrate, parsed.into(), width, height));
                 }
             }
-            if let Some((_, _, info)) = best {
-                return Ok(info);
+            #[cfg(target_os = "linux")]
+            let chosen = best_webm
+                .map(|v| (v, "video/webm"))
+                .or_else(|| best_mp4.map(|v| (v, "video/mp4")));
+            #[cfg(not(target_os = "linux"))]
+            let chosen = best_mp4
+                .map(|v| (v, "video/mp4"))
+                .or_else(|| best_webm.map(|v| (v, "video/webm")));
+
+            if let Some(((height, _, raw_url, width, h), mime_type)) = chosen {
+                // Probe 1 byte before returning so 403 profiles fall through to the next client
+                let probe_ok = self
+                    .http
+                    .get(&raw_url)
+                    .timeout(Duration::from_secs(4))
+                    .header("User-Agent", user_agent)
+                    .header("Range", "bytes=0-0")
+                    .send()
+                    .await
+                    .is_ok_and(|r| r.status().is_success() || r.status().as_u16() == 206);
+                if !probe_ok {
+                    continue;
+                }
+                let streamer = crate::audio_streamer::AudioStreamer::global().await?;
+                let proxied = streamer.serve_remote_proxy(video_id, &raw_url, user_agent, mime_type);
+                return Ok(VideoStreamInfo {
+                    url: proxied,
+                    quality_label: format!("{height}p"),
+                    width,
+                    height: h,
+                });
             }
         }
-        Err(String::from("No hay stream de video MP4 disponible para esta pista"))
+        Err(String::from("No hay stream de video compatible disponible para esta pista"))
+    }
+
+    pub async fn find_counterpart_track(
+        &self,
+        track: &Track,
+        want_video: bool,
+    ) -> Result<Option<Track>, String> {
+        let query = format!("{} {}", track.title, track.artist);
+        let q = query.trim();
+        if q.is_empty() {
+            return Ok(None);
+        }
+        if want_video {
+            if let Ok(results) = self.rp.query().music_search_videos(q).await {
+                let list = &results.items.items;
+                let candidate = list
+                    .iter()
+                    .find(|t| !t.unavailable && t.id != track.id)
+                    .or_else(|| list.first().filter(|t| !t.unavailable));
+                if let Some(item) = candidate {
+                    let mut tr = Track::from(item);
+                    tr.is_music = true;
+                    tr.is_video = true;
+                    if tr.artist_id.is_none() {
+                        tr.artist_id = track.artist_id.clone();
+                    }
+                    return Ok(Some(tr));
+                }
+            }
+            Ok(None)
+        } else {
+            if let Ok(results) = self.rp.query().music_search_tracks(q).await {
+                let list = &results.items.items;
+                let candidate = list
+                    .iter()
+                    .find(|t| t.track_type == TrackType::Track && !t.unavailable && t.id != track.id)
+                    .or_else(|| {
+                        list.first()
+                            .filter(|t| t.track_type == TrackType::Track && !t.unavailable)
+                    });
+                if let Some(item) = candidate {
+                    let mut tr = Track::from(item);
+                    tr.is_music = true;
+                    tr.is_video = false;
+                    if tr.artist_id.is_none() {
+                        tr.artist_id = track.artist_id.clone();
+                    }
+                    return Ok(Some(tr));
+                }
+            }
+            Ok(None)
+        }
     }
 
     #[cfg(not(target_os = "android"))]

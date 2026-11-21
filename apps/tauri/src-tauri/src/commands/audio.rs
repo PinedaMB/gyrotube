@@ -45,9 +45,26 @@ pub async fn resolve_video_stream(
     track_id: String,
     max_height: Option<u32>,
 ) -> Result<VideoStreamInfo, String> {
-    state
+    let info = state
         .backend
         .resolve_video_stream(&track_id, max_height.unwrap_or(720))
+        .await?;
+    eprintln!(
+        "[gyrotube-tauri] video stream resolved: id={} quality={} url={}",
+        track_id, info.quality_label, info.url
+    );
+    Ok(info)
+}
+
+#[tauri::command]
+pub async fn find_counterpart_track(
+    state: State<'_, AppCoreState>,
+    track: Track,
+    want_video: bool,
+) -> Result<Option<Track>, String> {
+    state
+        .backend
+        .find_counterpart_track(&track, want_video)
         .await
 }
 

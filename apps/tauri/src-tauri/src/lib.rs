@@ -190,6 +190,7 @@ pub fn run() {
             commands::get_lyrics,
             commands::resolve_audio_stream,
             commands::resolve_video_stream,
+            commands::find_counterpart_track,
             commands::prefetch_audio,
             commands::cancel_stale_streams,
             commands::get_cache_bytes,

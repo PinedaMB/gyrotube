@@ -299,10 +299,11 @@
   <button
     type="button"
     role="menuitem"
+    disabled={player.videoMode}
     class="ctx-item"
     onclick={() => {
       contextMenu.close();
-      player.partyMode = !player.partyMode;
+      if (!player.videoMode) player.partyMode = !player.partyMode;
     }}
   >
     <PartyPopper size={15} />
