@@ -133,6 +133,7 @@ class PlayerStore {
   private toastSeq = 0;
   private loadGen = 0;
   private inFlightTransitionGen: number | null = null;
+  private advancedFromGen = 0;
   private prefetchTimer: number | null = null;
   private lastLocalSpinUpdate = 0;
   private persister = new SessionPersister();
@@ -184,17 +185,30 @@ class PlayerStore {
         void this.syncSpinSnapshot();
       },
       onEnded: () => {
-        if (this.inFlightTransitionGen === this.loadGen) {
-          // A crossfade transition is already resolving the next track; do not
-          // double-advance or skip a track while it finishes loading.
+        if (
+          this.inFlightTransitionGen === this.loadGen ||
+          this.advancedFromGen === this.loadGen
+        ) {
+          // A transition from this track is already in flight or already ran;
+          // never double-advance, skip a track, or append a duplicate autoplay track.
           return;
         }
+        this.advancedFromGen = this.loadGen;
         this.isPlaying = false;
         void this.syncSpinSnapshot();
         if (this.spinStatus.remote_role !== "guest") void this.handleTrackEnded();
       },
       onCrossfadeTrigger: () => {
-        if (this.spinStatus.remote_role !== "guest") void this.next(true);
+        if (
+          this.inFlightTransitionGen === this.loadGen ||
+          this.advancedFromGen === this.loadGen
+        ) {
+          return;
+        }
+        if (this.spinStatus.remote_role !== "guest") {
+          this.advancedFromGen = this.loadGen;
+          void this.next(true);
+        }
       },
       onError: (msg) => {
         this.isLoadingAudio = false;
@@ -941,12 +955,14 @@ class PlayerStore {
       this.prefetchTimer = null;
     }
     if (!isTauriRuntime()) return;
-    const upcoming = this.nextTrack;
+    const upcoming =
+      this.nextTrack ?? (this.autoplayRelated ? (this.suggestedTracks[0] ?? null) : null);
     if (!upcoming) return;
     this.prefetchTimer = window.setTimeout(() => {
       this.prefetchTimer = null;
       if (this.loadGen !== expectedGen) return;
-      const target = this.nextTrack;
+      const target =
+        this.nextTrack ?? (this.autoplayRelated ? (this.suggestedTracks[0] ?? null) : null);
       if (!target) return;
       void api.prefetchAudio(target).catch(() => {
         // Ignore prefetch failures; normal playback will resolve on demand.
@@ -959,7 +975,7 @@ class PlayerStore {
     const prevTrackId = this.currentTrack?.id ?? null;
     const track = this.queue[index];
     const gen = ++this.loadGen;
-    this.inFlightTransitionGen = useCrossfade ? gen : null;
+    this.inFlightTransitionGen = gen;
     this.currentIndex = index;
     this.isLoadingAudio = true;
     this.positionSecs = 0;
@@ -1076,6 +1092,7 @@ class PlayerStore {
             this.schedulePrefetchNext(gen);
           } else {
             this.suggestedTracks = related.slice(0, 12);
+            this.schedulePrefetchNext(gen);
           }
         })
         .catch(() => {

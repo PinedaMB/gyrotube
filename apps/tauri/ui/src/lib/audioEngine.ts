@@ -47,7 +47,9 @@ export class DualDeckAudioEngine {
       const dur = Number.isFinite(audio.duration) ? audio.duration : 0;
       this.callbacks.onTimeUpdate(pos, dur);
 
+      const isHidden = typeof document !== "undefined" && document.hidden;
       if (
+        !isHidden &&
         this.crossfadeSecs > 0 &&
         !this.crossfadeFired &&
         dur > this.crossfadeSecs + 2 &&
@@ -117,8 +119,10 @@ export class DualDeckAudioEngine {
     this.crossfadeFired = false;
     this.loading = true;
 
+    const isHidden = typeof document !== "undefined" && document.hidden;
     const outgoingIndex = this.activeIndex;
-    const incomingIndex: 0 | 1 = useCrossfade ? (outgoingIndex === 0 ? 1 : 0) : outgoingIndex;
+    const wantDualDeck = useCrossfade && !startPaused && !isHidden && this.crossfadeSecs > 0;
+    const incomingIndex: 0 | 1 = wantDualDeck ? (outgoingIndex === 0 ? 1 : 0) : outgoingIndex;
     const outgoing = this.decks[outgoingIndex];
     const incoming = this.decks[incomingIndex];
 
@@ -141,9 +145,7 @@ export class DualDeckAudioEngine {
 
     try {
       const canCrossfade =
-        useCrossfade &&
-        !startPaused &&
-        this.crossfadeSecs > 0 &&
+        wantDualDeck &&
         outgoingIndex !== incomingIndex &&
         !outgoing.paused &&
         !outgoing.ended;
@@ -151,7 +153,18 @@ export class DualDeckAudioEngine {
       if (canCrossfade) {
         const startVolOut = outgoing.volume;
         incoming.volume = 0.01;
-        await incoming.play();
+        try {
+          await incoming.play();
+        } catch {
+          // On mobile WebViews (Android), two simultaneous <audio> elements can
+          // fail AudioFocus; fall back to stopping the outgoing deck first.
+          outgoing.pause();
+          outgoing.removeAttribute("src");
+          outgoing.load();
+          incoming.volume = this.volume;
+          await incoming.play();
+          return;
+        }
 
         const durationMs = this.crossfadeSecs * 1000;
         const startedAt = Date.now();
@@ -181,7 +194,32 @@ export class DualDeckAudioEngine {
           outgoing.load();
         }
         incoming.volume = this.volume;
-        if (!startPaused) await incoming.play();
+        if (!startPaused) {
+          try {
+            await incoming.play();
+          } catch (firstErr) {
+            // If WebView rejected play() before initial metadata/buffer arrived,
+            // wait briefly for canplay on this exact URL and retry once.
+            if (incoming.src === url && incoming.readyState < 2) {
+              await new Promise<void>((resolve) => {
+                const done = () => {
+                  window.clearTimeout(timer);
+                  incoming.removeEventListener("canplay", done);
+                  incoming.removeEventListener("error", done);
+                  resolve();
+                };
+                const timer = window.setTimeout(done, 2500);
+                incoming.addEventListener("canplay", done, { once: true });
+                incoming.addEventListener("error", done, { once: true });
+              });
+              if (incoming.src === url && this.activeIndex === incomingIndex) {
+                await incoming.play();
+              }
+            } else {
+              throw firstErr;
+            }
+          }
+        }
       }
     } catch (err) {
       console.error("[GyroTube play() failed]", {
