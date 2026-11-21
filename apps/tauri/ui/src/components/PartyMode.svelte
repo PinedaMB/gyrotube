@@ -77,21 +77,24 @@
   style="background-image: radial-gradient(ellipse at 26% 36%, rgba(var(--ambient-rgb), 0.34) 0%, rgba(var(--ambient-rgb), 0.1) 42%, transparent 74%);"
 >
   <!-- Top bar -->
-  <header class="shrink-0 flex items-center justify-between px-4 sm:px-7 py-4 sm:py-5">
-    <div class="flex items-center gap-3 min-w-0">
+  <header
+    class="shrink-0 flex items-center justify-between gap-2 px-4 sm:px-7 pt-[max(0.75rem,env(safe-area-inset-top))] pb-3 lg:py-5"
+  >
+    <div class="flex items-center gap-2.5 sm:gap-3 min-w-0">
       <span
-        class="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[12px] font-bold tracking-wide bg-[var(--accent-soft)] text-[var(--accent-bright)] border border-[var(--accent-border)]/50"
+        class="inline-flex items-center gap-1.5 px-3 sm:px-3.5 py-1.5 rounded-full text-[11.5px] sm:text-[12px] font-bold tracking-wide bg-[var(--accent-soft)] text-[var(--accent-bright)] border border-[var(--accent-border)]/50 shrink-0"
       >
         <PartyPopper size={14} />
         {t("party.badge")}
       </span>
-      <span class="text-[13.5px] font-medium text-[var(--text-muted)] truncate">
+      <span class="hidden sm:inline text-[13.5px] font-medium text-[var(--text-muted)] truncate">
         {player.sourceName === "Not playing" ? t("player.not_playing") : player.sourceName}
       </span>
     </div>
 
     <button
-      class="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full text-[13px] font-semibold bg-[var(--surface)] hover:bg-[var(--surface-hover)] border border-[var(--border)] transition-colors"
+      type="button"
+      class="inline-flex items-center gap-1.5 px-3.5 sm:px-4 py-1.5 rounded-full text-[12.5px] sm:text-[13px] font-semibold bg-[var(--surface)] hover:bg-[var(--surface-hover)] border border-[var(--border)] transition-colors shrink-0"
       onclick={() => (player.partyMode = false)}
     >
       <X size={15} />
@@ -99,17 +102,48 @@
     </button>
   </header>
 
-  <!-- Main 2-column stage -->
-  <div class="flex-1 min-h-0 overflow-y-auto lg:overflow-hidden grid grid-cols-1 lg:grid-cols-[440px_minmax(0,1fr)] gap-8 lg:gap-10 px-5 sm:px-8 lg:px-10 pb-8 max-w-[1440px] w-full mx-auto">
-    <!-- Left column: Art / Synced Video + Info + Controls + Up Next -->
-    <div class="flex flex-col items-center justify-center gap-5">
+  <!-- Mobile compact now-playing header -->
+  {#if player.currentTrack}
+    <div class="flex lg:hidden shrink-0 items-center gap-3 px-4 pb-2">
+      <CoverImage
+        class="track-cover !w-12 !h-12 !rounded-[10px] shrink-0 shadow-md"
+        src={player.currentTrack.cover_url}
+        fallbackSrc={player.currentTrack.cover_large_url}
+        alt={player.currentTrack.title}
+        eager={true}
+      />
+      <div class="min-w-0 flex-1">
+        <h1 class="text-[16px] font-extrabold tracking-tight truncate leading-snug">
+          {player.currentTrack.title}
+        </h1>
+        <p class="text-[13px] font-medium text-[var(--text-muted)] truncate">
+          {player.currentTrack.artist}
+        </p>
+      </div>
+      <button
+        type="button"
+        class="icon-btn !w-10 !h-10 shrink-0 transition-transform active:scale-90 {isFav
+          ? 'text-[var(--coral)]'
+          : 'text-[var(--text-muted)] hover:text-[var(--text)]'}"
+        title={isFav ? t("player.favorite_remove") : t("player.favorite_add")}
+        onclick={() => player.currentTrack && player.toggleFavorite(player.currentTrack)}
+      >
+        <Heart size={19} fill={isFav ? "currentColor" : "none"} />
+      </button>
+    </div>
+  {/if}
+
+  <!-- Main stage: full-height lyrics on mobile, 2-column stage on desktop -->
+  <div class="flex-1 min-h-0 overflow-hidden flex flex-col lg:grid lg:grid-cols-[440px_minmax(0,1fr)] lg:gap-10 px-4 sm:px-8 lg:px-10 lg:pb-8 max-w-[1440px] w-full mx-auto">
+    <!-- Desktop left column: Art / Synced Video + Info + Controls + Up Next -->
+    <div class="hidden lg:flex flex-col items-center justify-center gap-5">
       {#if player.videoMode && player.currentTrack}
         <SyncedVideoPlayer class="w-full max-w-[420px] aspect-video rounded-[20px]" />
       {:else}
         {#key player.currentTrack?.id ?? "none"}
           <div in:scale={{ start: 0.94, duration: 280, easing: cubicOut }}>
             <CoverImage
-              class="party-cover !w-[210px] !h-[210px] sm:!w-[260px] sm:!h-[260px] lg:!w-[292px] lg:!h-[292px] !rounded-[22px] border border-white/12 shadow-[0_26px_64px_rgba(0,0,0,0.58)]"
+              class="party-cover !w-[292px] !h-[292px] !rounded-[22px] border border-white/12 shadow-[0_26px_64px_rgba(0,0,0,0.58)]"
               src={player.currentTrack?.cover_large_url}
               fallbackSrc={player.currentTrack?.cover_url}
               alt={player.currentTrack?.title ?? ""}
@@ -119,7 +153,7 @@
         {/key}
       {/if}
 
-      <div class="w-[340px] text-center space-y-1">
+      <div class="w-full max-w-[340px] text-center space-y-1">
         <h1 class="text-[28px] font-black tracking-[-0.03em] leading-tight line-clamp-2">
           {player.currentTrack?.title ?? t("player.nothing_playing")}
         </h1>
@@ -129,7 +163,7 @@
       </div>
 
       <!-- Interactive progress bar -->
-      <div class="w-[340px] space-y-2.5">
+      <div class="w-full max-w-[340px] space-y-2.5">
         <div
           class="h-1.5 w-full rounded-full bg-[var(--control-track)] cursor-pointer overflow-hidden group"
           role="slider"
@@ -153,6 +187,7 @@
         <div class="flex items-center justify-between text-[12.5px] font-medium text-[var(--text-muted)] numeric">
           <span>{formatDuration(player.positionSecs)}</span>
           <button
+            type="button"
             class="icon-btn !w-9 !h-9 transition-transform active:scale-90 {isFav
               ? 'text-[var(--coral)]'
               : 'text-[var(--text-muted)] hover:text-[var(--text)]'}"
@@ -169,6 +204,7 @@
       <!-- Transport controls -->
       <div class="flex items-center justify-center gap-4">
         <button
+          type="button"
           class="icon-btn !w-10 !h-10 relative {player.shuffle
             ? 'active'
             : 'text-[var(--text-muted)] hover:text-[var(--text)]'}"
@@ -182,6 +218,7 @@
         </button>
 
         <button
+          type="button"
           class="icon-btn !w-11 !h-11"
           disabled={!player.currentTrack}
           title={t("player.previous")}
@@ -191,6 +228,7 @@
         </button>
 
         <button
+          type="button"
           class="play-circle !w-[62px] !h-[62px]"
           disabled={!player.currentTrack}
           title={t("player.play_pause")}
@@ -204,6 +242,7 @@
         </button>
 
         <button
+          type="button"
           class="icon-btn !w-11 !h-11"
           disabled={!player.currentTrack}
           title={t("player.next")}
@@ -213,6 +252,7 @@
         </button>
 
         <button
+          type="button"
           class="icon-btn !w-10 !h-10 relative {player.repeat
             ? 'active'
             : 'text-[var(--text-muted)] hover:text-[var(--text)]'}"
@@ -229,7 +269,8 @@
       <!-- Up Next card -->
       {#if player.nextTrack}
         <button
-          class="w-[340px] hidden md:flex items-center gap-3 p-3 rounded-2xl bg-[var(--surface)] hover:bg-[var(--surface-hover)] border border-[var(--border)] text-left transition-colors"
+          type="button"
+          class="w-full max-w-[340px] flex items-center gap-3 p-3 rounded-2xl bg-[var(--surface)] hover:bg-[var(--surface-hover)] border border-[var(--border)] text-left transition-colors"
           onclick={() => void player.next()}
         >
           <CoverImage class="up-next-cover !w-11 !h-11 !rounded-[8px]" src={player.nextTrack.cover_url} alt="" />
@@ -244,30 +285,30 @@
       {/if}
     </div>
 
-    <!-- Right column: Cinema-grade lyrics -->
-    <div class="min-h-0 flex flex-col">
-      <div class="shrink-0 flex items-center gap-2.5 pb-2">
-        <span class="text-[13px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">
+    <!-- Cinema-grade lyrics (full-height on mobile, right column on desktop) -->
+    <div class="flex-1 min-h-0 flex flex-col pt-2 lg:pt-0">
+      <div class="shrink-0 flex items-center gap-2.5 pb-1.5 lg:pb-2">
+        <span class="text-[12px] lg:text-[13px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">
           {t("lyrics.title")}
         </span>
         {#if player.lyrics.type === "Synced"}
           <span
-            class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-[var(--accent-soft)] text-[var(--accent-bright)]"
+            class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10.5px] lg:text-[11px] font-bold bg-[var(--accent-soft)] text-[var(--accent-bright)]"
           >
             <span class="w-1.5 h-1.5 rounded-full bg-[var(--accent-bright)]"></span>
             {t("lyrics.synced")}
           </span>
         {:else if player.lyrics.type === "Plain"}
-          <span class="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-white/8 text-[var(--text-muted)]">
+          <span class="px-2.5 py-0.5 rounded-full text-[10.5px] lg:text-[11px] font-semibold bg-[var(--surface)] text-[var(--text-muted)]">
             {t("lyrics.static")}
           </span>
         {/if}
       </div>
 
       {#if player.lyricsLoading && player.currentTrack}
-        <div class="flex-1 flex flex-col justify-center gap-6 py-10 pr-8 animate-pulse" aria-busy="true">
+        <div class="flex-1 flex flex-col justify-center gap-5 lg:gap-6 py-8 lg:py-10 lg:pr-8 animate-pulse" aria-busy="true">
           {#each [68, 52, 80, 60, 44, 74] as w}
-            <div class="h-7 rounded-lg bg-[var(--skeleton)]" style="width: {w}%;"></div>
+            <div class="h-6 lg:h-7 rounded-lg bg-[var(--skeleton)]" style="width: {w}%;"></div>
           {/each}
         </div>
       {:else if player.lyrics.type === "Synced"}
@@ -275,7 +316,7 @@
           <div
             role="region"
             aria-label="Lyrics"
-            class="party-lyrics-scroll flex-1 min-h-0 overflow-y-auto overflow-x-hidden pt-16 pb-36 pr-8 flex flex-col gap-6"
+            class="party-lyrics-scroll flex-1 min-h-0 overflow-y-auto overflow-x-hidden pt-10 pb-24 lg:pt-16 lg:pb-36 pr-2 lg:pr-8 flex flex-col gap-5 lg:gap-6"
             onwheel={markUserScroll}
             ontouchmove={markUserScroll}
           >
@@ -286,7 +327,7 @@
               <button
                 type="button"
                 bind:this={lineRefs[i]}
-                class="party-line text-left origin-left {active ? 'active-line' : ''} {stanzaBreak ? 'mt-5' : ''}"
+                class="party-line text-left origin-left {active ? 'active-line' : ''} {stanzaBreak ? 'mt-4 lg:mt-5' : ''}"
                 style="opacity: {lineOpacity(i)};"
                 onclick={() => {
                   autoScrollPaused = false;
@@ -300,8 +341,9 @@
 
           {#if autoScrollPaused && player.activeLyricIndex != null}
             <button
+              type="button"
               transition:scale={{ start: 0.88, duration: 180, easing: cubicOut }}
-              class="absolute bottom-6 left-1/2 -translate-x-1/2 inline-flex items-center gap-2 px-4 py-2 rounded-full text-[13px] font-bold bg-[var(--accent)] hover:bg-[var(--accent-bright)] text-white shadow-[0_10px_28px_rgba(0,0,0,0.5)] transition-all active:scale-95"
+              class="absolute bottom-4 lg:bottom-6 left-1/2 -translate-x-1/2 inline-flex items-center gap-2 px-4 py-2 rounded-full text-[13px] font-bold bg-[var(--accent)] hover:bg-[var(--accent-bright)] text-white shadow-[0_10px_28px_rgba(0,0,0,0.5)] transition-all active:scale-95"
               onclick={resumeSync}
             >
               <LocateFixed size={15} />
@@ -310,15 +352,111 @@
           {/if}
         </div>
       {:else if player.lyrics.type === "Plain"}
-        <div class="party-lyrics-scroll flex-1 min-h-0 overflow-y-auto py-12 pr-6">
-          <pre class="whitespace-pre-wrap font-sans text-[24px] font-bold leading-[1.6] tracking-[-0.02em] text-[var(--text)]/85">{player.lyrics.text}</pre>
+        <div class="party-lyrics-scroll flex-1 min-h-0 overflow-y-auto py-8 lg:py-12 pr-2 lg:pr-6">
+          <pre class="whitespace-pre-wrap font-sans text-[19px] sm:text-[22px] lg:text-[24px] font-bold leading-[1.55] tracking-[-0.02em] text-[var(--text)]/85">{player.lyrics.text}</pre>
         </div>
       {:else}
         <div class="flex-1 flex flex-col items-center justify-center text-center gap-3 text-[var(--text-muted)]">
-          <Music size={40} class="opacity-30" />
-          <p class="text-[18px] font-semibold">{t("lyrics.none_track")}</p>
+          <Music size={36} class="opacity-30" />
+          <p class="text-[16px] lg:text-[18px] font-semibold">{t("lyrics.none_track")}</p>
         </div>
       {/if}
+    </div>
+  </div>
+
+  <!-- Mobile pinned bottom controls dock -->
+  <div
+    class="flex lg:hidden shrink-0 flex-col gap-3 px-5 pt-2"
+    style="padding-bottom: max(1rem, env(safe-area-inset-bottom));"
+  >
+    <div class="space-y-1.5">
+      <div
+        class="h-2 w-full rounded-full bg-[var(--control-track)] cursor-pointer overflow-hidden"
+        role="slider"
+        tabindex="0"
+        aria-label="Seek"
+        aria-valuemin={0}
+        aria-valuemax={Math.round(player.durationSecs)}
+        aria-valuenow={Math.round(player.positionSecs)}
+        onclick={handleProgressClick}
+        onkeydown={(e) => {
+          if (e.key === "ArrowRight") player.seek(player.positionSecs + 5);
+          else if (e.key === "ArrowLeft") player.seek(Math.max(0, player.positionSecs - 5));
+        }}
+      >
+        <div
+          class="h-full rounded-full bg-[var(--accent-bright)] transition-[width] duration-150 ease-linear"
+          style="width: {progressPct}%"
+        ></div>
+      </div>
+      <div class="flex items-center justify-between text-[11.5px] font-medium text-[var(--text-muted)] numeric">
+        <span>{formatDuration(player.positionSecs)}</span>
+        <span>{formatDuration(player.durationSecs)}</span>
+      </div>
+    </div>
+
+    <div class="flex items-center justify-between max-w-[340px] w-full mx-auto">
+      <button
+        type="button"
+        class="icon-btn !w-10 !h-10 relative {player.shuffle
+          ? 'active'
+          : 'text-[var(--text-muted)] hover:text-[var(--text)]'}"
+        title={t("player.shuffle")}
+        onclick={() => player.toggleShuffle()}
+      >
+        <Shuffle size={18} />
+        {#if player.shuffle}
+          <span class="w-1 h-1 rounded-full bg-[var(--accent-bright)] absolute bottom-1"></span>
+        {/if}
+      </button>
+
+      <button
+        type="button"
+        class="icon-btn !w-11 !h-11"
+        disabled={!player.currentTrack}
+        title={t("player.previous")}
+        onclick={() => void player.prev()}
+      >
+        <SkipBack size={22} fill="currentColor" />
+      </button>
+
+      <button
+        type="button"
+        class="play-circle !w-14 !h-14"
+        disabled={!player.currentTrack}
+        title={t("player.play_pause")}
+        onclick={() => void player.togglePlay()}
+      >
+        {#if player.isPlaying}
+          <Pause size={22} fill="currentColor" />
+        {:else}
+          <Play size={22} fill="currentColor" class="translate-x-[1.5px]" />
+        {/if}
+      </button>
+
+      <button
+        type="button"
+        class="icon-btn !w-11 !h-11"
+        disabled={!player.currentTrack}
+        title={t("player.next")}
+        onclick={() => void player.next()}
+      >
+        <SkipForward size={22} fill="currentColor" />
+      </button>
+
+      <button
+        type="button"
+        class="icon-btn !w-10 !h-10 relative {player.repeat
+          ? 'active'
+          : 'text-[var(--text-muted)] hover:text-[var(--text)]'}"
+        title={t("player.repeat")}
+        onclick={() => player.toggleRepeat()}
+      >
+        <Repeat size={18} />
+        {#if player.repeat}
+          <span class="w-1 h-1 rounded-full bg-[var(--accent-bright)] absolute bottom-1"></span>
+        {/if}
+      </button>
     </div>
   </div>
 </div>
@@ -336,7 +474,7 @@
 
   .party-line {
     position: relative;
-    font-size: clamp(24px, 2.7vw, 36px);
+    font-size: clamp(20px, 5.2vw, 34px);
     font-weight: 700;
     line-height: 1.38;
     letter-spacing: -0.02em;

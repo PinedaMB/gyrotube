@@ -2,11 +2,71 @@
   import { GripVertical, ListMusic } from "lucide-svelte";
   import { fade } from "svelte/transition";
   import { t } from "../../lib/i18n.svelte";
+  import { device } from "../../lib/stores/device.svelte";
   import { player } from "../../lib/stores/player.svelte";
   import TrackRow from "../TrackRow.svelte";
 
   let dragFrom = $state<number | null>(null);
   let dragOverIdx = $state<number | null>(null);
+
+  // Touch / pointer-based reordering via the drag handle (HTML5 DnD does not work on Android touch)
+  let pointerDragFrom = $state<number | null>(null);
+  let pointerDragOver = $state<number | null>(null);
+  let pointerStartY = 0;
+  let pointerOffsetY = $state(0);
+  let rowEls = $state<Record<number, HTMLDivElement>>({});
+
+  function findRowIndexAtY(clientY: number): number | null {
+    const count = player.queue.length;
+    if (count === 0) return null;
+    for (let idx = 0; idx < count; idx++) {
+      const el = rowEls[idx];
+      if (!el) continue;
+      const rect = el.getBoundingClientRect();
+      if (clientY < rect.top + rect.height / 2) {
+        return idx;
+      }
+    }
+    return count - 1;
+  }
+
+  function startPointerDrag(e: PointerEvent, index: number) {
+    e.preventDefault();
+    e.stopPropagation();
+    const target = e.currentTarget as HTMLElement;
+    try {
+      target.setPointerCapture(e.pointerId);
+    } catch {
+      // ignore if capture unavailable
+    }
+    pointerDragFrom = index;
+    pointerDragOver = index;
+    pointerStartY = e.clientY;
+    pointerOffsetY = 0;
+  }
+
+  function movePointerDrag(e: PointerEvent) {
+    if (pointerDragFrom == null) return;
+    e.preventDefault();
+    pointerOffsetY = e.clientY - pointerStartY;
+    const targetIdx = findRowIndexAtY(e.clientY);
+    if (targetIdx != null) {
+      pointerDragOver = targetIdx;
+    }
+  }
+
+  function endPointerDrag(e: PointerEvent, commit: boolean) {
+    if (pointerDragFrom == null) return;
+    e.preventDefault();
+    const from = pointerDragFrom;
+    const to = pointerDragOver;
+    pointerDragFrom = null;
+    pointerDragOver = null;
+    pointerOffsetY = 0;
+    if (commit && to != null && from !== to) {
+      player.moveQueueItem(from, to);
+    }
+  }
 </script>
 
 <div in:fade={{ duration: 180 }} class="flex flex-col gap-3 pt-1">
@@ -33,10 +93,24 @@
     <div class="track-list" role="list">
       {#each player.queue as track, i (track.id + ":" + i)}
         {@const isCurrent = player.currentIndex === i}
+        {@const isPointerDragging = pointerDragFrom === i}
+        {@const activeDropTarget =
+          (dragOverIdx === i && dragFrom !== i) ||
+          (pointerDragOver === i && pointerDragFrom != null && pointerDragFrom !== i)}
         <div
-          class={dragOverIdx === i ? "outline -outline-offset-1 outline-[var(--accent-bright)]" : ""}
+          bind:this={rowEls[i]}
+          class="relative rounded-xl transition-shadow {activeDropTarget
+            ? 'outline -outline-offset-1 outline-[var(--accent-bright)]'
+            : ''} {isPointerDragging ? 'z-20 shadow-lg bg-[var(--bg-elevated)] opacity-95' : ''}"
+          style={isPointerDragging ? `transform: translateY(${pointerOffsetY}px);` : undefined}
           role="listitem"
-          draggable="true"
+          draggable={!device.isTouch}
+          oncontextmenu={(e) => {
+            if (pointerDragFrom != null) {
+              e.preventDefault();
+              e.stopPropagation();
+            }
+          }}
           ondragstart={() => (dragFrom = i)}
           ondragover={(e) => {
             e.preventDefault();
@@ -63,11 +137,22 @@
             removeLabel={t("queue.remove")}
           >
             {#snippet leading()}
-              <GripVertical
-                size={13}
-                class="shrink-0 cursor-grab text-[var(--text-muted)] opacity-35 group-hover:opacity-90 transition-opacity"
-                aria-hidden="true"
-              />
+              <span
+                role="presentation"
+                class="inline-flex items-center justify-center p-1.5 -ml-1.5 rounded-md cursor-grab active:cursor-grabbing text-[var(--text-muted)] opacity-55 md:opacity-35 group-hover:opacity-90 touch-none select-none shrink-0"
+                style="touch-action: none;"
+                onpointerdown={(e) => startPointerDrag(e, i)}
+                onpointermove={movePointerDrag}
+                onpointerup={(e) => endPointerDrag(e, true)}
+                onpointercancel={(e) => endPointerDrag(e, false)}
+                onclick={(e) => e.stopPropagation()}
+                oncontextmenu={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                }}
+              >
+                <GripVertical size={15} aria-hidden="true" />
+              </span>
             {/snippet}
           </TrackRow>
         </div>

@@ -78,14 +78,14 @@
   />
 {:else}
   <div class="page-clamp">
-    <div class="flex items-center justify-between gap-3">
-      <div>
-        <h1 class="text-[28px] font-extrabold tracking-[-0.025em] leading-tight">{t("collection.title")}</h1>
+    <div class="flex flex-wrap items-center justify-between gap-3">
+      <div class="min-w-0 flex-1">
+        <h1 class="text-[26px] sm:text-[28px] font-extrabold tracking-[-0.025em] leading-tight">{t("collection.title")}</h1>
         <p class="text-[13px] text-[var(--text-muted)] mt-0.5">
           {t("collection.subtitle")}
         </p>
       </div>
-      <button class="pill-btn primary !px-4" onclick={openCreateModal}>
+      <button type="button" class="pill-btn primary !px-3.5 sm:!px-4" onclick={openCreateModal}>
         <Plus size={15} />
         {t("collection.new_playlist")}
       </button>

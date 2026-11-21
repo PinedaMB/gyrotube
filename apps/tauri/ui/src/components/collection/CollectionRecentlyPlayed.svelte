@@ -6,21 +6,21 @@
 </script>
 
 <section class="mt-8 flex flex-col gap-3">
-  <div class="flex items-center justify-between gap-3">
-    <div class="flex items-baseline gap-2">
-      <h2 class="section-title">{t("collection.recently_played")}</h2>
+  <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5">
+    <div class="flex items-center gap-2 min-w-0">
+      <h2 class="section-title !text-[20px] sm:!text-[22px] truncate">{t("collection.recently_played")}</h2>
       {#if player.recentTracks.length > 0}
-        <span class="text-[12.5px] font-semibold text-[var(--text-muted)] numeric">
+        <span class="px-2 py-0.5 rounded-full bg-[var(--surface)] border border-[var(--border)] text-[11.5px] font-bold text-[var(--text-muted)] numeric shrink-0">
           {player.recentTracks.length}
         </span>
       {/if}
     </div>
 
     {#if player.recentTracks.length > 0}
-      <div class="flex items-center gap-2">
+      <div class="flex items-center gap-2 shrink-0">
         <button
           type="button"
-          class="pill-btn hover:!text-red-400 hover:!border-red-500/30 hover:!bg-red-500/10"
+          class="pill-btn !text-[12.5px] hover:!text-red-400 hover:!border-red-500/30 hover:!bg-red-500/10"
           onclick={() => player.clearRecentTracks()}
         >
           <Trash2 size={13} />
@@ -28,7 +28,7 @@
         </button>
         <button
           type="button"
-          class="pill-btn"
+          class="pill-btn !text-[12.5px]"
           onclick={() =>
             player.replaceQueueAndPlay(player.recentTracks, 0, t("collection.recently_played"))}
         >
