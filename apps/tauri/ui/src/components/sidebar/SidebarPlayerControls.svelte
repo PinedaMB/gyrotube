@@ -2,26 +2,20 @@
   import {
     ChevronRight,
     Disc3,
-    Heart,
-    PartyPopper,
     Pause,
     Play,
-    Radio,
     Repeat,
     Shuffle,
     SkipBack,
     SkipForward,
-    Timer,
-    Volume1,
-    Volume2,
-    VolumeX,
   } from "lucide-svelte";
   import { cubicOut } from "svelte/easing";
-  import { fade, fly, scale } from "svelte/transition";
+  import { fade, scale } from "svelte/transition";
   import { t } from "../../lib/i18n.svelte";
   import { player } from "../../lib/stores/player.svelte";
   import { formatDuration } from "../../lib/types";
   import CoverImage from "../CoverImage.svelte";
+  import SidebarActionPopovers from "./SidebarActionPopovers.svelte";
 
   interface Props {
     sleepRemainingSecs: number | null;
@@ -30,13 +24,8 @@
 
   let { sleepRemainingSecs, onSetSleepTimer }: Props = $props();
 
-  type ActionPopover = "volume" | "timer" | null;
-
   let seeking = $state(false);
   let seekDraft = $state(0);
-  let openPopover = $state<ActionPopover>(null);
-  let prevVolume = $state(1);
-  let startingRadio = $state(false);
   let resolvingArtist = $state(false);
 
   let displayPos = $derived(seeking ? seekDraft : player.positionSecs);
@@ -45,21 +34,6 @@
       ? Math.max(0, Math.min(100, (displayPos / player.durationSecs) * 100))
       : 0,
   );
-  let volumePct = $derived(Math.round(player.volume * 100));
-  let isFav = $derived(player.currentTrack ? player.isFavorite(player.currentTrack.id) : false);
-
-  function togglePopover(kind: Exclude<ActionPopover, null>) {
-    openPopover = openPopover === kind ? null : kind;
-  }
-
-  function toggleMute() {
-    if (player.volume > 0.01) {
-      prevVolume = player.volume;
-      player.setVolume(0);
-    } else {
-      player.setVolume(prevVolume > 0.05 ? prevVolume : 0.8);
-    }
-  }
 </script>
 
 <div in:fade={{ duration: 180 }} class="flex-1 flex flex-col items-center justify-between py-4 gap-5">
@@ -148,162 +122,8 @@
       {/if}
     </div>
 
-    <!-- 5-icon minimalist action row (Volume, Favorite, Start Radio, Sleep Timer, Party Mode) -->
-    <div class="relative w-full flex items-center justify-center gap-5 py-0.5">
-      <button
-        class="icon-btn !w-9 !h-9 {openPopover === 'volume' || player.volume === 0
-          ? 'active'
-          : 'text-[var(--text-muted)] hover:text-[var(--text)]'}"
-        title="Volume ({volumePct}%)"
-        onclick={() => togglePopover("volume")}
-      >
-        {#if player.volume === 0}
-          <VolumeX size={18} />
-        {:else if player.volume < 0.5}
-          <Volume1 size={18} />
-        {:else}
-          <Volume2 size={18} />
-        {/if}
-      </button>
-
-      <button
-        class="icon-btn !w-9 !h-9 transition-transform active:scale-90 {isFav
-          ? 'text-[var(--coral)]'
-          : 'text-[var(--text-muted)] hover:text-[var(--text)]'}"
-        disabled={!player.currentTrack}
-        title={isFav ? "Remove from favorites" : "Add to favorites"}
-        onclick={() => player.currentTrack && player.toggleFavorite(player.currentTrack)}
-      >
-        <Heart size={18} fill={isFav ? "currentColor" : "none"} />
-      </button>
-
-      <button
-        class="icon-btn !w-9 !h-9 {startingRadio
-          ? 'active'
-          : 'text-[var(--text-muted)] hover:text-[var(--text)]'}"
-        disabled={!player.currentTrack || startingRadio}
-        title="Start radio from this song"
-        onclick={async () => {
-          openPopover = null;
-          startingRadio = true;
-          try {
-            await player.startRadioFromCurrent();
-          } finally {
-            startingRadio = false;
-          }
-        }}
-      >
-        {#if startingRadio}
-          <span class="w-4 h-4 rounded-full border-2 border-current/30 border-t-current animate-spin"></span>
-        {:else}
-          <Radio size={18} />
-        {/if}
-      </button>
-
-      <button
-        class="icon-btn !w-9 !h-9 relative {openPopover === 'timer' || sleepRemainingSecs != null
-          ? 'active'
-          : 'text-[var(--text-muted)] hover:text-[var(--text)]'}"
-        title={sleepRemainingSecs != null
-          ? `Sleep timer: ${formatDuration(sleepRemainingSecs)}`
-          : "Sleep timer"}
-        onclick={() => togglePopover("timer")}
-      >
-        <Timer size={18} />
-        {#if sleepRemainingSecs != null}
-          <span class="w-1.5 h-1.5 rounded-full bg-[var(--accent-bright)] absolute top-1 right-1"></span>
-        {/if}
-      </button>
-
-      <button
-        class="icon-btn !w-9 !h-9 {player.partyMode
-          ? 'active'
-          : 'text-[var(--text-muted)] hover:text-[var(--text)]'}"
-        title="Party Mode"
-        onclick={() => {
-          openPopover = null;
-          player.partyMode = true;
-        }}
-      >
-        <PartyPopper size={18} />
-      </button>
-
-      {#if openPopover !== null}
-        <button
-          type="button"
-          aria-label="Close popover"
-          class="fixed inset-0 z-20 cursor-default bg-transparent"
-          onclick={() => (openPopover = null)}
-        ></button>
-      {/if}
-
-      {#if openPopover === "volume"}
-        <div
-          transition:fly={{ y: 8, duration: 170, easing: cubicOut }}
-          class="absolute bottom-12 left-1/2 -translate-x-1/2 w-[272px] p-3.5 rounded-2xl bg-[var(--bg-elevated)] border border-[var(--border-strong)] shadow-[0_16px_40px_rgba(0,0,0,0.5)] z-30 space-y-2.5"
-        >
-          <div class="flex items-center justify-between text-[12px]">
-            <span class="font-semibold text-[var(--text-muted)]">{t("player.volume")}</span>
-            <span class="font-bold text-[var(--accent-bright)] numeric">{volumePct}%</span>
-          </div>
-          <div class="flex items-center gap-3">
-            <button
-              class="icon-btn !w-8 !h-8 shrink-0 bg-[var(--surface)] hover:bg-[var(--surface-hover)] {player.volume === 0
-                ? 'text-[var(--coral)]'
-                : 'text-[var(--text)]'}"
-              onclick={toggleMute}
-              title={player.volume === 0 ? "Unmute" : "Mute"}
-            >
-              {#if player.volume === 0}
-                <VolumeX size={16} />
-              {:else if player.volume < 0.5}
-                <Volume1 size={16} />
-              {:else}
-                <Volume2 size={16} />
-              {/if}
-            </button>
-            <input
-              class="sidebar-seek flex-1 min-w-0"
-              type="range"
-              min="0"
-              max="1"
-              step="0.01"
-              value={player.volume}
-              aria-label="Volume"
-              style="background: linear-gradient(to right, var(--accent-bright) {volumePct}%, rgba(255,255,255,0.16) {volumePct}%);"
-              oninput={(e) => player.setVolume(Number((e.currentTarget as HTMLInputElement).value))}
-            />
-          </div>
-        </div>
-      {:else if openPopover === "timer"}
-        <div
-          transition:fly={{ y: 8, duration: 170, easing: cubicOut }}
-          class="absolute bottom-12 left-1/2 -translate-x-1/2 w-[272px] p-3.5 rounded-2xl bg-[var(--bg-elevated)] border border-[var(--border-strong)] shadow-[0_16px_40px_rgba(0,0,0,0.5)] z-30 space-y-2.5"
-        >
-          <div class="flex items-center justify-between text-[12px]">
-            <span class="font-semibold text-[var(--text-muted)]">{t("player.sleep_timer")}</span>
-            {#if sleepRemainingSecs != null}
-              <span class="font-bold text-[var(--accent-bright)] numeric">
-                {formatDuration(sleepRemainingSecs)}
-              </span>
-            {/if}
-          </div>
-          <div class="grid grid-cols-5 gap-1.5">
-            {#each [null, 15, 30, 45, 60] as mins}
-              <button
-                class="py-1.5 rounded-xl text-[12px] font-semibold bg-[var(--surface)] text-[var(--text-muted)] hover:bg-[var(--accent-soft)] hover:text-[var(--accent-bright)] transition-colors"
-                onclick={() => {
-                  onSetSleepTimer(mins);
-                  openPopover = null;
-                }}
-              >
-                {mins == null ? t("player.sleep_off") : `${mins}m`}
-              </button>
-            {/each}
-          </div>
-        </div>
-      {/if}
-    </div>
+    <!-- 5-icon action row + Volume/Timer popovers -->
+    <SidebarActionPopovers {sleepRemainingSecs} {onSetSleepTimer} />
 
     <!-- Seek bar + Time / Quality -->
     <div class="w-full space-y-2.5">
@@ -342,6 +162,7 @@
     <!-- Transport controls -->
     <div class="w-full flex items-center justify-center gap-4 pt-1 pb-1">
       <button
+        type="button"
         class="icon-btn relative {player.shuffle
           ? 'active'
           : 'text-[var(--text-muted)] hover:text-[var(--text)]'}"
@@ -355,18 +176,20 @@
       </button>
 
       <button
+        type="button"
         class="icon-btn !w-9 !h-9"
         disabled={!player.currentTrack}
-        title="Previous"
+        title={t("player.previous")}
         onclick={() => void player.prev()}
       >
         <SkipBack size={20} fill="currentColor" />
       </button>
 
       <button
+        type="button"
         class="play-circle !w-[56px] !h-[56px] shrink-0"
         disabled={!player.currentTrack}
-        title="Play / Pause"
+        title={t("player.play_pause")}
         onclick={() => void player.togglePlay()}
       >
         {#if player.isLoadingAudio}
@@ -379,15 +202,17 @@
       </button>
 
       <button
+        type="button"
         class="icon-btn !w-9 !h-9"
         disabled={!player.currentTrack}
-        title="Next"
+        title={t("party.up_next")}
         onclick={() => void player.next()}
       >
         <SkipForward size={20} fill="currentColor" />
       </button>
 
       <button
+        type="button"
         class="icon-btn relative {player.repeat
           ? 'active'
           : 'text-[var(--text-muted)] hover:text-[var(--text)]'}"
@@ -404,11 +229,11 @@
 </div>
 
 <style>
-  .sidebar-seek {
+  :global(.sidebar-seek) {
     height: 4px;
   }
 
-  .sidebar-seek::-webkit-slider-thumb {
+  :global(.sidebar-seek::-webkit-slider-thumb) {
     width: 17px;
     height: 17px;
     background: #e5e7eb;
@@ -416,7 +241,7 @@
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.45);
   }
 
-  .sidebar-seek::-moz-range-thumb {
+  :global(.sidebar-seek::-moz-range-thumb) {
     width: 17px;
     height: 17px;
     background: #e5e7eb;

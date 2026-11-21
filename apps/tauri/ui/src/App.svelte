@@ -2,8 +2,6 @@
   import { onMount } from "svelte";
   import { cubicOut } from "svelte/easing";
   import { fade, fly } from "svelte/transition";
-  import AlbumView from "./components/AlbumView.svelte";
-  import ArtistView from "./components/ArtistView.svelte";
   import CollectionView from "./components/CollectionView.svelte";
   import CollectionPlaylistModal from "./components/collection/CollectionPlaylistModal.svelte";
   import ContextMenu from "./components/ContextMenu.svelte";
@@ -13,10 +11,7 @@
   import MiniPlayer from "./components/MiniPlayer.svelte";
   import MobileNav from "./components/MobileNav.svelte";
   import NavSidebar from "./components/NavSidebar.svelte";
-  import PartyMode from "./components/PartyMode.svelte";
-  import SettingsModal from "./components/SettingsModal.svelte";
   import SidebarPlayer from "./components/SidebarPlayer.svelte";
-  import SpinModal from "./components/spin/SpinModal.svelte";
   import { contextMenu } from "./lib/stores/contextMenu.svelte";
   import { player } from "./lib/stores/player.svelte";
 
@@ -74,17 +69,23 @@
             {:else if player.activeView.kind === "collection"}
               <CollectionView />
             {:else if player.activeView.kind === "artist"}
-              <ArtistView
-                artistId={player.activeView.artistId}
-                artistName={player.activeView.artistName}
-              />
+              {@const artistView = player.activeView}
+              {#await import("./components/ArtistView.svelte") then { default: ArtistView }}
+                <ArtistView
+                  artistId={artistView.artistId}
+                  artistName={artistView.artistName}
+                />
+              {/await}
             {:else if player.activeView.kind === "album"}
-              <AlbumView
-                id={player.activeView.id}
-                title={player.activeView.title}
-                coverUrl={player.activeView.coverUrl}
-                isPlaylist={player.activeView.isPlaylist}
-              />
+              {@const albumView = player.activeView}
+              {#await import("./components/AlbumView.svelte") then { default: AlbumView }}
+                <AlbumView
+                  id={albumView.id}
+                  title={albumView.title}
+                  coverUrl={albumView.coverUrl}
+                  isPlaylist={albumView.isPlaylist}
+                />
+              {/await}
             {/if}
           </div>
         {/key}
@@ -116,14 +117,27 @@
   <MobileNav />
 
   {#if player.partyMode}
-    <div transition:fade={{ duration: 220 }}>
-      <PartyMode />
-    </div>
+    {#await import("./components/PartyMode.svelte") then { default: PartyMode }}
+      <div transition:fade={{ duration: 220 }}>
+        <PartyMode />
+      </div>
+    {/await}
   {/if}
 
-  <SettingsModal />
-  <SpinModal />
+  {#if player.settingsOpen}
+    {#await import("./components/SettingsModal.svelte") then { default: SettingsModal }}
+      <SettingsModal />
+    {/await}
+  {/if}
+
+  {#if player.spinOpen}
+    {#await import("./components/spin/SpinModal.svelte") then { default: SpinModal }}
+      <SpinModal />
+    {/await}
+  {/if}
+
   <ContextMenu />
+
   {#if player.playlistDraftTrack}
     <CollectionPlaylistModal
       open={true}

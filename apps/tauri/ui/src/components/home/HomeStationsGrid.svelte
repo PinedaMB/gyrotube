@@ -12,18 +12,12 @@
   } from "lucide-svelte";
   import { onMount } from "svelte";
   import { api, isTauriRuntime } from "../../lib/api";
+  import { STATION_PALETTE } from "../../lib/genrePalette";
   import { t } from "../../lib/i18n.svelte";
   import { player } from "../../lib/stores/player.svelte";
   import type { Genre } from "../../lib/types";
 
-  const STATION_COLORS = [
-    "#e05263",
-    "#2ec27e",
-    "#9141ac",
-    "#c061cb",
-    "#e66100",
-    "#2190a4",
-  ];
+  const STATION_COLORS = STATION_PALETTE;
 
   let { stations }: { stations: Genre[] } = $props();
   let sectionEl = $state<HTMLElement | null>(null);

@@ -4,7 +4,6 @@
   "nav.explore": "Explore",
   "nav.collection": "Collection",
   "nav.back": "Back",
-
   "header.toggle_sidebar": "Toggle player sidebar",
   "header.go_home": "Go to Home",
   "header.search_placeholder": "Search songs, albums, artists…",
@@ -15,7 +14,6 @@
   "header.spin_mode": "SPIN Mode",
   "header.party_mode": "Party Mode",
   "header.settings": "Settings",
-
   "player.playing_from": "Playing from",
   "player.playing": "Playing",
   "player.paused": "Paused",
@@ -40,14 +38,12 @@
   "player.tab_player": "Player",
   "player.tab_lyrics": "Lyrics",
   "player.tab_queue": "Queue",
-
   "lyrics.title": "Lyrics",
   "lyrics.synced": "Synced",
   "lyrics.static": "Static",
   "lyrics.sync_btn": "Sync",
   "lyrics.none_track": "No lyrics available for this track.",
   "lyrics.none_idle": "Play a song to view its lyrics.",
-
   "queue.title": "Queue",
   "queue.clear": "Clear",
   "queue.empty": "The queue is empty.",
@@ -56,7 +52,6 @@
   "queue.autoplay_desc": "Queue similar songs when queue ends",
   "queue.suggestions": "Up next suggestions",
   "queue.add": "Add to queue",
-
   "home.morning": "Good morning",
   "home.afternoon": "Good afternoon",
   "home.evening": "Good evening",
@@ -91,7 +86,6 @@
   "related.artists": "Related artists",
   "artist.plays": "{count} plays",
   "album.start_radio": "Start radio",
-
   "explore.title": "Explore",
   "explore.subtitle": "Moods, moments, and music genres from YouTube Music",
   "explore.moods": "Moods & moments",
@@ -104,7 +98,6 @@
   "explore.playlists": "Playlists",
   "explore.top_result": "Top result",
   "explore.artist_pill": "Artist",
-
   "collection.title": "Collection",
   "collection.subtitle": "Your local playlists, recent history, and favorite songs",
   "collection.new_playlist": "New playlist",
@@ -130,27 +123,9 @@
   "collection.sort_title": "Title",
   "collection.sort_artist": "Artist",
   "collection.sort_duration": "Duration",
-  "collection.modal_new": "New playlist",
-  "collection.modal_edit": "Customize playlist",
-  "collection.modal_name": "Name",
-  "collection.modal_name_ph": "Late Night Drive, Chill Mix…",
-  "collection.modal_desc": "Description",
-  "collection.modal_desc_ph": "Optional subtitle or vibe",
-  "collection.modal_color": "Accent color",
-  "collection.modal_auto": "Auto",
-  "collection.modal_icon": "Icon",
-  "collection.modal_cancel": "Cancel",
-  "collection.modal_create": "Create playlist",
-  "collection.modal_save": "Save changes",
-  "collection.untitled": "Untitled playlist",
-  "collection.default_desc": "Your curated local collection",
   "collection.local_badge": "Local playlist",
-  "collection.col_title": "Title",
-  "collection.col_album": "Album",
   "collection.song_one": "1 song",
   "collection.song_many": "{count} songs",
-
-  "artist.verified": "Verified Artist",
   "artist.play": "Play",
   "artist.shuffle": "Shuffle",
   "artist.mix": "Mix",
@@ -161,15 +136,11 @@
   "artist.albums": "Albums",
   "artist.playlists": "Playlists",
   "artist.similar": "Fans might also like",
-
   "album.badge_album": "Album",
   "album.badge_playlist": "Playlist",
-  "album.no_tracks": "No tracks found.",
-
   "party.badge": "Party Mode",
   "party.exit": "Exit",
   "party.up_next": "Up Next",
-
   "settings.title": "Settings",
   "settings.appearance": "Appearance",
   "settings.theme": "Theme",
@@ -195,7 +166,6 @@
   "settings.search_history_one": "1 saved search",
   "settings.search_history_many": "{count} saved searches",
   "settings.clear": "Clear",
-
   "spin.title": "SPIN Mode",
   "spin.live": "Live",
   "spin.close": "Close SPIN mode",
@@ -223,7 +193,6 @@
   "spin.copy": "Copy",
   "spin.copied": "Copied",
   "spin.copy_failed": "Could not copy to clipboard",
-
   "ctx.go_artist": "Go to artist",
   "ctx.go_album": "Go to album",
   "ctx.copy_link": "Copy link",

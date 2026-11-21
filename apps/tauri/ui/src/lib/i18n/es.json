@@ -4,7 +4,6 @@
   "nav.explore": "Explorar",
   "nav.collection": "Colección",
   "nav.back": "Volver",
-
   "header.toggle_sidebar": "Mostrar/ocultar reproductor",
   "header.go_home": "Ir a Inicio",
   "header.search_placeholder": "Buscar canciones, álbumes, artistas…",
@@ -15,7 +14,6 @@
   "header.spin_mode": "Modo SPIN",
   "header.party_mode": "Modo fiesta",
   "header.settings": "Ajustes",
-
   "player.playing_from": "Reproduciendo desde",
   "player.playing": "Reproduciendo",
   "player.paused": "En pausa",
@@ -40,14 +38,12 @@
   "player.tab_player": "Reproductor",
   "player.tab_lyrics": "Letras",
   "player.tab_queue": "Cola",
-
   "lyrics.title": "Letras",
   "lyrics.synced": "Sincronizada",
   "lyrics.static": "Estática",
   "lyrics.sync_btn": "Sincronizar",
   "lyrics.none_track": "No hay letras disponibles para esta canción.",
   "lyrics.none_idle": "Reproduce una canción para ver su letra.",
-
   "queue.title": "Cola",
   "queue.clear": "Limpiar",
   "queue.empty": "La cola está vacía.",
@@ -56,7 +52,6 @@
   "queue.autoplay_desc": "Agrega canciones similares al terminar la cola",
   "queue.suggestions": "Sugerencias a continuación",
   "queue.add": "Añadir a la cola",
-
   "home.morning": "Buenos días",
   "home.afternoon": "Buenas tardes",
   "home.evening": "Buenas noches",
@@ -91,7 +86,6 @@
   "related.artists": "Artistas relacionados",
   "artist.plays": "{count} reproducciones",
   "album.start_radio": "Iniciar radio",
-
   "explore.title": "Explorar",
   "explore.subtitle": "Estados de ánimo, momentos y géneros de YouTube Music",
   "explore.moods": "Estados de ánimo y momentos",
@@ -104,7 +98,6 @@
   "explore.playlists": "Playlists",
   "explore.top_result": "Mejor resultado",
   "explore.artist_pill": "Artista",
-
   "collection.title": "Colección",
   "collection.subtitle": "Tus playlists locales, historial reciente y canciones favoritas",
   "collection.new_playlist": "Nueva playlist",
@@ -130,27 +123,9 @@
   "collection.sort_title": "Título",
   "collection.sort_artist": "Artista",
   "collection.sort_duration": "Duración",
-  "collection.modal_new": "Nueva playlist",
-  "collection.modal_edit": "Personalizar playlist",
-  "collection.modal_name": "Nombre",
-  "collection.modal_name_ph": "Viaje nocturno, Chill Mix…",
-  "collection.modal_desc": "Descripción",
-  "collection.modal_desc_ph": "Subtítulo o ambiente opcional",
-  "collection.modal_color": "Color de acento",
-  "collection.modal_auto": "Auto",
-  "collection.modal_icon": "Ícono",
-  "collection.modal_cancel": "Cancelar",
-  "collection.modal_create": "Crear playlist",
-  "collection.modal_save": "Guardar cambios",
-  "collection.untitled": "Playlist sin título",
-  "collection.default_desc": "Tu colección local curada",
   "collection.local_badge": "Playlist local",
-  "collection.col_title": "Título",
-  "collection.col_album": "Álbum",
   "collection.song_one": "1 canción",
   "collection.song_many": "{count} canciones",
-
-  "artist.verified": "Artista verificado",
   "artist.play": "Reproducir",
   "artist.shuffle": "Aleatorio",
   "artist.mix": "Mix",
@@ -161,15 +136,11 @@
   "artist.albums": "Álbumes",
   "artist.playlists": "Playlists",
   "artist.similar": "A los fans también les gusta",
-
   "album.badge_album": "Álbum",
   "album.badge_playlist": "Playlist",
-  "album.no_tracks": "No se encontraron canciones.",
-
   "party.badge": "Modo fiesta",
   "party.exit": "Salir",
   "party.up_next": "A continuación",
-
   "settings.title": "Ajustes",
   "settings.appearance": "Apariencia",
   "settings.theme": "Tema",
@@ -195,7 +166,6 @@
   "settings.search_history_one": "1 búsqueda guardada",
   "settings.search_history_many": "{count} búsquedas guardadas",
   "settings.clear": "Limpiar",
-
   "spin.title": "Modo SPIN",
   "spin.live": "En vivo",
   "spin.close": "Cerrar modo SPIN",
@@ -223,7 +193,6 @@
   "spin.copy": "Copiar",
   "spin.copied": "Copiado",
   "spin.copy_failed": "No se pudo copiar al portapapeles",
-
   "ctx.go_artist": "Ir al artista",
   "ctx.go_album": "Ir al álbum",
   "ctx.copy_link": "Copiar enlace",

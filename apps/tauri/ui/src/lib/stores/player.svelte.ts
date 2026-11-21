@@ -1,8 +1,21 @@
-import { listen } from "@tauri-apps/api/event";
 import { api, isTauriRuntime } from "../api";
 import { DualDeckAudioEngine, extractDominantRgb } from "../audioEngine";
 import { hashToView, isSameView, type RouteState, viewToHash } from "../router";
 import { contextMenu } from "./contextMenu.svelte";
+import { bindTauriPlayerEvents } from "./nativeEvents";
+import {
+  findActiveLyricIndex,
+  moveQueueIndices,
+  removeQueueAt,
+  shuffleQueueKeepingCurrent,
+  unshuffleQueue,
+} from "./queueOps";
+import {
+  applyThemeToDocument,
+  readChartCountry,
+  SessionPersister,
+  writeChartCountry,
+} from "./sessionPersistence";
 import type {
   ActiveView,
   AppLanguage,
@@ -31,9 +44,7 @@ class PlayerStore {
   sidebarOpen = $state(true);
   navCollapsed = $state(false);
   sidebarTab = $state<"player" | "lyrics" | "queue" | "related">("player");
-  chartCountry = $state<string | null>(
-    typeof localStorage !== "undefined" ? localStorage.getItem("gyrotube.chartCountry") : null,
-  );
+  chartCountry = $state<string | null>(readChartCountry());
   relatedFeed = $state<RelatedFeed | null>(null);
   relatedTrackId = $state<string | null>(null);
   relatedLoading = $state(false);
@@ -103,7 +114,7 @@ class PlayerStore {
   private toastSeq = 0;
   private loadGen = 0;
   private lastLocalSpinUpdate = 0;
-  private persistTimer: number | null = null;
+  private persister = new SessionPersister();
   private routeDepth = 0;
   private routerBound = false;
   private engine: DualDeckAudioEngine;
@@ -225,54 +236,16 @@ class PlayerStore {
   }
 
   private async bindNativeEvents(): Promise<void> {
-    if (!isTauriRuntime()) return;
-    try {
-      await listen<string>("tray:action", (event) => {
-        if (event.payload === "toggle_play") void this.togglePlay();
-        else if (event.payload === "next") void this.next();
-        else if (event.payload === "prev") void this.prev();
-      });
-
-      await listen<
-        | { kind: "toggle_play_pause" }
-        | { kind: "next_track" }
-        | { kind: "prev_track" }
-        | { kind: "move_track"; from: number; to: number }
-        | { kind: "add_track"; video_id: string; guest_name: string }
-      >("spin:command", (event) => {
-        const cmd = event.payload;
-        if (cmd.kind === "toggle_play_pause") {
-          void this.togglePlay();
-        } else if (cmd.kind === "next_track") {
-          void this.next();
-        } else if (cmd.kind === "prev_track") {
-          void this.prev();
-        } else if (cmd.kind === "move_track") {
-          this.moveQueueItem(cmd.from, cmd.to);
-        } else if (cmd.kind === "add_track") {
-          void api.searchAll(cmd.video_id).then((res) => {
-            const match = res.tracks.find((t) => t.id === cmd.video_id) ?? res.tracks[0];
-            if (match) {
-              this.enqueueTrack(match);
-              this.showToast(`${cmd.guest_name} added ${match.title}`);
-            }
-          });
-        }
-      });
-
-      await listen<{
-        target: string;
-        payload?: {
-          track: Track | null;
-          position_secs: number;
-          is_playing: boolean;
-          sent_at_ms: number;
-          source_name: string;
-          host_name: string;
-        } | null;
-        error?: string | null;
-      }>("spin:remote-sync", (event) => {
-        const { payload, error } = event.payload;
+    await bindTauriPlayerEvents({
+      onTogglePlay: () => void this.togglePlay(),
+      onNext: () => void this.next(),
+      onPrev: () => void this.prev(),
+      onMoveQueue: (from, to) => this.moveQueueItem(from, to),
+      onEnqueueTrack: (track, guestName) => {
+        this.enqueueTrack(track);
+        this.showToast(`${guestName} added ${track.title}`);
+      },
+      onRemoteSync: (payload, error) => {
         if (error) {
           this.showToast(error);
           return;
@@ -301,7 +274,11 @@ class PlayerStore {
           void this.playIndex(0, false, targetPos, !payload.is_playing);
         } else if (!this.isLoadingAudio) {
           const deck = this.engine.activeDeck;
-          if (deck.readyState >= 1 && !deck.seeking && Math.abs(deck.currentTime - targetPos) > (payload.is_playing ? 1.8 : 0.35)) {
+          if (
+            deck.readyState >= 1 &&
+            !deck.seeking &&
+            Math.abs(deck.currentTime - targetPos) > (payload.is_playing ? 1.8 : 0.35)
+          ) {
             this.seek(targetPos);
           }
           if (!payload.is_playing) {
@@ -310,21 +287,13 @@ class PlayerStore {
             void deck.play().catch((err) => this.showToast(String(err)));
           }
         }
-      });
-    } catch {
-      // Non-fatal outside Tauri event bridge
-    }
+      },
+    });
   }
 
   public applyTheme(mode: ThemeMode): void {
     this.themeMode = mode;
-    if (typeof document === "undefined") return;
-    const root = document.documentElement;
-    if (mode === "system") {
-      root.removeAttribute("data-theme");
-    } else {
-      root.setAttribute("data-theme", mode);
-    }
+    applyThemeToDocument(mode);
   }
 
   public setThemeMode(mode: ThemeMode): void {
@@ -503,12 +472,7 @@ class PlayerStore {
   }
 
   public setChartCountry(country: string | null): void {
-    const clean = country && country.trim() ? country.trim().toUpperCase() : null;
-    this.chartCountry = clean;
-    if (typeof localStorage !== "undefined") {
-      if (clean) localStorage.setItem("gyrotube.chartCountry", clean);
-      else localStorage.removeItem("gyrotube.chartCountry");
-    }
+    this.chartCountry = writeChartCountry(country);
   }
 
   public async loadHome(forceRefresh = false): Promise<void> {
@@ -654,37 +618,21 @@ class PlayerStore {
   }
 
   public removeQueueIndex(idx: number): void {
-    if (idx < 0 || idx >= this.queue.length) return;
-    const nextQueue = this.queue.filter((_, i) => i !== idx);
-    this.queue = nextQueue;
-    if (this.currentIndex == null) return;
-    if (nextQueue.length === 0) {
-      this.currentIndex = null;
-      this.engine.stop();
-    } else if (idx === this.currentIndex) {
-      const nextIdx = Math.min(idx, nextQueue.length - 1);
-      void this.playIndex(nextIdx);
-    } else if (idx < this.currentIndex) {
-      this.currentIndex -= 1;
-    }
+    const res = removeQueueAt(this.queue, this.currentIndex, idx);
+    if (!res) return;
+    this.queue = res.queue;
+    this.currentIndex = res.currentIndex;
+    if (res.shouldStop) this.engine.stop();
+    if (res.playIndexAfter != null) void this.playIndex(res.playIndexAfter);
     void this.persistSession();
     void this.syncSpinSnapshot();
   }
 
   public moveQueueItem(from: number, to: number): void {
-    if (from === to || from < 0 || to < 0 || from >= this.queue.length || to >= this.queue.length) {
-      return;
-    }
-    const copy = [...this.queue];
-    const [moved] = copy.splice(from, 1);
-    copy.splice(to, 0, moved);
-    this.queue = copy;
-    if (this.currentIndex === from) {
-      this.currentIndex = to;
-    } else if (this.currentIndex != null) {
-      if (from < this.currentIndex && to >= this.currentIndex) this.currentIndex -= 1;
-      else if (from > this.currentIndex && to <= this.currentIndex) this.currentIndex += 1;
-    }
+    const res = moveQueueIndices(this.queue, this.currentIndex, from, to);
+    if (!res) return;
+    this.queue = res.queue;
+    this.currentIndex = res.currentIndex;
     void this.persistSession();
     void this.syncSpinSnapshot();
   }
@@ -841,20 +789,15 @@ class PlayerStore {
   public toggleShuffle(): void {
     this.shuffle = !this.shuffle;
     if (this.queue.length <= 1 || this.currentIndex == null) return;
-    const current = this.queue[this.currentIndex];
     if (this.shuffle) {
-      this.unshuffledQueue = [...this.queue];
-      const rest = this.queue.filter((_, i) => i !== this.currentIndex);
-      for (let i = rest.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [rest[i], rest[j]] = [rest[j], rest[i]];
-      }
-      this.queue = [current, ...rest];
-      this.currentIndex = 0;
+      const res = shuffleQueueKeepingCurrent(this.queue, this.currentIndex);
+      this.unshuffledQueue = res.unshuffledQueue;
+      this.queue = res.queue;
+      this.currentIndex = res.currentIndex;
     } else if (this.unshuffledQueue.length > 0) {
-      const idx = this.unshuffledQueue.findIndex((t) => t.id === current.id);
-      this.queue = [...this.unshuffledQueue];
-      this.currentIndex = idx >= 0 ? idx : 0;
+      const res = unshuffleQueue(this.unshuffledQueue, this.queue[this.currentIndex]);
+      this.queue = res.queue;
+      this.currentIndex = res.currentIndex;
     }
     void this.persistSession();
     void this.syncSpinSnapshot();
@@ -866,15 +809,7 @@ class PlayerStore {
   }
 
   private updateActiveLyric(pos: number): void {
-    if (this.lyrics.type !== "Synced") return;
-    const lines = this.lyrics.lines;
-    let found: number | null = null;
-    for (let i = lines.length - 1; i >= 0; i--) {
-      if (lines[i].time_secs <= pos + 0.15) {
-        found = i;
-        break;
-      }
-    }
+    const found = findActiveLyricIndex(this.lyrics, pos);
     if (found !== this.activeLyricIndex) {
       this.activeLyricIndex = found;
     }
@@ -972,13 +907,8 @@ class PlayerStore {
   }
 
   public async persistSession(): Promise<void> {
-    if (!isTauriRuntime()) return;
-    if (this.persistTimer !== null) {
-      window.clearTimeout(this.persistTimer);
-    }
-    this.persistTimer = window.setTimeout(() => {
-      this.persistTimer = null;
-      const session: SessionState = {
+    this.persister.schedule(
+      (): SessionState => ({
         sidebar_collapsed: !this.sidebarOpen,
         queue: this.queue,
         unshuffled_queue: this.unshuffledQueue,
@@ -993,9 +923,8 @@ class PlayerStore {
         background_playback: this.backgroundPlayback,
         autoplay_related: this.autoplayRelated,
         theme_mode: this.themeMode,
-      };
-      void api.saveSession(session).catch(() => {});
-    }, 350);
+      }),
+    );
   }
 }
 
