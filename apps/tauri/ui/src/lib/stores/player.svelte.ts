@@ -97,8 +97,14 @@ class PlayerStore {
   videoStream = $state<VideoStreamInfo | null>(null);
   videoLoading = $state(false);
   videoError = $state<string | null>(null);
+  counterpartTrack = $state<Track | null>(null);
   private videoGen = 0;
-  private counterpartCache = new Map<string, Track>();
+  private counterpartGen = 0;
+  private counterpartCache = new Map<string, Track | null>();
+  private awaitingVideoStartGen: number | null = null;
+  private audioLoadedForGen = 0;
+  private videoReadyEl: { gen: number; el: HTMLVideoElement } | null = null;
+  private videoStartFallbackTimer: number | null = null;
 
   // Catalog data
   homeFeed = $state<HomeFeed | null>(null);
@@ -227,6 +233,8 @@ class PlayerStore {
       // Restore metadata, ambient color, and lyrics for the saved track (without auto-playing)
       const restored = this.currentTrack;
       if (restored) {
+        this.videoMode = Boolean(restored.is_video);
+        this.probeCounterpartForCurrent(restored);
         void api.prefetchAudio(restored).catch(() => {
           // Playback retries if the background preparation fails.
         });
@@ -601,8 +609,86 @@ class PlayerStore {
     if (isTauriRuntime()) void api.saveFollowedArtists(this.followedArtists);
   }
 
+  public get canSwitchVideoMode(): boolean {
+    return this.counterpartTrack != null;
+  }
+
+  private probeCounterpartForCurrent(track: Track): void {
+    const gen = ++this.counterpartGen;
+    if (!isTauriRuntime()) {
+      this.counterpartTrack = null;
+      return;
+    }
+    const wantVideo = !track.is_video;
+    const cacheKey = `${track.id}:${wantVideo ? "v" : "s"}`;
+    if (this.counterpartCache.has(cacheKey)) {
+      this.counterpartTrack = this.counterpartCache.get(cacheKey) ?? null;
+      return;
+    }
+    this.counterpartTrack = null;
+    void api
+      .findCounterpartTrack(track, wantVideo)
+      .then((counterpart) => {
+        const valid = counterpart && counterpart.id !== track.id ? counterpart : null;
+        this.counterpartCache.set(cacheKey, valid);
+        if (valid) {
+          this.counterpartCache.set(`${valid.id}:${wantVideo ? "s" : "v"}`, track);
+        }
+        if (this.counterpartGen === gen && this.currentTrack?.id === track.id) {
+          this.counterpartTrack = valid;
+        }
+      })
+      .catch(() => {
+        if (this.counterpartGen === gen && this.currentTrack?.id === track.id) {
+          this.counterpartTrack = null;
+        }
+      });
+  }
+
   public setVideoMode(enabled: boolean): void {
     if (this.videoMode === enabled) return;
+    const cur = this.currentTrack;
+    const idx = this.currentIndex;
+
+    if (!cur || idx == null || !isTauriRuntime()) {
+      this.videoMode = false;
+      this.videoStream = null;
+      this.videoLoading = false;
+      this.videoError = null;
+      return;
+    }
+
+    const needSwitch = Boolean(cur.is_video) !== enabled;
+    if (!needSwitch) {
+      this.videoMode = enabled;
+      if (!enabled) {
+        this.videoStream = null;
+        this.videoLoading = false;
+        this.videoError = null;
+        if (this.lyrics.type === "None") {
+          void this.loadLyricsForCurrent();
+        }
+      } else {
+        this.partyMode = false;
+        if (this.sidebarTab === "lyrics") {
+          this.sidebarTab = "player";
+        }
+        this.activeLyricIndex = null;
+        this.lyricsLoading = false;
+        void this.loadVideoForCurrent();
+      }
+      return;
+    }
+
+    const cacheKey = `${cur.id}:${enabled ? "v" : "s"}`;
+    const counterpart = this.counterpartTrack ?? this.counterpartCache.get(cacheKey) ?? null;
+    if (!counterpart || counterpart.id === cur.id) {
+      return;
+    }
+
+    ++this.videoGen;
+    this.counterpartCache.set(cacheKey, counterpart);
+    this.counterpartCache.set(`${counterpart.id}:${enabled ? "s" : "v"}`, cur);
     this.videoMode = enabled;
     if (enabled) {
       this.partyMode = false;
@@ -612,73 +698,73 @@ class PlayerStore {
       this.activeLyricIndex = null;
       this.lyricsLoading = false;
     }
-    const gen = ++this.videoGen;
-    const cur = this.currentTrack;
-    const idx = this.currentIndex;
+    const wasPlaying = this.isPlaying;
+    const resumePos = this.positionSecs;
+    const nextQueue = [...this.queue];
+    nextQueue[idx] = counterpart;
+    this.queue = nextQueue;
+    void this.playIndex(idx, false, resumePos, !wasPlaying);
+  }
 
-    if (!cur || idx == null || !isTauriRuntime()) {
-      this.videoStream = null;
-      this.videoLoading = false;
-      this.videoError = null;
-      return;
+  public getExactPositionSecs(): number {
+    const deck = this.engine.activeDeck;
+    if (deck && deck.src && Number.isFinite(deck.currentTime)) {
+      return deck.currentTime;
     }
+    return this.positionSecs;
+  }
 
-    const needSwitch = Boolean(cur.is_video) !== enabled;
-    if (!needSwitch) {
-      if (!enabled) {
-        this.videoStream = null;
-        this.videoLoading = false;
-        this.videoError = null;
-        if (this.lyrics.type === "None") {
-          void this.loadLyricsForCurrent();
+  private clearVideoStartWait(): void {
+    this.awaitingVideoStartGen = null;
+    this.videoReadyEl = null;
+    if (this.videoStartFallbackTimer !== null) {
+      window.clearTimeout(this.videoStartFallbackTimer);
+      this.videoStartFallbackTimer = null;
+    }
+  }
+
+  private startAudioAndVideoTogether(videoEl: HTMLVideoElement | null): void {
+    this.clearVideoStartWait();
+    const deck = this.engine.activeDeck;
+    if (videoEl && Number.isFinite(deck.currentTime)) {
+      const target = Math.max(0, deck.currentTime);
+      const clamped = Number.isFinite(videoEl.duration)
+        ? Math.min(target, Math.max(0, videoEl.duration - 0.1))
+        : target;
+      if (Math.abs(videoEl.currentTime - clamped) > 0.08 && !videoEl.seeking) {
+        try {
+          videoEl.currentTime = clamped;
+        } catch {
+          // ignore
         }
-      } else {
-        void this.loadVideoForCurrent();
       }
-      return;
+      videoEl.playbackRate = 1;
+      void videoEl.play().catch(() => {});
     }
+    void deck.play().catch(() => {
+      this.isLoadingAudio = false;
+    });
+  }
 
-    const cacheKey = `${cur.id}:${enabled ? "v" : "s"}`;
-    const cached = this.counterpartCache.get(cacheKey);
-    const applySwitch = (counterpart: Track) => {
-      if (this.videoGen !== gen || this.currentTrack?.id !== cur.id || this.currentIndex !== idx) {
-        return;
-      }
-      this.counterpartCache.set(cacheKey, counterpart);
-      this.counterpartCache.set(`${counterpart.id}:${enabled ? "s" : "v"}`, cur);
-      const wasPlaying = this.isPlaying;
-      const resumePos = this.positionSecs;
-      const nextQueue = [...this.queue];
-      nextQueue[idx] = counterpart;
-      this.queue = nextQueue;
-      void this.playIndex(idx, false, resumePos, !wasPlaying);
-    };
-
-    if (cached) {
-      applySwitch(cached);
-      return;
+  public notifyVideoReady(videoEl: HTMLVideoElement): void {
+    this.videoReadyEl = { gen: this.loadGen, el: videoEl };
+    if (
+      this.awaitingVideoStartGen === this.loadGen &&
+      this.audioLoadedForGen === this.loadGen
+    ) {
+      this.startAudioAndVideoTogether(videoEl);
     }
+  }
 
-    this.videoLoading = enabled;
-    this.videoError = null;
-    void api
-      .findCounterpartTrack(cur, enabled)
-      .then((counterpart) => {
-        if (this.videoGen !== gen || this.currentTrack?.id !== cur.id) return;
-        if (counterpart && counterpart.id !== cur.id) {
-          applySwitch(counterpart);
-        } else if (enabled) {
-          void this.loadVideoForCurrent();
-        } else {
-          this.videoStream = null;
-          this.videoLoading = false;
-        }
-      })
-      .catch(() => {
-        if (this.videoGen !== gen) return;
-        if (enabled) void this.loadVideoForCurrent();
-        else this.videoLoading = false;
-      });
+  public notifyVideoUnavailable(): void {
+    if (
+      this.awaitingVideoStartGen === this.loadGen &&
+      this.audioLoadedForGen === this.loadGen
+    ) {
+      this.startAudioAndVideoTogether(null);
+    } else if (this.awaitingVideoStartGen === this.loadGen) {
+      this.clearVideoStartWait();
+    }
   }
 
   public async loadVideoForCurrent(): Promise<void> {
@@ -702,6 +788,7 @@ class PlayerStore {
     } catch (err) {
       if (this.videoGen === gen) {
         this.videoError = String(err);
+        this.notifyVideoUnavailable();
       }
     } finally {
       if (this.videoGen === gen) {
@@ -815,13 +902,14 @@ class PlayerStore {
     this.activeLyricIndex = null;
     this.videoStream = null;
     this.videoError = null;
+    this.videoMode = Boolean(track.is_video);
     if (track.is_video) {
-      this.videoMode = true;
       this.partyMode = false;
       if (this.sidebarTab === "lyrics") {
         this.sidebarTab = "player";
       }
     }
+    this.probeCounterpartForCurrent(track);
 
     // Record recent
     this.recentTracks = [track, ...this.recentTracks.filter((t) => t.id !== track.id)].slice(0, 30);
@@ -854,18 +942,44 @@ class PlayerStore {
 
     try {
       void api.cancelStaleStreams([track.id]);
+      this.clearVideoStartWait();
+
+      const waitForVideo = this.videoMode && !startPaused;
+      if (this.videoMode) {
+        this.lyricsLoading = false;
+        if (waitForVideo) {
+          this.awaitingVideoStartGen = gen;
+          this.videoStartFallbackTimer = window.setTimeout(() => {
+            if (this.awaitingVideoStartGen === gen) {
+              this.notifyVideoUnavailable();
+            }
+          }, 6500);
+        }
+        // Resolve video stream in parallel with audio so both buffer together
+        void this.loadVideoForCurrent();
+      }
+
       const stream = await api.resolveAudioStream(track);
       if (this.loadGen !== gen) return;
       this.qualityLabel = stream.quality_label;
-      await this.engine.loadAndPlay(stream.url, startPositionSecs, useCrossfade, startPaused);
+      await this.engine.loadAndPlay(
+        stream.url,
+        startPositionSecs,
+        useCrossfade,
+        startPaused || waitForVideo,
+      );
       if (this.loadGen !== gen) return;
+      this.audioLoadedForGen = gen;
       if (startPaused) this.isLoadingAudio = false;
       void this.syncSpinSnapshot();
 
-      if (this.videoMode) {
-        this.lyricsLoading = false;
-        void this.loadVideoForCurrent();
-      } else {
+      if (waitForVideo) {
+        if (this.videoReadyEl && this.videoReadyEl.gen === gen) {
+          this.startAudioAndVideoTogether(this.videoReadyEl.el);
+        } else if (this.videoError != null || this.awaitingVideoStartGen !== gen) {
+          this.startAudioAndVideoTogether(null);
+        }
+      } else if (!this.videoMode) {
         // Load lyrics asynchronously only in song mode
         void this.loadLyricsForCurrent(gen);
       }

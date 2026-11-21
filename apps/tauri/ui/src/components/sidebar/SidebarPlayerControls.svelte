@@ -42,12 +42,17 @@
 <div in:fade={{ duration: 180 }} class="flex-1 flex flex-col items-center justify-between py-3 gap-4">
   <!-- Song / Video mode toggle -->
   {#if player.currentTrack}
+    {@const songDisabled = player.videoMode && !player.canSwitchVideoMode}
+    {@const videoDisabled = !player.videoMode && !player.canSwitchVideoMode}
     <div class="inline-flex items-center p-0.5 rounded-full bg-[var(--surface)] border border-[var(--border)]">
       <button
         type="button"
+        disabled={songDisabled}
         class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11.5px] font-bold transition-colors {!player.videoMode
           ? 'bg-[var(--accent)] text-white shadow-sm'
-          : 'text-[var(--text-muted)] hover:text-[var(--text)]'}"
+          : songDisabled
+            ? 'text-[var(--text-muted)] opacity-40 cursor-not-allowed'
+            : 'text-[var(--text-muted)] hover:text-[var(--text)]'}"
         onclick={() => player.setVideoMode(false)}
       >
         <Music size={12} />
@@ -55,9 +60,12 @@
       </button>
       <button
         type="button"
+        disabled={videoDisabled}
         class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11.5px] font-bold transition-colors {player.videoMode
           ? 'bg-[var(--accent)] text-white shadow-sm'
-          : 'text-[var(--text-muted)] hover:text-[var(--text)]'}"
+          : videoDisabled
+            ? 'text-[var(--text-muted)] opacity-40 cursor-not-allowed'
+            : 'text-[var(--text-muted)] hover:text-[var(--text)]'}"
         onclick={() => player.setVideoMode(true)}
       >
         <Film size={12} />

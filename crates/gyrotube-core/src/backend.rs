@@ -1163,51 +1163,29 @@ impl Backend {
         track: &Track,
         want_video: bool,
     ) -> Result<Option<Track>, String> {
-        let query = format!("{} {}", track.title, track.artist);
-        let q = query.trim();
-        if q.is_empty() {
+        // Ask YouTube Music's /next watch playlist for the official Song <-> Video
+        // counterpart linked inside playlistPanelVideoWrapperRenderer.
+        // If no official counterpart exists, return None so the UI disables switching.
+        if validate_video_id(&track.id).is_err() {
             return Ok(None);
         }
-        if want_video {
-            if let Ok(results) = self.rp.query().music_search_videos(q).await {
-                let list = &results.items.items;
-                let candidate = list
-                    .iter()
-                    .find(|t| !t.unavailable && t.id != track.id)
-                    .or_else(|| list.first().filter(|t| !t.unavailable));
-                if let Some(item) = candidate {
-                    let mut tr = Track::from(item);
-                    tr.is_music = true;
-                    tr.is_video = true;
-                    if tr.artist_id.is_none() {
-                        tr.artist_id = track.artist_id.clone();
-                    }
-                    return Ok(Some(tr));
-                }
-            }
-            Ok(None)
-        } else {
-            if let Ok(results) = self.rp.query().music_search_tracks(q).await {
-                let list = &results.items.items;
-                let candidate = list
-                    .iter()
-                    .find(|t| t.track_type == TrackType::Track && !t.unavailable && t.id != track.id)
-                    .or_else(|| {
-                        list.first()
-                            .filter(|t| t.track_type == TrackType::Track && !t.unavailable)
-                    });
-                if let Some(item) = candidate {
-                    let mut tr = Track::from(item);
-                    tr.is_music = true;
-                    tr.is_video = false;
-                    if tr.artist_id.is_none() {
-                        tr.artist_id = track.artist_id.clone();
-                    }
-                    return Ok(Some(tr));
-                }
-            }
-            Ok(None)
-        }
+        let Ok(ytm) = self.primary().await else {
+            return Ok(None);
+        };
+        let Ok(raw) = ytm
+            .raw_json_query(
+                ytmapi_rs::query::GetWatchPlaylistQuery::new_from_video_id(VideoID::from_raw(
+                    track.id.as_str(),
+                )),
+            )
+            .await
+        else {
+            return Ok(None);
+        };
+        let Ok(json) = serde_json::from_str::<serde_json::Value>(&raw) else {
+            return Ok(None);
+        };
+        Ok(parse_watch_counterpart_json(&json, track, want_video))
     }
 
     #[cfg(not(target_os = "android"))]
@@ -2087,6 +2065,211 @@ fn parse_mood_playlists_json(json: &serde_json::Value) -> (String, Vec<Playlist>
     (name, playlists)
 }
 
+fn panel_video_id(renderer: &serde_json::Value) -> Option<&str> {
+    renderer
+        .get("videoId")
+        .and_then(|v| v.as_str())
+        .or_else(|| {
+            renderer
+                .pointer("/navigationEndpoint/watchEndpoint/videoId")
+                .and_then(|v| v.as_str())
+        })
+        .filter(|id| validate_video_id(id).is_ok())
+}
+
+fn panel_video_music_type(renderer: &serde_json::Value) -> Option<&str> {
+    renderer
+        .pointer("/navigationEndpoint/watchEndpoint/watchEndpointMusicSupportedConfigs/watchEndpointMusicConfig/musicVideoType")
+        .and_then(|v| v.as_str())
+}
+
+fn track_from_panel_video_renderer(
+    renderer: &serde_json::Value,
+    source: &Track,
+    want_video: bool,
+) -> Option<Track> {
+    let id = panel_video_id(renderer)?.to_string();
+    let raw_title = renderer.get("title").map(runs_text).unwrap_or_default();
+    let title = if raw_title.trim().is_empty() {
+        source.title.clone()
+    } else {
+        clean_track_title(&raw_title)
+    };
+
+    let mut artists: Vec<String> = Vec::new();
+    let mut artist_id: Option<String> = None;
+    let mut album: Option<String> = None;
+    let mut album_id: Option<String> = None;
+
+    for byline_key in ["longBylineText", "shortBylineText"] {
+        if let Some(runs) = renderer
+            .get(byline_key)
+            .and_then(|v| v.get("runs"))
+            .and_then(|r| r.as_array())
+        {
+            for run in runs {
+                let text = run
+                    .get("text")
+                    .and_then(|t| t.as_str())
+                    .unwrap_or("")
+                    .trim();
+                if text.is_empty() {
+                    continue;
+                }
+                let browse_id = run
+                    .pointer("/navigationEndpoint/browseEndpoint/browseId")
+                    .and_then(|v| v.as_str());
+                let page_type = run
+                    .pointer("/navigationEndpoint/browseEndpoint/browseEndpointContextSupportedConfigs/browseEndpointContextMusicConfig/pageType")
+                    .and_then(|v| v.as_str());
+                match page_type {
+                    Some("MUSIC_PAGE_TYPE_ARTIST") => {
+                        if !artists.iter().any(|a| a == text) {
+                            artists.push(text.to_string());
+                        }
+                        if artist_id.is_none() {
+                            artist_id = browse_id.map(ToString::to_string);
+                        }
+                    }
+                    Some("MUSIC_PAGE_TYPE_ALBUM") => {
+                        if album.is_none() {
+                            album = Some(text.to_string());
+                            album_id = browse_id.map(ToString::to_string);
+                        }
+                    }
+                    _ => {
+                        if let Some(bid) = browse_id {
+                            if bid.starts_with("UC") && !artists.iter().any(|a| a == text) {
+                                artists.push(text.to_string());
+                                if artist_id.is_none() {
+                                    artist_id = Some(bid.to_string());
+                                }
+                            } else if bid.starts_with("MPRE") && album.is_none() {
+                                album = Some(text.to_string());
+                                album_id = Some(bid.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+            if !artists.is_empty() {
+                break;
+            }
+        }
+    }
+
+    let artist = if !artists.is_empty() {
+        artists.join(", ")
+    } else {
+        let fallback = renderer
+            .get("shortBylineText")
+            .or_else(|| renderer.get("longBylineText"))
+            .map(runs_text)
+            .unwrap_or_default();
+        let first_segment = fallback
+            .split(['•', '·'])
+            .next()
+            .unwrap_or("")
+            .trim();
+        if first_segment.is_empty() {
+            source.artist.clone()
+        } else {
+            first_segment.to_string()
+        }
+    };
+
+    let duration_secs = renderer
+        .get("lengthText")
+        .map(runs_text)
+        .as_deref()
+        .and_then(parse_mm_ss)
+        .or(source.duration_secs);
+
+    let cover = renderer
+        .pointer("/thumbnail/thumbnails")
+        .and_then(best_json_thumb);
+    let cover_url = cover.clone().or_else(|| source.cover_url.clone());
+    let cover_large_url = cover.or_else(|| source.cover_large_url.clone());
+
+    let is_atv = panel_video_music_type(renderer) == Some("MUSIC_VIDEO_TYPE_ATV");
+
+    Some(Track {
+        is_music: true,
+        is_video: if want_video { !is_atv } else { false },
+        id,
+        title,
+        artist,
+        artist_id: artist_id.or_else(|| source.artist_id.clone()),
+        album: album.or_else(|| (!want_video).then(|| source.album.clone()).flatten()),
+        album_id: album_id.or_else(|| (!want_video).then(|| source.album_id.clone()).flatten()),
+        duration_secs,
+        view_count: None,
+        cover_url,
+        cover_large_url,
+    })
+}
+
+fn parse_watch_counterpart_json(
+    json: &serde_json::Value,
+    source: &Track,
+    want_video: bool,
+) -> Option<Track> {
+    let tabs = json
+        .pointer("/contents/singleColumnMusicWatchNextResultsRenderer/tabbedRenderer/watchNextTabbedResultsRenderer/tabs")
+        .and_then(|v| v.as_array())?;
+
+    let contents = tabs.iter().find_map(|tab| {
+        tab.pointer("/tabRenderer/content/musicQueueRenderer/content/playlistPanelRenderer/contents")
+            .and_then(|v| v.as_array())
+    })?;
+
+    for item in contents {
+        let Some(wrapper) = item.get("playlistPanelVideoWrapperRenderer") else {
+            continue;
+        };
+
+        let mut renderers: Vec<&serde_json::Value> = Vec::new();
+        if let Some(primary) = wrapper.pointer("/primaryRenderer/playlistPanelVideoRenderer") {
+            renderers.push(primary);
+        }
+        if let Some(counterparts) = wrapper.get("counterpart").and_then(|v| v.as_array()) {
+            for cp in counterparts {
+                if let Some(r) = cp.pointer("/counterpartRenderer/playlistPanelVideoRenderer") {
+                    renderers.push(r);
+                }
+            }
+        }
+
+        // Only match the wrapper that corresponds to the requested track.
+        if !renderers
+            .iter()
+            .any(|r| panel_video_id(r) == Some(source.id.as_str()))
+        {
+            continue;
+        }
+
+        let candidate = renderers.into_iter().find(|r| {
+            let Some(vid) = panel_video_id(r) else {
+                return false;
+            };
+            if vid == source.id {
+                return false;
+            }
+            match panel_video_music_type(r) {
+                Some("MUSIC_VIDEO_TYPE_ATV") => !want_video,
+                Some(_) => want_video,
+                None => true,
+            }
+        });
+
+        if let Some(renderer) = candidate {
+            return track_from_panel_video_renderer(renderer, source, want_video);
+        }
+    }
+
+    None
+}
+
 fn is_playlist_audio(track: &rustypipe::model::TrackItem) -> bool {
     track.track_type == TrackType::Track && !track.unavailable
 }
@@ -2723,5 +2906,149 @@ mod tests {
         assert_eq!(playlists[0].name, "Cumbia Sonidera");
         assert_eq!(playlists[0].subtitle, "YouTube Music");
         assert!(playlists[0].cover_url.is_some());
+    }
+
+    #[test]
+    fn parses_official_watch_counterpart_song_to_video_and_back() {
+        let make_renderer = |id: &str, title: &str, mtype: &str, with_album: bool| {
+            let mut byline_runs = vec![serde_json::json!({
+                "text": "Daft Punk",
+                "navigationEndpoint": {
+                    "browseEndpoint": {
+                        "browseId": "UC_daftpunk123",
+                        "browseEndpointContextSupportedConfigs": {
+                            "browseEndpointContextMusicConfig": {
+                                "pageType": "MUSIC_PAGE_TYPE_ARTIST"
+                            }
+                        }
+                    }
+                }
+            })];
+            if with_album {
+                byline_runs.push(serde_json::json!({ "text": " • " }));
+                byline_runs.push(serde_json::json!({
+                    "text": "Random Access Memories",
+                    "navigationEndpoint": {
+                        "browseEndpoint": {
+                            "browseId": "MPREb_ram123",
+                            "browseEndpointContextSupportedConfigs": {
+                                "browseEndpointContextMusicConfig": {
+                                    "pageType": "MUSIC_PAGE_TYPE_ALBUM"
+                                }
+                            }
+                        }
+                    }
+                }));
+            }
+            serde_json::json!({
+                "videoId": id,
+                "title": { "runs": [{ "text": title }] },
+                "lengthText": { "runs": [{ "text": "4:08" }] },
+                "longBylineText": { "runs": byline_runs },
+                "shortBylineText": { "runs": [{ "text": "Daft Punk" }] },
+                "navigationEndpoint": {
+                    "watchEndpoint": {
+                        "videoId": id,
+                        "watchEndpointMusicSupportedConfigs": {
+                            "watchEndpointMusicConfig": {
+                                "musicVideoType": mtype
+                            }
+                        }
+                    }
+                },
+                "thumbnail": {
+                    "thumbnails": [
+                        { "url": "https://lh3.googleusercontent.com/thumb=w226-h226", "width": 226, "height": 226 }
+                    ]
+                }
+            })
+        };
+
+        let watch_json = serde_json::json!({
+            "contents": {
+                "singleColumnMusicWatchNextResultsRenderer": {
+                    "tabbedRenderer": {
+                        "watchNextTabbedResultsRenderer": {
+                            "tabs": [{
+                                "tabRenderer": {
+                                    "content": {
+                                        "musicQueueRenderer": {
+                                            "content": {
+                                                "playlistPanelRenderer": {
+                                                    "contents": [{
+                                                        "playlistPanelVideoWrapperRenderer": {
+                                                            "primaryRenderer": {
+                                                                "playlistPanelVideoRenderer": make_renderer(
+                                                                    "atvSong1234",
+                                                                    "Get Lucky",
+                                                                    "MUSIC_VIDEO_TYPE_ATV",
+                                                                    true
+                                                                )
+                                                            },
+                                                            "counterpart": [{
+                                                                "counterpartRenderer": {
+                                                                    "playlistPanelVideoRenderer": make_renderer(
+                                                                        "omvVid56789",
+                                                                        "Get Lucky (Official Video)",
+                                                                        "MUSIC_VIDEO_TYPE_OMV",
+                                                                        false
+                                                                    )
+                                                                }
+                                                            }]
+                                                        }
+                                                    }]
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }]
+                        }
+                    }
+                }
+            }
+        });
+
+        let song = Track {
+            is_music: true,
+            is_video: false,
+            id: "atvSong1234".into(),
+            title: "Get Lucky".into(),
+            artist: "Daft Punk".into(),
+            artist_id: Some("UC_daftpunk123".into()),
+            album: Some("Random Access Memories".into()),
+            album_id: Some("MPREb_ram123".into()),
+            duration_secs: Some(248),
+            view_count: None,
+            cover_url: None,
+            cover_large_url: None,
+        };
+
+        // Song -> Video
+        let mv = parse_watch_counterpart_json(&watch_json, &song, true)
+            .expect("should resolve official OMV counterpart");
+        assert_eq!(mv.id, "omvVid56789");
+        assert!(mv.is_video);
+        assert!(mv.is_music);
+        assert_eq!(mv.title, "Get Lucky");
+        assert_eq!(mv.artist, "Daft Punk");
+        assert_eq!(mv.artist_id.as_deref(), Some("UC_daftpunk123"));
+        assert_eq!(mv.duration_secs, Some(248));
+
+        // Video -> Studio Audio (even when ATV is in primaryRenderer and OMV is in counterpart)
+        let back_to_song = parse_watch_counterpart_json(&watch_json, &mv, false)
+            .expect("should resolve official ATV counterpart");
+        assert_eq!(back_to_song.id, "atvSong1234");
+        assert!(!back_to_song.is_video);
+        assert!(back_to_song.is_music);
+        assert_eq!(back_to_song.album.as_deref(), Some("Random Access Memories"));
+        assert_eq!(back_to_song.album_id.as_deref(), Some("MPREb_ram123"));
+
+        // Non-matching track ID returns None so caller falls back to search
+        let other = Track {
+            id: "otherId9999".into(),
+            ..song
+        };
+        assert!(parse_watch_counterpart_json(&watch_json, &other, true).is_none());
     }
 }

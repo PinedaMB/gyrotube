@@ -105,12 +105,17 @@
     <!-- Left column: Art / Synced Video + Info + Controls + Up Next -->
     <div class="flex flex-col items-center justify-center gap-5">
       {#if player.currentTrack}
+        {@const songDisabled = player.videoMode && !player.canSwitchVideoMode}
+        {@const videoDisabled = !player.videoMode && !player.canSwitchVideoMode}
         <div class="inline-flex items-center p-0.5 rounded-full bg-white/[0.06] border border-white/10">
           <button
             type="button"
+            disabled={songDisabled}
             class="inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full text-[12px] font-bold transition-colors {!player.videoMode
               ? 'bg-[var(--accent)] text-white shadow-sm'
-              : 'text-[var(--text-muted)] hover:text-white'}"
+              : songDisabled
+                ? 'text-[var(--text-muted)] opacity-40 cursor-not-allowed'
+                : 'text-[var(--text-muted)] hover:text-white'}"
             onclick={() => player.setVideoMode(false)}
           >
             <Music size={13} />
@@ -118,9 +123,12 @@
           </button>
           <button
             type="button"
+            disabled={videoDisabled}
             class="inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full text-[12px] font-bold transition-colors {player.videoMode
               ? 'bg-[var(--accent)] text-white shadow-sm'
-              : 'text-[var(--text-muted)] hover:text-white'}"
+              : videoDisabled
+                ? 'text-[var(--text-muted)] opacity-40 cursor-not-allowed'
+                : 'text-[var(--text-muted)] hover:text-white'}"
             onclick={() => player.setVideoMode(true)}
           >
             <Film size={13} />
