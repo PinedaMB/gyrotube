@@ -7,22 +7,51 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.drawable.Icon
+import android.media.MediaMetadata
+import android.media.session.MediaSession
+import android.media.session.PlaybackState
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.os.PowerManager
+import java.net.HttpURLConnection
+import java.net.URL
+import java.util.concurrent.Executors
 
 /**
- * Foreground media playback service keeping GyroTube's local AudioStreamer
- * and WebView audio active while the screen is locked or app is backgrounded.
+ * Foreground media playback service keeping GyroTube's local AudioStreamer,
+ * WebView audio, lock-screen MediaSession, and persistent media notification active.
  */
 class PlaybackForegroundService : Service() {
     private var wakeLock: PowerManager.WakeLock? = null
+    private var mediaSession: MediaSession? = null
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private val artExecutor = Executors.newSingleThreadExecutor()
+
+    private var currentTitle = "GyroTube"
+    private var currentArtist = ""
+    private var currentPlaying = false
+    private var currentCoverUrl: String? = null
+    private var currentCoverBitmap: Bitmap? = null
 
     companion object {
         const val CHANNEL_ID = "gyrotube_playback"
         const val NOTIFICATION_ID = 1001
         const val EXTRA_TITLE = "title"
         const val EXTRA_ARTIST = "artist"
+        const val EXTRA_COVER_URL = "cover_url"
+        const val EXTRA_PLAYING = "playing"
+
+        const val ACTION_PREV = "com.github.gyrotube.GyroTube.ACTION_PREV"
+        const val ACTION_TOGGLE = "com.github.gyrotube.GyroTube.ACTION_TOGGLE"
+        const val ACTION_NEXT = "com.github.gyrotube.GyroTube.ACTION_NEXT"
+
+        @Volatile
+        var onMediaAction: ((String) -> Unit)? = null
     }
 
     override fun onCreate() {
@@ -32,29 +61,157 @@ class PlaybackForegroundService : Service() {
         wakeLock = pm?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "GyroTube::PlaybackWakeLock")?.apply {
             setReferenceCounted(false)
         }
+        mediaSession = MediaSession(this, "GyroTubeSession").apply {
+            setCallback(object : MediaSession.Callback() {
+                override fun onPlay() {
+                    onMediaAction?.invoke("play")
+                }
+
+                override fun onPause() {
+                    onMediaAction?.invoke("pause")
+                }
+
+                override fun onSkipToNext() {
+                    onMediaAction?.invoke("next")
+                }
+
+                override fun onSkipToPrevious() {
+                    onMediaAction?.invoke("prev")
+                }
+            })
+            isActive = true
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val title = intent?.getStringExtra(EXTRA_TITLE) ?: "GyroTube"
-        val artist = intent?.getStringExtra(EXTRA_ARTIST) ?: "Playing music"
-        val notification = buildNotification(title, artist)
+        when (intent?.action) {
+            ACTION_PREV -> {
+                onMediaAction?.invoke("prev")
+                return START_STICKY
+            }
+            ACTION_TOGGLE -> {
+                onMediaAction?.invoke("toggle")
+                return START_STICKY
+            }
+            ACTION_NEXT -> {
+                onMediaAction?.invoke("next")
+                return START_STICKY
+            }
+        }
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(
-                NOTIFICATION_ID,
-                notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
-            )
-        } else {
-            startForeground(NOTIFICATION_ID, notification)
+        if (intent != null) {
+            currentTitle = intent.getStringExtra(EXTRA_TITLE)?.takeIf { it.isNotBlank() } ?: "GyroTube"
+            currentArtist = intent.getStringExtra(EXTRA_ARTIST) ?: ""
+            currentPlaying = intent.getBooleanExtra(EXTRA_PLAYING, true)
+            val coverUrl = intent.getStringExtra(EXTRA_COVER_URL)?.takeIf { it.isNotBlank() }
+            if (coverUrl != currentCoverUrl) {
+                currentCoverUrl = coverUrl
+                currentCoverBitmap = null
+                if (coverUrl != null) {
+                    fetchCoverArtAsync(coverUrl)
+                }
+            }
         }
-        if (wakeLock?.isHeld == false) {
-            wakeLock?.acquire(4 * 60 * 60 * 1000L)
+
+        updateSessionAndNotification(startInForeground = true)
+
+        if (currentPlaying) {
+            if (wakeLock?.isHeld == false) {
+                wakeLock?.acquire(4 * 60 * 60 * 1000L)
+            }
+        } else if (wakeLock?.isHeld == true) {
+            wakeLock?.release()
         }
+
         return START_STICKY
     }
 
+    private fun fetchCoverArtAsync(url: String) {
+        artExecutor.execute {
+            try {
+                val conn = (URL(url).openConnection() as HttpURLConnection).apply {
+                    connectTimeout = 4000
+                    readTimeout = 4000
+                    setRequestProperty("User-Agent", "GyroTube/0.1 (Android)")
+                }
+                val bmp = conn.inputStream.use { BitmapFactory.decodeStream(it) }
+                conn.disconnect()
+                if (bmp != null) {
+                    mainHandler.post {
+                        if (currentCoverUrl == url) {
+                            currentCoverBitmap = bmp
+                            updateSessionAndNotification(startInForeground = false)
+                        }
+                    }
+                }
+            } catch (_: Throwable) {
+                // Ignore cover fetch failures; notification stays visible without artwork
+            }
+        }
+    }
+
+    private fun updateSessionAndNotification(startInForeground: Boolean) {
+        val session = mediaSession
+        if (session != null) {
+            val metaBuilder = MediaMetadata.Builder()
+                .putString(MediaMetadata.METADATA_KEY_TITLE, currentTitle)
+                .putString(MediaMetadata.METADATA_KEY_ARTIST, currentArtist)
+            currentCoverBitmap?.let {
+                metaBuilder.putBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART, it)
+            }
+            session.setMetadata(metaBuilder.build())
+
+            val state = PlaybackState.Builder()
+                .setActions(
+                    PlaybackState.ACTION_PLAY or
+                        PlaybackState.ACTION_PAUSE or
+                        PlaybackState.ACTION_PLAY_PAUSE or
+                        PlaybackState.ACTION_SKIP_TO_NEXT or
+                        PlaybackState.ACTION_SKIP_TO_PREVIOUS
+                )
+                .setState(
+                    if (currentPlaying) PlaybackState.STATE_PLAYING else PlaybackState.STATE_PAUSED,
+                    PlaybackState.PLAYBACK_POSITION_UNKNOWN,
+                    if (currentPlaying) 1.0f else 0.0f
+                )
+                .build()
+            session.setPlaybackState(state)
+        }
+
+        val notification = buildNotification()
+        if (startInForeground) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startForeground(
+                    NOTIFICATION_ID,
+                    notification,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
+                )
+            } else {
+                startForeground(NOTIFICATION_ID, notification)
+            }
+        } else {
+            val manager = getSystemService(NotificationManager::class.java)
+            manager?.notify(NOTIFICATION_ID, notification)
+        }
+    }
+
+    private fun serviceActionIntent(action: String, requestCode: Int): PendingIntent {
+        val intent = Intent(this, PlaybackForegroundService::class.java).apply {
+            this.action = action
+        }
+        return PendingIntent.getService(
+            this,
+            requestCode,
+            intent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+    }
+
     override fun onDestroy() {
+        artExecutor.shutdownNow()
+        mediaSession?.isActive = false
+        mediaSession?.release()
+        mediaSession = null
         if (wakeLock?.isHeld == true) {
             wakeLock?.release()
         }
@@ -65,42 +222,69 @@ class PlaybackForegroundService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     private fun createNotificationChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
-                CHANNEL_ID,
-                "Music Playback",
-                NotificationManager.IMPORTANCE_LOW
-            ).apply {
-                description = "Controls and status for background music playback"
-                setShowBadge(false)
-            }
-            val manager = getSystemService(NotificationManager::class.java)
-            manager?.createNotificationChannel(channel)
+        val channel = NotificationChannel(
+            CHANNEL_ID,
+            "Music Playback",
+            NotificationManager.IMPORTANCE_LOW
+        ).apply {
+            description = "Persistent media playback controls"
+            setShowBadge(false)
+            lockscreenVisibility = Notification.VISIBILITY_PUBLIC
         }
+        val manager = getSystemService(NotificationManager::class.java)
+        manager?.createNotificationChannel(channel)
     }
 
-    private fun buildNotification(title: String, artist: String): Notification {
+    private fun buildNotification(): Notification {
         val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
-        val pendingIntent = PendingIntent.getActivity(
+        val contentIntent = PendingIntent.getActivity(
             this,
             0,
             launchIntent,
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
-        val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            Notification.Builder(this, CHANNEL_ID)
-        } else {
-            @Suppress("DEPRECATION")
-            Notification.Builder(this)
-        }
+        val prevAction = Notification.Action.Builder(
+            Icon.createWithResource(this, android.R.drawable.ic_media_previous),
+            "Previous",
+            serviceActionIntent(ACTION_PREV, 1)
+        ).build()
 
-        return builder
-            .setContentTitle(title)
-            .setContentText(artist)
-            .setSmallIcon(android.R.drawable.ic_media_play)
-            .setOngoing(true)
-            .setContentIntent(pendingIntent)
-            .build()
+        val toggleAction = Notification.Action.Builder(
+            Icon.createWithResource(
+                this,
+                if (currentPlaying) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play
+            ),
+            if (currentPlaying) "Pause" else "Play",
+            serviceActionIntent(ACTION_TOGGLE, 2)
+        ).build()
+
+        val nextAction = Notification.Action.Builder(
+            Icon.createWithResource(this, android.R.drawable.ic_media_next),
+            "Next",
+            serviceActionIntent(ACTION_NEXT, 3)
+        ).build()
+
+        val style = Notification.MediaStyle()
+            .setShowActionsInCompactView(0, 1, 2)
+        mediaSession?.let { style.setMediaSession(it.sessionToken) }
+
+        val builder = Notification.Builder(this, CHANNEL_ID)
+            .setContentTitle(currentTitle)
+            .setContentText(currentArtist)
+            .setSmallIcon(
+                if (currentPlaying) android.R.drawable.ic_media_play else android.R.drawable.ic_media_pause
+            )
+            .setContentIntent(contentIntent)
+            .setVisibility(Notification.VISIBILITY_PUBLIC)
+            .setOngoing(currentPlaying)
+            .setOnlyAlertOnce(true)
+            .addAction(prevAction)
+            .addAction(toggleAction)
+            .addAction(nextAction)
+            .setStyle(style)
+
+        currentCoverBitmap?.let { builder.setLargeIcon(it) }
+        return builder.build()
     }
 }

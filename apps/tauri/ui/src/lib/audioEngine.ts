@@ -47,9 +47,7 @@ export class DualDeckAudioEngine {
       const dur = Number.isFinite(audio.duration) ? audio.duration : 0;
       this.callbacks.onTimeUpdate(pos, dur);
 
-      const isHidden = typeof document !== "undefined" && document.hidden;
       if (
-        !isHidden &&
         this.crossfadeSecs > 0 &&
         !this.crossfadeFired &&
         dur > this.crossfadeSecs + 2 &&
@@ -119,9 +117,8 @@ export class DualDeckAudioEngine {
     this.crossfadeFired = false;
     this.loading = true;
 
-    const isHidden = typeof document !== "undefined" && document.hidden;
     const outgoingIndex = this.activeIndex;
-    const wantDualDeck = useCrossfade && !startPaused && !isHidden && this.crossfadeSecs > 0;
+    const wantDualDeck = useCrossfade && !startPaused && this.crossfadeSecs > 0;
     const incomingIndex: 0 | 1 = wantDualDeck ? (outgoingIndex === 0 ? 1 : 0) : outgoingIndex;
     const outgoing = this.decks[outgoingIndex];
     const incoming = this.decks[incomingIndex];

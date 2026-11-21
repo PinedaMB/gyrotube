@@ -1280,18 +1280,39 @@ class PlayerStore {
 
   private syncAndroidForegroundService(playing: boolean): void {
     if (typeof window === "undefined") return;
-    const bridge = (
-      window as unknown as {
-        __GYROTUBE_ANDROID__?: {
-          setPlaybackActive: (playing: boolean, title: string, artist: string) => void;
-        };
-      }
-    ).__GYROTUBE_ANDROID__;
+    const win = window as unknown as {
+      __GYROTUBE_ANDROID__?: {
+        setPlaybackActive: (
+          playing: boolean,
+          title: string,
+          artist: string,
+          coverUrl: string,
+          hasTrack: boolean,
+        ) => void;
+      };
+      __GYROTUBE_MEDIA_ACTION__?: (action: string) => void;
+    };
+    if (!win.__GYROTUBE_MEDIA_ACTION__) {
+      win.__GYROTUBE_MEDIA_ACTION__ = (action: string) => {
+        if (action === "prev") void this.prev();
+        else if (action === "next") void this.next();
+        else if (action === "toggle") void this.togglePlay();
+        else if (action === "play" && !this.isPlaying) void this.togglePlay();
+        else if (action === "pause" && this.isPlaying) void this.togglePlay();
+      };
+    }
+    const bridge = win.__GYROTUBE_ANDROID__;
     if (!bridge) return;
-    // Keep the foreground service & WebView alive during track-to-track transitions
-    const keepAlive = playing || this.inFlightTransitionGen !== null;
     const cur = this.currentTrack;
-    bridge.setPlaybackActive(keepAlive, cur?.title ?? "GyroTube", cur?.artist ?? "");
+    // Keep the foreground service & WebView alive during track-to-track transitions
+    const keepPlaying = playing || this.inFlightTransitionGen !== null;
+    bridge.setPlaybackActive(
+      keepPlaying,
+      cur?.title ?? "GyroTube",
+      cur?.artist ?? "",
+      cur?.cover_url ?? cur?.cover_large_url ?? "",
+      Boolean(cur),
+    );
   }
 
   public async syncSpinSnapshot(): Promise<void> {

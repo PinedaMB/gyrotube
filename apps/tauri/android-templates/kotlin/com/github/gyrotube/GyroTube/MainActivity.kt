@@ -1,12 +1,16 @@
 package com.github.gyrotube.GyroTube
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import android.view.View
 import android.webkit.JavascriptInterface
 import android.webkit.WebSettings
 import android.webkit.WebView
 import androidx.activity.enableEdgeToEdge
+import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
@@ -19,6 +23,20 @@ class MainActivity : TauriActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
     enableEdgeToEdge()
     super.onCreate(savedInstanceState)
+
+    // Request runtime notification permission on Android 13+ so the persistent
+    // media playback notification is visible in the shade and on the lock screen.
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+      if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
+        != PackageManager.PERMISSION_GRANTED
+      ) {
+        ActivityCompat.requestPermissions(
+          this,
+          arrayOf(Manifest.permission.POST_NOTIFICATIONS),
+          1002
+        )
+      }
+    }
 
     // Keep the WebView out of the status bar / navigation bar / keyboard areas so the
     // header (search) and bottom navigation are never covered by system UI.
@@ -41,6 +59,17 @@ class MainActivity : TauriActivity() {
     webView.settings.mediaPlaybackRequiresUserGesture = false
     webView.settings.mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
     webView.addJavascriptInterface(AndroidPlaybackBridge(), "__GYROTUBE_ANDROID__")
+
+    PlaybackForegroundService.onMediaAction = { action ->
+      runOnUiThread {
+        activeWebView?.onResume()
+        activeWebView?.resumeTimers()
+        activeWebView?.evaluateJavascript(
+          "window.__GYROTUBE_MEDIA_ACTION__ && window.__GYROTUBE_MEDIA_ACTION__('$action');",
+          null
+        )
+      }
+    }
   }
 
   override fun onPause() {
@@ -55,6 +84,7 @@ class MainActivity : TauriActivity() {
   }
 
   override fun onDestroy() {
+    PlaybackForegroundService.onMediaAction = null
     stopService(Intent(this, PlaybackForegroundService::class.java))
     activeWebView = null
     super.onDestroy()
@@ -62,23 +92,33 @@ class MainActivity : TauriActivity() {
 
   private inner class AndroidPlaybackBridge {
     @JavascriptInterface
-    fun setPlaybackActive(playing: Boolean, title: String, artist: String) {
+    fun setPlaybackActive(
+      playing: Boolean,
+      title: String,
+      artist: String,
+      coverUrl: String,
+      hasTrack: Boolean
+    ) {
       playbackActive = playing
       runOnUiThread {
+        if (!hasTrack) {
+          stopService(Intent(this@MainActivity, PlaybackForegroundService::class.java))
+          return@runOnUiThread
+        }
         val intent = Intent(this@MainActivity, PlaybackForegroundService::class.java).apply {
           putExtra(PlaybackForegroundService.EXTRA_TITLE, title.ifBlank { "GyroTube" })
-          putExtra(PlaybackForegroundService.EXTRA_ARTIST, artist.ifBlank { "Playing music" })
+          putExtra(PlaybackForegroundService.EXTRA_ARTIST, artist)
+          putExtra(PlaybackForegroundService.EXTRA_COVER_URL, coverUrl)
+          putExtra(PlaybackForegroundService.EXTRA_PLAYING, playing)
+        }
+        try {
+          ContextCompat.startForegroundService(this@MainActivity, intent)
+        } catch (_: Throwable) {
+          // Ignore OS background start restrictions if already backgrounded
         }
         if (playing) {
-          try {
-            ContextCompat.startForegroundService(this@MainActivity, intent)
-          } catch (_: Throwable) {
-            // Ignore OS background start restrictions if already backgrounded
-          }
           activeWebView?.onResume()
           activeWebView?.resumeTimers()
-        } else {
-          stopService(Intent(this@MainActivity, PlaybackForegroundService::class.java))
         }
       }
     }
