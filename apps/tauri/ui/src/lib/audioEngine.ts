@@ -140,7 +140,15 @@ export class DualDeckAudioEngine {
     }
 
     try {
-      if (useCrossfade && this.crossfadeSecs > 0 && outgoingIndex !== incomingIndex) {
+      const canCrossfade =
+        useCrossfade &&
+        !startPaused &&
+        this.crossfadeSecs > 0 &&
+        outgoingIndex !== incomingIndex &&
+        !outgoing.paused &&
+        !outgoing.ended;
+
+      if (canCrossfade) {
         const startVolOut = outgoing.volume;
         incoming.volume = 0.01;
         await incoming.play();

@@ -132,6 +132,8 @@ class PlayerStore {
   toasts = $state<ToastItem[]>([]);
   private toastSeq = 0;
   private loadGen = 0;
+  private inFlightTransitionGen: number | null = null;
+  private prefetchTimer: number | null = null;
   private lastLocalSpinUpdate = 0;
   private persister = new SessionPersister();
   private routeDepth = 0;
@@ -178,6 +180,11 @@ class PlayerStore {
         void this.syncSpinSnapshot();
       },
       onEnded: () => {
+        if (this.inFlightTransitionGen === this.loadGen) {
+          // A crossfade transition is already resolving the next track; do not
+          // double-advance or skip a track while it finishes loading.
+          return;
+        }
         this.isPlaying = false;
         void this.syncSpinSnapshot();
         if (this.spinStatus.remote_role !== "guest") void this.handleTrackEnded();
@@ -890,10 +897,31 @@ class PlayerStore {
     void this.persistSession();
   }
 
+  private schedulePrefetchNext(expectedGen: number): void {
+    if (this.prefetchTimer !== null) {
+      window.clearTimeout(this.prefetchTimer);
+      this.prefetchTimer = null;
+    }
+    if (!isTauriRuntime()) return;
+    const upcoming = this.nextTrack;
+    if (!upcoming) return;
+    this.prefetchTimer = window.setTimeout(() => {
+      this.prefetchTimer = null;
+      if (this.loadGen !== expectedGen) return;
+      const target = this.nextTrack;
+      if (!target) return;
+      void api.prefetchAudio(target).catch(() => {
+        // Ignore prefetch failures; normal playback will resolve on demand.
+      });
+    }, 3000);
+  }
+
   public async playIndex(index: number, useCrossfade = false, startPositionSecs = 0, startPaused = false): Promise<void> {
     if (index < 0 || index >= this.queue.length) return;
+    const prevTrackId = this.currentTrack?.id ?? null;
     const track = this.queue[index];
     const gen = ++this.loadGen;
+    this.inFlightTransitionGen = useCrossfade ? gen : null;
     this.currentIndex = index;
     this.isLoadingAudio = true;
     this.positionSecs = 0;
@@ -936,12 +964,17 @@ class PlayerStore {
     void this.persistSession();
 
     if (!isTauriRuntime()) {
+      if (this.inFlightTransitionGen === gen) this.inFlightTransitionGen = null;
       this.isLoadingAudio = false;
       return;
     }
 
     try {
-      void api.cancelStaleStreams([track.id]);
+      const keepIds =
+        useCrossfade && prevTrackId && prevTrackId !== track.id
+          ? [track.id, prevTrackId]
+          : [track.id];
+      void api.cancelStaleStreams(keepIds);
       this.clearVideoStartWait();
 
       const waitForVideo = this.videoMode && !startPaused;
@@ -969,9 +1002,11 @@ class PlayerStore {
         startPaused || waitForVideo,
       );
       if (this.loadGen !== gen) return;
+      if (this.inFlightTransitionGen === gen) this.inFlightTransitionGen = null;
       this.audioLoadedForGen = gen;
       if (startPaused) this.isLoadingAudio = false;
       void this.syncSpinSnapshot();
+      this.schedulePrefetchNext(gen);
 
       if (waitForVideo) {
         if (this.videoReadyEl && this.videoReadyEl.gen === gen) {
@@ -987,23 +1022,30 @@ class PlayerStore {
         void this.loadRelatedForCurrent(true);
       }
       if (this.spinStatus.remote_role === "guest") return;
-      void api.getRadioTracks(track.id).then((tracks) => {
-        if (this.loadGen !== gen) return;
-        const existing = new Set(this.queue.map((t) => t.id));
-        const related = tracks.filter((t) => !existing.has(t.id));
-        if (this.autoplayRelated && this.queue.length === 1 && related.length > 0) {
-          const autoQueued = related.slice(0, 12);
-          this.queue = [...this.queue, ...autoQueued];
-          this.unshuffledQueue = [...this.queue];
-          this.suggestedTracks = related.slice(12, 24);
-          void this.persistSession();
-          void this.syncSpinSnapshot();
-        } else {
-          this.suggestedTracks = related.slice(0, 12);
-        }
-      });
+      void api
+        .getRadioTracks(track.id)
+        .then((tracks) => {
+          if (this.loadGen !== gen) return;
+          const existing = new Set(this.queue.map((t) => t.id));
+          const related = tracks.filter((t) => !existing.has(t.id));
+          if (this.autoplayRelated && this.queue.length === 1 && related.length > 0) {
+            const autoQueued = related.slice(0, 12);
+            this.queue = [...this.queue, ...autoQueued];
+            this.unshuffledQueue = [...this.queue];
+            this.suggestedTracks = related.slice(12, 24);
+            void this.persistSession();
+            void this.syncSpinSnapshot();
+            this.schedulePrefetchNext(gen);
+          } else {
+            this.suggestedTracks = related.slice(0, 12);
+          }
+        })
+        .catch(() => {
+          // Ignore radio fetch errors; playback continues with current queue.
+        });
     } catch (err) {
       if (this.loadGen === gen) {
+        if (this.inFlightTransitionGen === gen) this.inFlightTransitionGen = null;
         this.isLoadingAudio = false;
         this.showToast(String(err));
       }
@@ -1046,6 +1088,7 @@ class PlayerStore {
       const nextTrack = this.suggestedTracks[0];
       this.suggestedTracks = this.suggestedTracks.slice(1);
       this.queue = [...this.queue, nextTrack];
+      this.unshuffledQueue = [...this.unshuffledQueue, nextTrack];
       await this.playIndex(this.queue.length - 1, useCrossfade);
     }
   }
