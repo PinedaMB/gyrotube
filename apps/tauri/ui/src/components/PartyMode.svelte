@@ -55,12 +55,12 @@
   }
 
   function lineOpacity(idx: number): number {
-    if (player.activeLyricIndex == null) return 0.6;
+    if (player.activeLyricIndex == null) return 0.7;
     if (idx === player.activeLyricIndex) return 1.0;
     const diff = Math.abs(idx - player.activeLyricIndex);
-    if (diff === 1) return 0.36;
-    if (diff === 2) return 0.2;
-    return 0.11;
+    if (diff === 1) return 0.48;
+    if (diff === 2) return 0.3;
+    return 0.18;
   }
 
   function handleProgressClick(e: MouseEvent) {
@@ -227,7 +227,7 @@
           class="w-[340px] hidden md:flex items-center gap-3 p-3 rounded-2xl bg-white/[0.05] hover:bg-white/[0.08] border border-white/10 text-left transition-colors"
           onclick={() => void player.next()}
         >
-          <CoverImage class="up-next-cover !w-11 !h-11 !rounded-lg" src={player.nextTrack.cover_url} alt="" />
+          <CoverImage class="up-next-cover !w-11 !h-11 !rounded-[8px]" src={player.nextTrack.cover_url} alt="" />
           <div class="min-w-0 flex-1">
             <span class="block text-[10px] font-extrabold uppercase tracking-[0.1em] text-[var(--text-muted)]">
               {t("party.up_next")}
@@ -264,7 +264,7 @@
           <div
             role="region"
             aria-label="Lyrics"
-            class="party-lyrics-scroll flex-1 min-h-0 overflow-y-auto py-[36vh] pr-8 pl-4 flex flex-col gap-8"
+            class="party-lyrics-scroll flex-1 min-h-0 overflow-y-auto overflow-x-hidden pt-16 pb-36 pr-8 flex flex-col gap-6"
             onwheel={markUserScroll}
             ontouchmove={markUserScroll}
           >
@@ -273,8 +273,9 @@
               {@const prevLine = i > 0 ? player.lyrics.lines[i - 1] : null}
               {@const stanzaBreak = prevLine != null && line.time_secs - prevLine.time_secs >= 5.5}
               <button
+                type="button"
                 bind:this={lineRefs[i]}
-                class="party-line text-left {active ? 'active-line' : ''} {stanzaBreak ? 'mt-5' : ''}"
+                class="party-line text-left origin-left {active ? 'active-line' : ''} {stanzaBreak ? 'mt-5' : ''}"
                 style="opacity: {lineOpacity(i)};"
                 onclick={() => {
                   autoScrollPaused = false;
@@ -314,8 +315,8 @@
 <style>
   .party-lyrics-scroll {
     scrollbar-width: none;
-    mask-image: linear-gradient(to bottom, transparent 0%, black 14%, black 86%, transparent 100%);
-    -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 14%, black 86%, transparent 100%);
+    mask-image: linear-gradient(to bottom, transparent 0%, black 9%, black 88%, transparent 100%);
+    -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 9%, black 88%, transparent 100%);
   }
 
   .party-lyrics-scroll::-webkit-scrollbar {
@@ -324,20 +325,25 @@
 
   .party-line {
     position: relative;
-    font-size: clamp(27px, 2.9vw, 39px);
-    font-weight: 800;
-    line-height: 1.3;
-    letter-spacing: -0.025em;
+    font-size: clamp(24px, 2.7vw, 36px);
+    font-weight: 700;
+    line-height: 1.38;
+    letter-spacing: -0.02em;
     color: var(--text);
-    padding: 6px 0;
-    transition: opacity 120ms ease-out;
+    padding: 4px 0;
+    will-change: transform, opacity;
+    transition:
+      opacity 260ms cubic-bezier(0.22, 1, 0.36, 1),
+      transform 260ms cubic-bezier(0.22, 1, 0.36, 1),
+      color 260ms ease;
   }
 
   .party-line:hover {
-    opacity: 0.92 !important;
+    opacity: 0.9 !important;
   }
 
   .party-line.active-line {
-    color: var(--accent-bright);
+    transform: scale(1.045);
+    color: #ffffff;
   }
 </style>

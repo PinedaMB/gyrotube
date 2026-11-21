@@ -556,6 +556,16 @@ class PlayerStore {
     if (isTauriRuntime()) void api.saveSearchHistory(this.searchHistory);
   }
 
+  public removeRecentTrack(trackId: string): void {
+    this.recentTracks = this.recentTracks.filter((t) => t.id !== trackId);
+    if (isTauriRuntime()) void api.saveRecentTracks(this.recentTracks);
+  }
+
+  public clearRecentTracks(): void {
+    this.recentTracks = [];
+    if (isTauriRuntime()) void api.saveRecentTracks([]);
+  }
+
   public isFavorite(trackId: string): boolean {
     return this.favoriteIdSet.has(trackId);
   }

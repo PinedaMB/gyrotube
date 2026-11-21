@@ -112,6 +112,8 @@
   "collection.favorites": "Favorites",
   "collection.favorites_desc": "Songs you marked with a heart",
   "collection.recently_played": "Recently played",
+  "collection.remove_recent": "Remove from history",
+  "collection.clear_recent": "Clear",
   "collection.play_all": "Play all",
   "collection.empty_recent": "Songs you play will appear here.",
   "collection.empty_favorites": "Tap the heart on any song to save it here.",

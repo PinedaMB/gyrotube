@@ -112,6 +112,8 @@
   "collection.favorites": "Favoritos",
   "collection.favorites_desc": "Canciones que marcaste con corazón",
   "collection.recently_played": "Escuchado recientemente",
+  "collection.remove_recent": "Quitar del historial",
+  "collection.clear_recent": "Limpiar",
   "collection.play_all": "Reproducir todo",
   "collection.empty_recent": "Las canciones que escuches aparecerán aquí.",
   "collection.empty_favorites": "Toca el corazón en cualquier canción para guardarla aquí.",

@@ -1,8 +1,8 @@
 <script lang="ts">
-  import TrackRow from "../TrackRow.svelte";
-  import { Play } from "lucide-svelte";
+  import { Play, Trash2 } from "lucide-svelte";
   import { t } from "../../lib/i18n.svelte";
   import { player } from "../../lib/stores/player.svelte";
+  import TrackRow from "../TrackRow.svelte";
 </script>
 
 <section class="mt-8 flex flex-col gap-3">
@@ -17,13 +17,25 @@
     </div>
 
     {#if player.recentTracks.length > 0}
-      <button
-        class="pill-btn"
-        onclick={() => player.replaceQueueAndPlay(player.recentTracks, 0, t("collection.recently_played"))}
-      >
-        <Play size={13} fill="currentColor" />
-        {t("collection.play_all")}
-      </button>
+      <div class="flex items-center gap-2">
+        <button
+          type="button"
+          class="pill-btn hover:!text-red-400 hover:!border-red-500/30 hover:!bg-red-500/10"
+          onclick={() => player.clearRecentTracks()}
+        >
+          <Trash2 size={13} />
+          {t("collection.clear_recent")}
+        </button>
+        <button
+          type="button"
+          class="pill-btn"
+          onclick={() =>
+            player.replaceQueueAndPlay(player.recentTracks, 0, t("collection.recently_played"))}
+        >
+          <Play size={13} fill="currentColor" />
+          {t("collection.play_all")}
+        </button>
+      </div>
     {/if}
   </div>
 
@@ -34,7 +46,13 @@
   {:else}
     <div class="track-list">
       {#each player.recentTracks as track, i (track.id)}
-        <TrackRow {track} onPlay={() => player.replaceQueueAndPlay(player.recentTracks, i, t("collection.recently_played"))} />
+        <TrackRow
+          {track}
+          onPlay={() =>
+            player.replaceQueueAndPlay(player.recentTracks, i, t("collection.recently_played"))}
+          onRemove={() => player.removeRecentTrack(track.id)}
+          removeLabel={t("collection.remove_recent")}
+        />
       {/each}
     </div>
   {/if}
