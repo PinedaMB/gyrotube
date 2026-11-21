@@ -77,6 +77,7 @@ class PlayerStore {
 
   // Lyrics
   lyrics = $state<LyricsData>({ type: "None" });
+  lyricsLoading = $state(false);
   activeLyricIndex = $state<number | null>(null);
 
   // Related / suggested tracks for Autoplay
@@ -92,6 +93,7 @@ class PlayerStore {
   homeFeed = $state<HomeFeed | null>(null);
   homeLoading = $state(false);
   genres = $state<Genre[]>([]);
+  genresLoading = $state(false);
   searchQuery = $state("");
   searchResults = $state<SearchResults | null>(null);
   searchLoading = $state(false);
@@ -220,10 +222,14 @@ class PlayerStore {
             if (this.currentTrack?.id === restored.id) this.ambientRgb = rgb;
           });
         }
+        this.lyricsLoading = true;
         void api
           .getLyrics(restored.title, restored.artist, restored.duration_secs, restored.id)
           .then((data) => {
             if (this.currentTrack?.id === restored.id) this.lyrics = data;
+          })
+          .finally(() => {
+            if (this.currentTrack?.id === restored.id) this.lyricsLoading = false;
           });
       }
     } catch (err) {
@@ -515,10 +521,13 @@ class PlayerStore {
 
   public async loadGenres(forceRefresh = false): Promise<void> {
     if (!isTauriRuntime()) return;
+    this.genresLoading = true;
     try {
       this.genres = await api.getGenres(forceRefresh);
     } catch {
       // Non-fatal
+    } finally {
+      this.genresLoading = false;
     }
   }
 
@@ -709,9 +718,15 @@ class PlayerStore {
       void this.syncSpinSnapshot();
 
       // Load lyrics & related suggestions asynchronously
-      void api.getLyrics(track.title, track.artist, track.duration_secs, track.id).then((data) => {
-        if (this.loadGen === gen) this.lyrics = data;
-      });
+      this.lyricsLoading = true;
+      void api
+        .getLyrics(track.title, track.artist, track.duration_secs, track.id)
+        .then((data) => {
+          if (this.loadGen === gen) this.lyrics = data;
+        })
+        .finally(() => {
+          if (this.loadGen === gen) this.lyricsLoading = false;
+        });
       if (this.sidebarTab === "related") {
         void this.loadRelatedForCurrent(true);
       }

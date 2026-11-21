@@ -69,6 +69,18 @@
               </div>
             {/each}
           </div>
+          <div class="pt-4 space-y-3">
+            <div class="h-5 w-36 rounded bg-white/[0.08]"></div>
+            <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3.5">
+              {#each [0, 1, 2, 3, 4] as _}
+                <div class="space-y-2.5">
+                  <div class="aspect-square w-full rounded-xl bg-white/[0.08]"></div>
+                  <div class="h-3.5 w-4/5 rounded bg-white/[0.08]"></div>
+                  <div class="h-3 w-1/2 rounded bg-white/[0.05]"></div>
+                </div>
+              {/each}
+            </div>
+          </div>
         </div>
       {:else if details}
         <ArtistPopularTracks

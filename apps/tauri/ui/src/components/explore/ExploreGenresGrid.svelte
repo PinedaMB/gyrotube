@@ -13,6 +13,27 @@
 <h1 class="m-0 text-[28px] md:text-[32px] font-extrabold tracking-tight">{t("explore.title")}</h1>
 <p class="muted mt-1 text-[13.5px] md:text-[14px]">{t("explore.subtitle")}</p>
 
+{#if player.genresLoading && genres.length === 0}
+  <section class="mt-6 space-y-6 animate-pulse" aria-busy="true">
+    <div class="space-y-3">
+      <div class="h-6 w-40 rounded-md bg-white/[0.08]"></div>
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-2.5">
+        {#each [0, 1, 2, 3, 4, 5, 6, 7] as _}
+          <div class="h-14 rounded-xl bg-[var(--surface)] border border-[var(--border)]"></div>
+        {/each}
+      </div>
+    </div>
+    <div class="space-y-3">
+      <div class="h-6 w-32 rounded-md bg-white/[0.08]"></div>
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-2.5">
+        {#each [0, 1, 2, 3, 4, 5, 6, 7] as _}
+          <div class="h-12 rounded-xl bg-[var(--surface)] border border-[var(--border)]"></div>
+        {/each}
+      </div>
+    </div>
+  </section>
+{/if}
+
 {#if moods.length > 0}
   <section class="mt-6 space-y-3">
     <h2 class="section-title">{t("explore.moods")}</h2>

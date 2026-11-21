@@ -259,7 +259,13 @@
         {/if}
       </div>
 
-      {#if player.lyrics.type === "Synced"}
+      {#if player.lyricsLoading && player.currentTrack}
+        <div class="flex-1 flex flex-col justify-center gap-6 py-10 pr-8 animate-pulse" aria-busy="true">
+          {#each [68, 52, 80, 60, 44, 74] as w}
+            <div class="h-7 rounded-lg bg-white/[0.08]" style="width: {w}%;"></div>
+          {/each}
+        </div>
+      {:else if player.lyrics.type === "Synced"}
         <div class="relative flex-1 min-h-0 flex flex-col">
           <div
             role="region"

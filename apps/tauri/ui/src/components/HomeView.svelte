@@ -9,6 +9,7 @@
   import HomeFeaturedHero from "./home/HomeFeaturedHero.svelte";
   import HomeListenAgain from "./home/HomeListenAgain.svelte";
   import HomeQuickCards from "./home/HomeQuickCards.svelte";
+  import HomeSkeleton from "./home/HomeSkeleton.svelte";
   import HomeStationsGrid from "./home/HomeStationsGrid.svelte";
   import HomeTrendingCharts from "./home/HomeTrendingCharts.svelte";
 
@@ -92,6 +93,10 @@
   <HomeQuickCards />
 
   <HomeListenAgain tracks={listenAgain} />
+
+  {#if player.homeLoading && !player.homeFeed}
+    <HomeSkeleton />
+  {/if}
 
   {#if featuredAlbum}
     <HomeFeaturedHero album={featuredAlbum} />

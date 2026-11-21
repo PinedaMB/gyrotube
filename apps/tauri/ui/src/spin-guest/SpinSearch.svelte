@@ -149,8 +149,17 @@
 
   <div class="mt-4 flex flex-col gap-1">
     {#if searching && results.length === 0}
-      <div class="py-12 text-center text-[14px] text-[var(--text-muted)]">
-        Buscando canciones…
+      <div class="space-y-1.5 py-2 animate-pulse" aria-busy="true">
+        {#each [0, 1, 2, 3] as _}
+          <div class="flex items-center gap-3 p-2.5">
+            <div class="w-11 h-11 rounded-[9px] bg-white/[0.08] shrink-0"></div>
+            <div class="flex-1 space-y-2">
+              <div class="h-4 w-48 max-w-[75%] rounded bg-white/[0.08]"></div>
+              <div class="h-3 w-32 max-w-[55%] rounded bg-white/[0.05]"></div>
+            </div>
+            <div class="h-8 w-24 rounded-full bg-white/[0.08] shrink-0"></div>
+          </div>
+        {/each}
       </div>
     {:else if searchError}
       <div class="py-12 text-center text-[14px] text-rose-400">
