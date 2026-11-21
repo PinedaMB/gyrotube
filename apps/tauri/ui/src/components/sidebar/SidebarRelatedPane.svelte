@@ -1,5 +1,6 @@
 <script lang="ts">
   import { Play, Plus, Sparkles } from "lucide-svelte";
+  import { untrack } from "svelte";
   import { fade } from "svelte/transition";
   import { t } from "../../lib/i18n.svelte";
   import { player } from "../../lib/stores/player.svelte";
@@ -7,8 +8,12 @@
   import CoverImage from "../CoverImage.svelte";
 
   $effect(() => {
-    void player.currentTrack?.id;
-    void player.loadRelatedForCurrent();
+    const id = player.currentTrack?.id;
+    if (id) {
+      untrack(() => {
+        void player.loadRelatedForCurrent();
+      });
+    }
   });
 
   function closeMobileSheet() {

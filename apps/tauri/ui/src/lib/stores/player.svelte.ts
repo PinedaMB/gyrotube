@@ -119,6 +119,8 @@ class PlayerStore {
       : null,
   );
 
+  private favoriteIdSet = $derived(new Set(this.favorites.map((t) => t.id)));
+
   constructor() {
     this.engine = new DualDeckAudioEngine({
       onTimeUpdate: (pos, dur) => {
@@ -555,7 +557,7 @@ class PlayerStore {
   }
 
   public isFavorite(trackId: string): boolean {
-    return this.favorites.some((t) => t.id === trackId);
+    return this.favoriteIdSet.has(trackId);
   }
 
   public toggleFavorite(track: Track): void {

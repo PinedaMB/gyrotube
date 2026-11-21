@@ -1,3 +1,40 @@
+<script module lang="ts">
+  // Single shared IntersectionObserver across all CoverImage instances
+  // instead of creating 50-100 separate observers per view.
+  const callbacks = new WeakMap<Element, () => void>();
+  let sharedObserver: IntersectionObserver | null = null;
+
+  function observeElement(el: Element, cb: () => void): () => void {
+    if (typeof IntersectionObserver === "undefined") {
+      cb();
+      return () => {};
+    }
+    if (!sharedObserver) {
+      sharedObserver = new IntersectionObserver(
+        (entries) => {
+          for (const entry of entries) {
+            if (entry.isIntersecting) {
+              const fn = callbacks.get(entry.target);
+              if (fn) {
+                callbacks.delete(entry.target);
+                sharedObserver?.unobserve(entry.target);
+                fn();
+              }
+            }
+          }
+        },
+        { rootMargin: "180px" },
+      );
+    }
+    callbacks.set(el, cb);
+    sharedObserver.observe(el);
+    return () => {
+      callbacks.delete(el);
+      sharedObserver?.unobserve(el);
+    };
+  }
+</script>
+
 <script lang="ts">
   import { onMount } from "svelte";
 
@@ -32,6 +69,7 @@
     if (targetPx) return targetPx;
     if (
       className.includes("track-cover") ||
+      className.includes("tile-cover") ||
       className.includes("up-next-cover") ||
       className.includes("w-10")
     ) {
@@ -72,25 +110,13 @@
   });
 
   onMount(() => {
-    if (eager) {
+    if (eager || !hostEl) {
       inView = true;
       return;
     }
-    if (!hostEl || typeof IntersectionObserver === "undefined") {
+    return observeElement(hostEl, () => {
       inView = true;
-      return;
-    }
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries.some((e) => e.isIntersecting)) {
-          inView = true;
-          observer.disconnect();
-        }
-      },
-      { rootMargin: "160px" },
-    );
-    observer.observe(hostEl);
-    return () => observer.disconnect();
+    });
   });
 
   function handleError() {
@@ -128,9 +154,10 @@
     {#if !loaded}
       <div class="cover-skeleton" aria-hidden="true"></div>
     {/if}
-    {#if inView || eager}
+    {#if inView}
       <img
-        class="cover-img {loaded ? 'is-loaded' : ''}"
+        class="cover-img"
+        class:is-loaded={loaded}
         src={currentSrc}
         {alt}
         loading={eager ? "eager" : "lazy"}
@@ -157,9 +184,8 @@
     height: 100%;
     object-fit: cover;
     display: block;
-    image-rendering: auto;
     opacity: 0;
-    transition: opacity 280ms ease-out;
+    transition: opacity 180ms ease-out;
   }
 
   .cover-img.is-loaded {
@@ -169,14 +195,7 @@
   .cover-skeleton {
     position: absolute;
     inset: 0;
-    background: linear-gradient(
-      110deg,
-      rgba(255, 255, 255, 0.04) 25%,
-      rgba(255, 255, 255, 0.1) 50%,
-      rgba(255, 255, 255, 0.04) 75%
-    );
-    background-size: 220% 100%;
-    animation: cover-shimmer 1.35s ease-in-out infinite;
+    background: rgba(255, 255, 255, 0.05);
   }
 
   .cover-fallback {
@@ -188,14 +207,5 @@
     color: var(--text-muted);
     font-size: 1.4rem;
     user-select: none;
-  }
-
-  @keyframes cover-shimmer {
-    0% {
-      background-position: 200% 0;
-    }
-    100% {
-      background-position: -200% 0;
-    }
   }
 </style>

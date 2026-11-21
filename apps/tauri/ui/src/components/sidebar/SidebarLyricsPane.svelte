@@ -4,6 +4,7 @@
   import { fade, scale } from "svelte/transition";
   import { t } from "../../lib/i18n.svelte";
   import { player } from "../../lib/stores/player.svelte";
+  import CoverImage from "../CoverImage.svelte";
 
   let lyricRefs = $state<Record<number, HTMLButtonElement>>({});
   let autoScrollPaused = $state(false);
@@ -37,34 +38,40 @@
   }
 
   function lyricOpacity(idx: number): number {
-    if (player.activeLyricIndex == null) return 0.65;
+    if (player.activeLyricIndex == null) return 0.7;
     if (idx === player.activeLyricIndex) return 1.0;
     const diff = Math.abs(idx - player.activeLyricIndex);
-    if (diff === 1) return 0.42;
-    if (diff === 2) return 0.24;
-    return 0.14;
-  }
-
-  function isFarLyric(idx: number): boolean {
-    if (player.activeLyricIndex == null) return false;
-    return Math.abs(idx - player.activeLyricIndex) >= 2;
+    if (diff === 1) return 0.48;
+    if (diff === 2) return 0.3;
+    return 0.18;
   }
 </script>
 
-<div in:fade={{ duration: 180 }} class="flex flex-col gap-3 pt-1 flex-1 min-h-0">
-  <div class="flex items-start justify-between gap-2 pb-2 border-b border-[var(--border)]">
-    <div class="min-w-0">
-      <h3 class="text-[14.5px] font-bold truncate">
-        {player.currentTrack?.title ?? t("lyrics.title")}
-      </h3>
+<div in:fade={{ duration: 150 }} class="flex flex-col gap-2 pt-1 flex-1 min-h-0">
+  <!-- Compact track header -->
+  <div class="flex items-center justify-between gap-2.5 pb-3 border-b border-white/[0.08]">
+    <div class="flex items-center gap-2.5 min-w-0">
       {#if player.currentTrack}
-        <p class="text-[12px] text-[var(--text-muted)] truncate">
-          {player.currentTrack.artist}
-        </p>
+        <CoverImage
+          class="track-cover !w-9 !h-9 !rounded-[8px] shrink-0"
+          src={player.currentTrack.cover_url}
+          alt=""
+        />
       {/if}
+      <div class="min-w-0">
+        <h3 class="text-[14px] font-bold truncate leading-tight">
+          {player.currentTrack?.title ?? t("lyrics.title")}
+        </h3>
+        {#if player.currentTrack}
+          <p class="text-[12px] text-[var(--text-muted)] truncate mt-0.5">
+            {player.currentTrack.artist}
+          </p>
+        {/if}
+      </div>
     </div>
+
     {#if player.lyrics.type === "Synced"}
-      <span class="shrink-0 inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10.5px] font-bold bg-[var(--accent-soft)] text-[var(--accent-bright)]">
+      <span class="shrink-0 inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10.5px] font-bold bg-[var(--accent-soft)] text-[var(--accent-bright)]">
         <span class="w-1.5 h-1.5 rounded-full bg-[var(--accent-bright)]"></span>
         {t("lyrics.synced")}
       </span>
@@ -80,7 +87,7 @@
       <div
         role="region"
         aria-label="Lyrics"
-        class="lyrics-fade flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-2 pt-28 pb-36 flex flex-col gap-4"
+        class="lyrics-fade flex-1 min-h-0 overflow-y-auto overflow-x-hidden pt-10 pb-28 flex flex-col gap-3.5"
         onwheel={markUserScroll}
         ontouchmove={markUserScroll}
       >
@@ -89,8 +96,9 @@
           {@const prevLine = i > 0 ? player.lyrics.lines[i - 1] : null}
           {@const stanzaBreak = prevLine != null && line.time_secs - prevLine.time_secs >= 5.5}
           <button
+            type="button"
             bind:this={lyricRefs[i]}
-            class="sb-lyric-line text-left origin-left {active ? 'active-line' : ''} {isFarLyric(i) ? 'far-line' : ''} {stanzaBreak ? 'mt-3' : ''}"
+            class="sb-lyric-line text-left origin-left {active ? 'active-line' : ''} {stanzaBreak ? 'mt-3' : ''}"
             style="opacity: {lyricOpacity(i)};"
             onclick={() => {
               autoScrollPaused = false;
@@ -104,8 +112,9 @@
 
       {#if autoScrollPaused && player.activeLyricIndex != null}
         <button
-          transition:scale={{ start: 0.88, duration: 170, easing: cubicOut }}
-          class="absolute bottom-3 left-1/2 -translate-x-1/2 inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[12px] font-bold bg-[var(--accent)] hover:bg-[var(--accent-bright)] text-white shadow-[0_8px_24px_rgba(0,0,0,0.45)] transition-all active:scale-95"
+          type="button"
+          transition:scale={{ start: 0.9, duration: 150, easing: cubicOut }}
+          class="absolute bottom-3 left-1/2 -translate-x-1/2 inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[12px] font-bold bg-[var(--accent)] hover:bg-[var(--accent-bright)] text-white shadow-[0_8px_24px_rgba(0,0,0,0.45)] transition-colors active:scale-95"
           onclick={resumeSync}
         >
           <LocateFixed size={14} />
@@ -114,7 +123,7 @@
       {/if}
     </div>
   {:else if player.lyrics.type === "Plain"}
-    <div class="lyrics-fade flex-1 min-h-0 overflow-y-auto py-8">
+    <div class="lyrics-fade flex-1 min-h-0 overflow-y-auto py-6">
       <pre class="whitespace-pre-wrap font-sans text-[14.5px] leading-relaxed text-[var(--text)]/85">{player.lyrics.text}</pre>
     </div>
   {:else}
@@ -130,8 +139,8 @@
 <style>
   .lyrics-fade {
     scrollbar-width: none;
-    mask-image: linear-gradient(to bottom, transparent 0%, black 12%, black 88%, transparent 100%);
-    -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 12%, black 88%, transparent 100%);
+    mask-image: linear-gradient(to bottom, transparent 0%, black 9%, black 88%, transparent 100%);
+    -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 9%, black 88%, transparent 100%);
   }
 
   .lyrics-fade::-webkit-scrollbar {
@@ -139,38 +148,25 @@
   }
 
   .sb-lyric-line {
-    font-size: 15.5px;
-    font-weight: 650;
-    line-height: 1.42;
+    font-size: 16.5px;
+    font-weight: 700;
+    line-height: 1.4;
     letter-spacing: -0.015em;
     color: var(--text);
-    padding: 2px 4px;
+    padding: 2px 0;
+    will-change: transform, opacity;
     transition:
-      opacity 360ms cubic-bezier(0.22, 1, 0.36, 1),
-      font-size 360ms cubic-bezier(0.22, 1, 0.36, 1),
-      color 360ms cubic-bezier(0.22, 1, 0.36, 1),
-      filter 360ms cubic-bezier(0.22, 1, 0.36, 1),
-      text-shadow 360ms cubic-bezier(0.22, 1, 0.36, 1);
-  }
-
-  .sb-lyric-line.far-line {
-    filter: blur(0.45px);
+      opacity 260ms cubic-bezier(0.22, 1, 0.36, 1),
+      transform 260ms cubic-bezier(0.22, 1, 0.36, 1),
+      color 260ms ease;
   }
 
   .sb-lyric-line:hover {
-    opacity: 0.92 !important;
-    filter: none;
+    opacity: 0.9 !important;
   }
 
   .sb-lyric-line.active-line {
-    font-size: 20px;
-    font-weight: 850;
-    line-height: 1.3;
-    letter-spacing: -0.02em;
+    transform: scale(1.045);
     color: #ffffff;
-    filter: none;
-    text-shadow:
-      0 0 24px rgba(var(--ambient-rgb), 0.65),
-      0 2px 14px rgba(0, 0, 0, 0.4);
   }
 </style>

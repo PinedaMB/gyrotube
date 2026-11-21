@@ -18,13 +18,16 @@
   let visibleCols = $state(5);
   let cardWidth = $state(176);
 
+  let scrollRaf: number | null = null;
+
   function recalcLayout() {
     if (!scroller) return;
     const width = scroller.clientWidth;
     if (width > 0) {
       const cols = Math.max(2, Math.floor((width + gap) / (minCardWidth + gap)));
-      visibleCols = cols;
-      cardWidth = (width - gap * (cols - 1)) / cols;
+      const nextWidth = (width - gap * (cols - 1)) / cols;
+      if (cols !== visibleCols) visibleCols = cols;
+      if (Math.abs(nextWidth - cardWidth) > 0.5) cardWidth = nextWidth;
     }
     updateEdges();
   }
@@ -32,8 +35,18 @@
   function updateEdges() {
     if (!scroller) return;
     const { scrollLeft, scrollWidth, clientWidth } = scroller;
-    canPrev = scrollLeft > 4;
-    canNext = scrollLeft + clientWidth < scrollWidth - 4;
+    const nextPrev = scrollLeft > 4;
+    const nextNext = scrollLeft + clientWidth < scrollWidth - 4;
+    if (nextPrev !== canPrev) canPrev = nextPrev;
+    if (nextNext !== canNext) canNext = nextNext;
+  }
+
+  function handleScroll() {
+    if (scrollRaf !== null) return;
+    scrollRaf = requestAnimationFrame(() => {
+      scrollRaf = null;
+      updateEdges();
+    });
   }
 
   function scrollPage(dir: -1 | 1) {
@@ -92,7 +105,7 @@
       bind:this={scroller}
       class="carousel-track scroll-smooth"
       style="--carousel-card-w: {cardWidth}px; --carousel-gap: {gap}px;"
-      onscroll={updateEdges}
+      onscroll={handleScroll}
     >
       {@render children()}
     </div>

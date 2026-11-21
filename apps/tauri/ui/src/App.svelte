@@ -58,32 +58,35 @@
     <!-- Left navigation sidebar -->
     <NavSidebar />
 
-    <!-- Center scrollable main view -->
-    <main class="flex-1 min-w-0 h-full overflow-y-auto overflow-x-hidden ambient-surface scroll-y">
-      {#key viewKey}
-        <div in:fade={{ duration: 110 }}>
-          {#if player.activeView.kind === "home"}
-            <HomeView />
-          {:else if player.activeView.kind === "explore"}
-            <ExploreView />
-          {:else if player.activeView.kind === "collection"}
-            <CollectionView />
-          {:else if player.activeView.kind === "artist"}
-            <ArtistView
-              artistId={player.activeView.artistId}
-              artistName={player.activeView.artistName}
-            />
-          {:else if player.activeView.kind === "album"}
-            <AlbumView
-              id={player.activeView.id}
-              title={player.activeView.title}
-              coverUrl={player.activeView.coverUrl}
-              isPlaylist={player.activeView.isPlaylist}
-            />
-          {/if}
-        </div>
-      {/key}
-    </main>
+    <!-- Center scrollable main view (static ambient layer behind scrollport for GPU-composited scrolling) -->
+    <div class="flex-1 min-w-0 h-full relative overflow-hidden">
+      <div class="pointer-events-none absolute inset-0 ambient-surface" aria-hidden="true"></div>
+      <main class="relative z-10 w-full h-full overflow-y-auto overflow-x-hidden scroll-y">
+        {#key viewKey}
+          <div>
+            {#if player.activeView.kind === "home"}
+              <HomeView />
+            {:else if player.activeView.kind === "explore"}
+              <ExploreView />
+            {:else if player.activeView.kind === "collection"}
+              <CollectionView />
+            {:else if player.activeView.kind === "artist"}
+              <ArtistView
+                artistId={player.activeView.artistId}
+                artistName={player.activeView.artistName}
+              />
+            {:else if player.activeView.kind === "album"}
+              <AlbumView
+                id={player.activeView.id}
+                title={player.activeView.title}
+                coverUrl={player.activeView.coverUrl}
+                isPlaylist={player.activeView.isPlaylist}
+              />
+            {/if}
+          </div>
+        {/key}
+      </main>
+    </div>
 
     <!-- Right player sidebar (docked on lg+, full-height slide-over sheet on < lg) -->
     {#if player.sidebarOpen}
