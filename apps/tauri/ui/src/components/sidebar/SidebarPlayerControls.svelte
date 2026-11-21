@@ -77,18 +77,48 @@
 
   <!-- Lower controls stack -->
   <div class="w-full flex flex-col items-center gap-4">
-    <!-- Track metadata -->
+    <!-- Track metadata (artist & album clickable when IDs are available) -->
     <div class="w-full text-center px-1 space-y-1">
       <h2 class="text-[19px] font-extrabold leading-tight tracking-tight line-clamp-2">
         {player.currentTrack?.title ?? t("player.nothing_playing")}
       </h2>
-      <p class="text-[14px] font-medium text-[var(--text-muted)] truncate">
-        {player.currentTrack?.artist ?? t("player.select_song")}
-      </p>
-      {#if player.currentTrack?.album}
-        <p class="text-[12px] text-[var(--text-muted)]/75 truncate">
-          {t("player.album_prefix", { album: player.currentTrack.album })}
+      {#if player.currentTrack?.artist_id}
+        <button
+          type="button"
+          class="text-[14px] font-medium text-[var(--text-muted)] hover:text-[var(--accent-bright)] hover:underline truncate max-w-full transition-colors"
+          onclick={() => {
+            const tr = player.currentTrack;
+            if (!tr?.artist_id) return;
+            if (typeof window !== "undefined" && window.innerWidth < 1024) player.sidebarOpen = false;
+            player.openArtist(tr.artist_id, tr.artist);
+          }}
+        >
+          {player.currentTrack.artist}
+        </button>
+      {:else}
+        <p class="text-[14px] font-medium text-[var(--text-muted)] truncate">
+          {player.currentTrack?.artist ?? t("player.select_song")}
         </p>
+      {/if}
+      {#if player.currentTrack?.album}
+        {#if player.currentTrack.album_id}
+          <button
+            type="button"
+            class="block mx-auto text-[12px] text-[var(--text-muted)]/75 hover:text-[var(--text)] hover:underline truncate max-w-full transition-colors"
+            onclick={() => {
+              const tr = player.currentTrack;
+              if (!tr?.album_id || !tr.album) return;
+              if (typeof window !== "undefined" && window.innerWidth < 1024) player.sidebarOpen = false;
+              player.openAlbum(tr.album_id, tr.album, tr.cover_large_url ?? tr.cover_url);
+            }}
+          >
+            {t("player.album_prefix", { album: player.currentTrack.album })}
+          </button>
+        {:else}
+          <p class="text-[12px] text-[var(--text-muted)]/75 truncate">
+            {t("player.album_prefix", { album: player.currentTrack.album })}
+          </p>
+        {/if}
       {/if}
     </div>
 

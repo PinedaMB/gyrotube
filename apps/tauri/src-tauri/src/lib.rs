@@ -184,6 +184,8 @@ pub fn run() {
             commands::get_album_tracks,
             commands::get_playlist_tracks,
             commands::get_radio_tracks,
+            commands::get_playlist_radio,
+            commands::get_related_for_track,
             commands::get_lyrics,
             commands::resolve_audio_stream,
             commands::prefetch_audio,

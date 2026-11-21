@@ -2,8 +2,11 @@ export interface Track {
   id: string;
   title: string;
   artist: string;
+  artist_id?: string | null;
   album?: string | null;
+  album_id?: string | null;
   duration_secs?: number | null;
+  view_count?: number | null;
   cover_url?: string | null;
   cover_large_url?: string | null;
   verified_music?: boolean;
@@ -52,6 +55,16 @@ export interface HomeFeed {
   trending: Track[];
   top: Track[];
   new_albums: Album[];
+  top_artists?: Artist[];
+  country?: string | null;
+  available_countries?: string[];
+}
+
+export interface RelatedFeed {
+  tracks: Track[];
+  albums: Album[];
+  playlists: Playlist[];
+  artists: Artist[];
 }
 
 export interface SearchResults {
@@ -146,4 +159,12 @@ export function formatSubscribers(count?: number | null): string {
   if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(1)} M subscribers`;
   if (count >= 1_000) return `${(count / 1_000).toFixed(1)} K subscribers`;
   return `${count} subscribers`;
+}
+
+export function formatPlays(count?: number | null): string {
+  if (!count) return "";
+  if (count >= 1_000_000_000) return `${(count / 1_000_000_000).toFixed(1)} B`;
+  if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(1)} M`;
+  if (count >= 1_000) return `${(count / 1_000).toFixed(1)} K`;
+  return `${count}`;
 }

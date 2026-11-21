@@ -1,18 +1,38 @@
 <script lang="ts">
-  import { ArrowLeft, ListPlus, Play, Shuffle } from "lucide-svelte";
+  import { ArrowLeft, ListPlus, Play, Radio, Shuffle } from "lucide-svelte";
+  import { api, isTauriRuntime } from "../../lib/api";
   import { t } from "../../lib/i18n.svelte";
   import { player } from "../../lib/stores/player.svelte";
   import type { Track } from "../../lib/types";
   import CoverImage from "../CoverImage.svelte";
 
   interface Props {
+    id: string;
     title: string;
     coverUrl?: string | null;
     isPlaylist?: boolean;
     tracks: Track[];
   }
 
-  let { title, coverUrl = null, isPlaylist = false, tracks }: Props = $props();
+  let { id, title, coverUrl = null, isPlaylist = false, tracks }: Props = $props();
+  let startingRadio = $state(false);
+
+  async function startPlaylistRadio() {
+    if (!isPlaylist || startingRadio || !isTauriRuntime()) return;
+    startingRadio = true;
+    try {
+      const radio = await api.getPlaylistRadio(id);
+      if (radio.length > 0) {
+        player.replaceQueueAndPlay(radio, 0, `Radio · ${title}`);
+      } else {
+        player.showToast("No radio tracks available");
+      }
+    } catch (err) {
+      player.showToast(String(err));
+    } finally {
+      startingRadio = false;
+    }
+  }
 
   let totalMins = $derived(
     Math.round(tracks.reduce((sum, t) => sum + (t.duration_secs ?? 0), 0) / 60),
@@ -106,10 +126,25 @@
     <button
       class="w-11 h-11 rounded-full inline-flex items-center justify-center bg-white/[0.08] hover:bg-white/[0.15] border border-white/10 transition-all active:scale-95 disabled:opacity-40"
       disabled={tracks.length === 0}
-      title="Add all to queue"
+      title={t("queue.add")}
       onclick={queueAll}
     >
       <ListPlus size={18} />
     </button>
+
+    {#if isPlaylist}
+      <button
+        class="w-11 h-11 rounded-full inline-flex items-center justify-center bg-white/[0.08] hover:bg-white/[0.15] border border-white/10 transition-all active:scale-95 disabled:opacity-40"
+        disabled={startingRadio}
+        title={t("album.start_radio")}
+        onclick={() => void startPlaylistRadio()}
+      >
+        {#if startingRadio}
+          <span class="w-4 h-4 rounded-full border-2 border-current/30 border-t-current animate-spin"></span>
+        {:else}
+          <Radio size={18} />
+        {/if}
+      </button>
+    {/if}
   </div>
 </aside>

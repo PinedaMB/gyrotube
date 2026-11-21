@@ -12,8 +12,14 @@ pub struct Track {
     pub id: String,
     pub title: String,
     pub artist: String,
+    #[serde(default)]
+    pub artist_id: Option<String>,
     pub album: Option<String>,
+    #[serde(default)]
+    pub album_id: Option<String>,
     pub duration_secs: Option<u32>,
+    #[serde(default)]
+    pub view_count: Option<u64>,
     pub cover_url: Option<String>,
     pub cover_large_url: Option<String>,
 }
@@ -68,6 +74,14 @@ pub struct SearchResults {
     pub albums: Vec<Album>,
     pub playlists: Vec<Playlist>,
     pub tracks: Vec<Track>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct RelatedFeed {
+    pub tracks: Vec<Track>,
+    pub albums: Vec<Album>,
+    pub playlists: Vec<Playlist>,
+    pub artists: Vec<Artist>,
 }
 
 #[derive(Debug, Clone)]
@@ -173,13 +187,21 @@ impl From<&TrackItem> for Track {
                 .join(", ")
         };
 
+        let artist_id = item
+            .artist_id
+            .clone()
+            .or_else(|| item.artists.first().and_then(|a| a.id.clone()));
+
         Self {
             is_music: item.track_type == rustypipe::model::TrackType::Track,
             id: item.id.clone(),
             title: clean_track_title(&item.name),
             artist,
+            artist_id,
             album: item.album.as_ref().map(|a| a.name.clone()),
+            album_id: item.album.as_ref().map(|a| a.id.clone()),
             duration_secs: item.duration,
+            view_count: item.view_count,
             cover_url: pick_cover(&item.cover, 240),
             cover_large_url: pick_cover(&item.cover, 544),
         }

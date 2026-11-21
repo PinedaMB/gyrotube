@@ -9,6 +9,7 @@ import type {
   HomeFeed,
   LyricsData,
   MainTab,
+  RelatedFeed,
   SearchResults,
   SessionState,
   SpinStatus,
@@ -28,7 +29,13 @@ class PlayerStore {
   activeView = $state<ActiveView>({ kind: "home" });
   sidebarOpen = $state(true);
   navCollapsed = $state(false);
-  sidebarTab = $state<"player" | "lyrics" | "queue">("player");
+  sidebarTab = $state<"player" | "lyrics" | "queue" | "related">("player");
+  chartCountry = $state<string | null>(
+    typeof localStorage !== "undefined" ? localStorage.getItem("gyrotube.chartCountry") : null,
+  );
+  relatedFeed = $state<RelatedFeed | null>(null);
+  relatedTrackId = $state<string | null>(null);
+  relatedLoading = $state(false);
   spinOpen = $state(false);
   partyMode = $state(false);
   settingsOpen = $state(false);
@@ -199,9 +206,11 @@ class PlayerStore {
             if (this.currentTrack?.id === restored.id) this.ambientRgb = rgb;
           });
         }
-        void api.getLyrics(restored.title, restored.artist, restored.duration_secs).then((data) => {
-          if (this.currentTrack?.id === restored.id) this.lyrics = data;
-        });
+        void api
+          .getLyrics(restored.title, restored.artist, restored.duration_secs, restored.id)
+          .then((data) => {
+            if (this.currentTrack?.id === restored.id) this.lyrics = data;
+          });
       }
     } catch (err) {
       this.showToast(String(err));
@@ -460,15 +469,51 @@ class PlayerStore {
     this.commitRoute({ kind: "album", id, title, coverUrl, isPlaylist }, this.activeTab);
   }
 
+  public setChartCountry(country: string | null): void {
+    const clean = country && country.trim() ? country.trim().toUpperCase() : null;
+    this.chartCountry = clean;
+    if (typeof localStorage !== "undefined") {
+      if (clean) localStorage.setItem("gyrotube.chartCountry", clean);
+      else localStorage.removeItem("gyrotube.chartCountry");
+    }
+    void this.loadHome(true);
+  }
+
   public async loadHome(forceRefresh = false): Promise<void> {
     if (!isTauriRuntime()) return;
     this.homeLoading = true;
     try {
-      this.homeFeed = await api.getHomeFeed(forceRefresh);
+      this.homeFeed = await api.getHomeFeed(forceRefresh, this.chartCountry);
     } catch (err) {
       this.showToast(String(err));
     } finally {
       this.homeLoading = false;
+    }
+  }
+
+  public async loadRelatedForCurrent(force = false): Promise<void> {
+    const cur = this.currentTrack;
+    if (!cur || !isTauriRuntime()) {
+      this.relatedFeed = null;
+      this.relatedTrackId = null;
+      return;
+    }
+    if (!force && this.relatedTrackId === cur.id && this.relatedFeed) return;
+    this.relatedLoading = true;
+    this.relatedTrackId = cur.id;
+    try {
+      const feed = await api.getRelatedForTrack(cur.id);
+      if (this.currentTrack?.id === cur.id) {
+        this.relatedFeed = feed;
+      }
+    } catch {
+      if (this.currentTrack?.id === cur.id) {
+        this.relatedFeed = { tracks: [], albums: [], playlists: [], artists: [] };
+      }
+    } finally {
+      if (this.currentTrack?.id === cur.id) {
+        this.relatedLoading = false;
+      }
     }
   }
 
@@ -674,9 +719,12 @@ class PlayerStore {
       void this.syncSpinSnapshot();
 
       // Load lyrics & related suggestions asynchronously
-      void api.getLyrics(track.title, track.artist, track.duration_secs).then((data) => {
+      void api.getLyrics(track.title, track.artist, track.duration_secs, track.id).then((data) => {
         if (this.loadGen === gen) this.lyrics = data;
       });
+      if (this.sidebarTab === "related") {
+        void this.loadRelatedForCurrent(true);
+      }
       if (this.spinStatus.remote_role === "guest") return;
       void api.getRadioTracks(track.id).then((tracks) => {
         if (this.loadGen !== gen) return;

@@ -1,7 +1,8 @@
 <script lang="ts">
-  import { RefreshCw } from "lucide-svelte";
+  import { Globe, RefreshCw } from "lucide-svelte";
   import { t } from "../lib/i18n.svelte";
   import { player } from "../lib/stores/player.svelte";
+  import { formatSubscribers } from "../lib/types";
   import Carousel from "./Carousel.svelte";
   import CoverImage from "./CoverImage.svelte";
   import HomeFeaturedHero from "./home/HomeFeaturedHero.svelte";
@@ -17,6 +18,23 @@
     return t("home.evening");
   });
 
+  const POPULAR_COUNTRIES: { code: string; label: string }[] = [
+    { code: "", label: "Global" },
+    { code: "MX", label: "México" },
+    { code: "US", label: "United States" },
+    { code: "ES", label: "España" },
+    { code: "AR", label: "Argentina" },
+    { code: "CO", label: "Colombia" },
+    { code: "CL", label: "Chile" },
+    { code: "PE", label: "Perú" },
+    { code: "BR", label: "Brasil" },
+    { code: "GB", label: "UK" },
+    { code: "FR", label: "France" },
+    { code: "DE", label: "Deutschland" },
+    { code: "JP", label: "Japan" },
+    { code: "KR", label: "Korea" },
+  ];
+
   let listenAgain = $derived(player.recentTracks.slice(0, 6));
   let featuredAlbum = $derived(player.homeFeed?.new_albums[0] ?? null);
   let releaseAlbums = $derived(
@@ -24,18 +42,37 @@
       ? player.homeFeed.new_albums.slice(player.homeFeed.new_albums.length > 1 ? 1 : 0, 16)
       : [],
   );
+  let topArtists = $derived(player.homeFeed?.top_artists ?? []);
   let stations = $derived(player.genres.slice(0, 6));
 </script>
 
 <div class="page-clamp">
-  <div class="flex items-center justify-between mb-4">
+  <div class="flex items-center justify-between gap-2 mb-4">
     <div>
       <h1 class="text-[28px] font-extrabold tracking-[-0.025em] leading-tight">{greeting}</h1>
       <p class="text-[13px] text-[var(--text-muted)] mt-0.5">{t("home.subtitle")}</p>
     </div>
-    <button class="icon-btn" title={t("home.reload")} onclick={() => void player.loadHome(true)}>
-      <RefreshCw size={16} class={player.homeLoading ? "animate-spin" : ""} />
-    </button>
+    <div class="flex items-center gap-1.5 shrink-0">
+      <label
+        class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[12px] font-semibold bg-[var(--surface)] border border-[var(--border)] hover:border-[var(--border-strong)] transition-colors cursor-pointer"
+      >
+        <Globe size={13} class="text-[var(--text-muted)] shrink-0" />
+        <select
+          class="bg-transparent outline-none cursor-pointer text-[12px] font-semibold"
+          value={player.chartCountry ?? ""}
+          onchange={(e) => player.setChartCountry((e.currentTarget as HTMLSelectElement).value || null)}
+        >
+          {#each POPULAR_COUNTRIES as c}
+            <option value={c.code} class="bg-[var(--bg-elevated)] text-[var(--text)]">
+              {c.code === "" ? t("home.country_global") : c.label}
+            </option>
+          {/each}
+        </select>
+      </label>
+      <button class="icon-btn" title={t("home.reload")} onclick={() => void player.loadHome(true)}>
+        <RefreshCw size={16} class={player.homeLoading ? "animate-spin" : ""} />
+      </button>
+    </div>
   </div>
 
   <HomeQuickCards />
@@ -73,6 +110,32 @@
   {/if}
 
   <HomeTrendingCharts />
+
+  {#if topArtists.length > 0}
+    <div class="mt-6">
+      <Carousel title={t("home.top_artists")} id="top-artists">
+        {#each topArtists as artist (artist.id)}
+          <button
+            class="p-3 rounded-2xl bg-[var(--surface)] border border-[var(--border)] hover:bg-[var(--surface-hover)] hover:border-[var(--border-strong)] flex flex-col items-center text-center gap-2 transition-colors"
+            onclick={() => player.openArtist(artist.id, artist.name)}
+          >
+            <CoverImage
+              class="w-full aspect-square rounded-full"
+              src={artist.avatar_url}
+              alt={artist.name}
+              fallbackIcon="👤"
+            />
+            <strong class="w-full text-[13.5px] truncate">{artist.name}</strong>
+            {#if artist.subscriber_count}
+              <span class="text-[11.5px] text-[var(--text-muted)] truncate w-full">
+                {formatSubscribers(artist.subscriber_count)}
+              </span>
+            {/if}
+          </button>
+        {/each}
+      </Carousel>
+    </div>
+  {/if}
 
   <HomeStationsGrid {stations} />
 </div>

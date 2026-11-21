@@ -3,7 +3,7 @@
   import type { Snippet } from "svelte";
   import { t } from "../lib/i18n.svelte";
   import { player } from "../lib/stores/player.svelte";
-  import { formatDuration, type Track } from "../lib/types";
+  import { formatDuration, formatPlays, type Track } from "../lib/types";
   import CoverImage from "./CoverImage.svelte";
   import PlaylistIcon from "./collection/PlaylistIcon.svelte";
 
@@ -65,6 +65,11 @@
           {/if}
         </span>
       </div>
+      {#if track.view_count}
+        <span class="hidden lg:inline text-[11.5px] text-[var(--text-muted)] tabular-nums shrink-0 mr-2">
+          {t("artist.plays", { count: formatPlays(track.view_count) })}
+        </span>
+      {/if}
       {#if track.duration_secs != null}
         <span class="hidden sm:inline text-[11px] text-[var(--text-muted)] tabular-nums shrink-0">{formatDuration(track.duration_secs)}</span>
       {/if}

@@ -6,6 +6,7 @@ import type {
   InitialAppData,
   LyricsData,
   Playlist,
+  RelatedFeed,
   SearchResults,
   SessionState,
   SpinStatus,
@@ -42,8 +43,8 @@ export const api = {
   saveSearchHistory: (history: string[]): Promise<void> =>
     call("save_search_history_cmd", { history }),
 
-  getHomeFeed: (forceRefresh = false): Promise<HomeFeed> =>
-    call("get_home_feed", { forceRefresh }),
+  getHomeFeed: (forceRefresh = false, country: string | null = null): Promise<HomeFeed> =>
+    call("get_home_feed", { forceRefresh, country }),
   getGenres: (forceRefresh = false): Promise<Genre[]> =>
     call("get_genres", { forceRefresh }),
   getGenrePlaylists: (genreId: string): Promise<[string, Playlist[]]> =>
@@ -59,8 +60,22 @@ export const api = {
     call("get_playlist_tracks", { playlistId }),
   getRadioTracks: (trackId: string): Promise<Track[]> =>
     call("get_radio_tracks", { trackId }),
-  getLyrics: (title: string, artist: string, durationSecs?: number | null): Promise<LyricsData> =>
-    call("get_lyrics", { title, artist, durationSecs: durationSecs ?? null }),
+  getPlaylistRadio: (playlistId: string): Promise<Track[]> =>
+    call("get_playlist_radio", { playlistId }),
+  getRelatedForTrack: (trackId: string): Promise<RelatedFeed> =>
+    call("get_related_for_track", { trackId }),
+  getLyrics: (
+    title: string,
+    artist: string,
+    durationSecs?: number | null,
+    trackId?: string | null,
+  ): Promise<LyricsData> =>
+    call("get_lyrics", {
+      trackId: trackId ?? null,
+      title,
+      artist,
+      durationSecs: durationSecs ?? null,
+    }),
 
   resolveAudioStream: (track: Track): Promise<StreamInfo> =>
     call("resolve_audio_stream", { track }),

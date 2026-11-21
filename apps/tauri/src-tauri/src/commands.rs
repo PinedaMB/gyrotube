@@ -217,8 +217,12 @@ pub async fn save_search_history_cmd(history: Vec<String>) -> Result<(), String>
 pub async fn get_home_feed(
     state: State<'_, AppCoreState>,
     force_refresh: bool,
+    country: Option<String>,
 ) -> Result<HomeFeed, String> {
-    state.backend.fetch_home_feed_cached(force_refresh).await
+    state
+        .backend
+        .fetch_home_feed_for_country(country.as_deref(), force_refresh)
+        .await
 }
 
 #[tauri::command]
@@ -295,19 +299,39 @@ pub async fn get_radio_tracks(
 }
 
 #[tauri::command]
+pub async fn get_playlist_radio(
+    state: State<'_, AppCoreState>,
+    playlist_id: String,
+) -> Result<Vec<Track>, String> {
+    state.backend.fetch_playlist_radio(&playlist_id).await
+}
+
+#[tauri::command]
+pub async fn get_related_for_track(
+    state: State<'_, AppCoreState>,
+    track_id: String,
+) -> Result<gyrotube_core::models::RelatedFeed, String> {
+    state.backend.fetch_related_for_track(&track_id).await
+}
+
+#[tauri::command]
 pub async fn get_lyrics(
     state: State<'_, AppCoreState>,
+    track_id: Option<String>,
     title: String,
     artist: String,
     duration_secs: Option<u32>,
 ) -> Result<LyricsPayload, String> {
     let stub = Track {
         is_music: true,
-        id: String::new(),
+        id: track_id.unwrap_or_default(),
         title,
         artist,
+        artist_id: None,
         album: None,
+        album_id: None,
         duration_secs,
+        view_count: None,
         cover_url: None,
         cover_large_url: None,
     };

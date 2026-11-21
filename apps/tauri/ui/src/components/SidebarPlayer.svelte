@@ -1,10 +1,11 @@
 <script lang="ts">
-  import { ChevronDown, ChevronRight, ListMusic, MessageSquareQuote, Music } from "lucide-svelte";
+  import { ChevronDown, ChevronRight, ListMusic, MessageSquareQuote, Music, Sparkles } from "lucide-svelte";
   import { t } from "../lib/i18n.svelte";
   import { player } from "../lib/stores/player.svelte";
   import SidebarLyricsPane from "./sidebar/SidebarLyricsPane.svelte";
   import SidebarPlayerControls from "./sidebar/SidebarPlayerControls.svelte";
   import SidebarQueuePane from "./sidebar/SidebarQueuePane.svelte";
+  import SidebarRelatedPane from "./sidebar/SidebarRelatedPane.svelte";
 
   // Kept at SidebarPlayer level so switching tabs never cancels an active sleep timer
   let sleepRemainingSecs = $state<number | null>(null);
@@ -68,6 +69,8 @@
       <SidebarPlayerControls {sleepRemainingSecs} onSetSleepTimer={setSleepTimer} />
     {:else if player.sidebarTab === "lyrics"}
       <SidebarLyricsPane />
+    {:else if player.sidebarTab === "related"}
+      <SidebarRelatedPane />
     {:else}
       <SidebarQueuePane />
     {/if}
@@ -75,35 +78,44 @@
 
   <!-- Bottom tab bar -->
   <nav
-    class="shrink-0 grid grid-cols-3 gap-1.5 px-3 py-2.5 border-t border-[var(--border)] bg-[var(--bg-sidebar)]"
+    class="shrink-0 grid grid-cols-4 gap-1 px-2.5 py-2.5 border-t border-[var(--border)] bg-[var(--bg-sidebar)]"
     style="padding-bottom: max(0.625rem, env(safe-area-inset-bottom));"
   >
     <button
-      class="flex items-center justify-center gap-1.5 py-2 rounded-xl text-[13px] font-semibold border transition-colors {player.sidebarTab === 'player'
+      class="flex items-center justify-center gap-1 py-2 rounded-xl text-[12px] font-semibold border transition-colors {player.sidebarTab === 'player'
         ? 'bg-[var(--accent-soft)] border-[var(--accent-border)] text-[var(--accent-bright)]'
         : 'border-transparent text-[var(--text-muted)] hover:bg-[var(--surface)] hover:text-[var(--text)]'}"
       onclick={() => (player.sidebarTab = "player")}
     >
-      <Music size={15} />
-      {t("player.tab_player")}
+      <Music size={14} />
+      <span class="truncate">{t("player.tab_player")}</span>
     </button>
     <button
-      class="flex items-center justify-center gap-1.5 py-2 rounded-xl text-[13px] font-semibold border transition-colors {player.sidebarTab === 'lyrics'
+      class="flex items-center justify-center gap-1 py-2 rounded-xl text-[12px] font-semibold border transition-colors {player.sidebarTab === 'lyrics'
         ? 'bg-[var(--accent-soft)] border-[var(--accent-border)] text-[var(--accent-bright)]'
         : 'border-transparent text-[var(--text-muted)] hover:bg-[var(--surface)] hover:text-[var(--text)]'}"
       onclick={() => (player.sidebarTab = "lyrics")}
     >
-      <MessageSquareQuote size={15} />
-      {t("player.tab_lyrics")}
+      <MessageSquareQuote size={14} />
+      <span class="truncate">{t("player.tab_lyrics")}</span>
     </button>
     <button
-      class="flex items-center justify-center gap-1.5 py-2 rounded-xl text-[13px] font-semibold border transition-colors {player.sidebarTab === 'queue'
+      class="flex items-center justify-center gap-1 py-2 rounded-xl text-[12px] font-semibold border transition-colors {player.sidebarTab === 'queue'
         ? 'bg-[var(--accent-soft)] border-[var(--accent-border)] text-[var(--accent-bright)]'
         : 'border-transparent text-[var(--text-muted)] hover:bg-[var(--surface)] hover:text-[var(--text)]'}"
       onclick={() => (player.sidebarTab = "queue")}
     >
-      <ListMusic size={15} />
-      {t("player.tab_queue")}
+      <ListMusic size={14} />
+      <span class="truncate">{t("player.tab_queue")}</span>
+    </button>
+    <button
+      class="flex items-center justify-center gap-1 py-2 rounded-xl text-[12px] font-semibold border transition-colors {player.sidebarTab === 'related'
+        ? 'bg-[var(--accent-soft)] border-[var(--accent-border)] text-[var(--accent-bright)]'
+        : 'border-transparent text-[var(--text-muted)] hover:bg-[var(--surface)] hover:text-[var(--text)]'}"
+      onclick={() => (player.sidebarTab = "related")}
+    >
+      <Sparkles size={14} />
+      <span class="truncate">{t("player.tab_related")}</span>
     </button>
   </nav>
 </aside>

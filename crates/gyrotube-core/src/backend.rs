@@ -52,6 +52,12 @@ pub struct HomeFeed {
     pub trending: Vec<Track>,
     pub top: Vec<Track>,
     pub new_albums: Vec<Album>,
+    #[serde(default)]
+    pub top_artists: Vec<Artist>,
+    #[serde(default)]
+    pub country: Option<String>,
+    #[serde(default)]
+    pub available_countries: Vec<String>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -123,21 +129,41 @@ impl Backend {
     }
 
     pub async fn fetch_home_feed_cached(&self, force_refresh: bool) -> Result<HomeFeed, String> {
+        self.fetch_home_feed_for_country(None, force_refresh).await
+    }
+
+    pub async fn fetch_home_feed_for_country(
+        &self,
+        country_code: Option<&str>,
+        force_refresh: bool,
+    ) -> Result<HomeFeed, String> {
+        let normalized_country = country_code
+            .map(str::trim)
+            .filter(|c| !c.is_empty() && !c.eq_ignore_ascii_case("global") && !c.eq_ignore_ascii_case("zz"))
+            .map(|c| c.to_ascii_uppercase());
+
         if !force_refresh
             && let Ok(guard) = self.home_cache.read()
             && let Some((ts, feed)) = guard.as_ref()
             && ts.elapsed() < HOME_CACHE_TTL
+            && feed.country == normalized_country
         {
             return Ok(feed.clone());
         }
 
+        let parsed_country = normalized_country
+            .as_deref()
+            .and_then(|code| code.parse::<rustypipe::param::Country>().ok());
+
         let mut trending = Vec::new();
         let mut top = Vec::new();
         let mut new_albums = Vec::new();
+        let mut top_artists = Vec::new();
+        let mut available_countries = Vec::new();
 
         let rp_q = self.rp.query();
         let (charts_res, releases_res) =
-            tokio::join!(rp_q.music_charts(None), rp_q.music_new_albums());
+            tokio::join!(rp_q.music_charts(parsed_country), rp_q.music_new_albums());
         if let Ok(charts) = charts_res {
             trending = charts
                 .trending_tracks
@@ -152,6 +178,17 @@ impl Backend {
                 .filter(|t| t.track_type == TrackType::Track && !t.unavailable)
                 .take(12)
                 .map(Track::from)
+                .collect();
+            top_artists = charts
+                .artists
+                .iter()
+                .take(12)
+                .map(Artist::from)
+                .collect();
+            available_countries = charts
+                .available_countries
+                .iter()
+                .map(|c| c.to_string())
                 .collect();
         }
         if let Ok(releases) = releases_res {
@@ -187,6 +224,9 @@ impl Backend {
             trending,
             top,
             new_albums,
+            top_artists,
+            country: normalized_country,
+            available_countries,
         };
         if !feed.trending.is_empty() || !feed.top.is_empty() || !feed.new_albums.is_empty() {
             if let Ok(mut guard) = self.home_cache.write() {
@@ -578,8 +618,11 @@ impl Backend {
                                     } else {
                                         artist_str
                                     },
+                                    artist_id: None,
                                     album: Some(ps.album.name),
+                                    album_id: Some(ps.album.id.get_raw().to_string()),
                                     duration_secs: parse_mm_ss(&ps.duration),
+                                    view_count: None,
                                     cover_url: best_ytm_thumb(&ps.thumbnails),
                                     cover_large_url: best_ytm_thumb(&ps.thumbnails),
                                 })
@@ -612,8 +655,11 @@ impl Backend {
                                         .collect::<Vec<_>>()
                                         .join(", ")
                                 },
+                                artist_id: None,
                                 album: Some(t.album.name),
+                                album_id: Some(t.album.id.get_raw().to_string()),
                                 duration_secs: None,
+                                view_count: None,
                                 cover_url: cover.clone(),
                                 cover_large_url: cover,
                             }
@@ -1292,6 +1338,55 @@ impl Backend {
         let _ = self.resolve_track_stream(track).await;
     }
 
+    pub async fn fetch_related_for_track(
+        &self,
+        track_id: &str,
+    ) -> Result<crate::models::RelatedFeed, String> {
+        validate_video_id(track_id)?;
+        let details = self
+            .rp
+            .query()
+            .music_details(track_id)
+            .await
+            .map_err(|e| format!("Error obteniendo detalles: {e}"))?;
+        let Some(related_id) = details.related_id else {
+            return Ok(crate::models::RelatedFeed::default());
+        };
+        let related = self
+            .rp
+            .query()
+            .music_related(&related_id)
+            .await
+            .map_err(|e| format!("Error obteniendo relacionados: {e}"))?;
+        Ok(crate::models::RelatedFeed {
+            tracks: related
+                .tracks
+                .iter()
+                .filter(|t| !t.unavailable)
+                .take(16)
+                .map(Track::from)
+                .collect(),
+            albums: related.albums.iter().take(12).map(Album::from).collect(),
+            playlists: related.playlists.iter().take(12).map(Playlist::from).collect(),
+            artists: related.artists.iter().take(12).map(Artist::from).collect(),
+        })
+    }
+
+    pub async fn fetch_playlist_radio(&self, playlist_id: &str) -> Result<Vec<Track>, String> {
+        let radio = self
+            .rp
+            .query()
+            .music_radio_playlist(playlist_id)
+            .await
+            .map_err(|e| format!("Error iniciando radio de playlist: {e}"))?;
+        Ok(radio
+            .items
+            .iter()
+            .filter(|t| t.track_type == TrackType::Track && !t.unavailable)
+            .map(Track::from)
+            .collect())
+    }
+
     pub async fn fetch_synced_lyrics(&self, track: &Track) -> Result<LyricsData, String> {
         #[derive(serde::Deserialize)]
         #[serde(rename_all = "camelCase")]
@@ -1680,8 +1775,11 @@ fn tracks_from_ytm_playlist(items: Vec<PlaylistItem>) -> Vec<Track> {
                         .map(|a| a.name)
                         .collect::<Vec<_>>()
                         .join(", "),
+                    artist_id: None,
                     album: Some(song.album.name),
+                    album_id: Some(song.album.id.get_raw().to_string()),
                     duration_secs: parse_mm_ss(&song.duration),
+                    view_count: None,
                     cover_url: cover.clone(),
                     cover_large_url: cover,
                 })
@@ -1693,6 +1791,7 @@ fn tracks_from_ytm_playlist(items: Vec<PlaylistItem>) -> Vec<Track> {
 
 fn track_from_ytm_song(song: SearchResultSong) -> Track {
     let cover = best_ytm_thumb(&song.thumbnails);
+    let album_id = song.album.as_ref().map(|a| a.id.get_raw().to_string());
     Track {
         is_music: false,
         id: song.video_id.get_raw().to_string(),
@@ -1702,8 +1801,11 @@ fn track_from_ytm_song(song: SearchResultSong) -> Track {
         } else {
             song.artist
         },
+        artist_id: None,
         album: song.album.map(|a| a.name),
+        album_id,
         duration_secs: parse_mm_ss(&song.duration),
+        view_count: None,
         cover_url: cover.clone(),
         cover_large_url: cover,
     }
@@ -2068,6 +2170,9 @@ mod tests {
             trending: vec![],
             top: vec![],
             new_albums: vec![],
+            top_artists: vec![],
+            country: None,
+            available_countries: vec![],
         };
         std::fs::write(&path, serde_json::to_vec(&feed).unwrap()).unwrap();
         assert!(load_home_cache(&path).is_some());

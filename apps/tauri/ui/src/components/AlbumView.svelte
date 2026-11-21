@@ -63,6 +63,7 @@
   <div class="w-full max-w-[1280px] mx-auto px-4 sm:px-8 pt-4 sm:pt-6 pb-36 md:pb-28">
     <div class="grid grid-cols-1 lg:grid-cols-[320px_minmax(0,1fr)] gap-8 lg:gap-12 items-start">
       <AlbumSidebarHero
+        {id}
         title={resolvedTitle}
         {coverUrl}
         {isPlaylist}
