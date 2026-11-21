@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Builds GyroTube Android APK (aarch64) and copies it into <repo>/build/.
+# Builds GyroTube Android APK (aarch64) and copies it into <repo>/output/android/.
 # Usage:
-#   ./scripts/build-android.sh           # Release APK -> build/gyrotube-android-release.apk
-#   ./scripts/build-android.sh --debug   # Signed Debug APK -> build/gyrotube-android-debug.apk
+#   ./scripts/build-android.sh           # Release APK -> output/android/gyrotube-android-release-unsigned.apk
+#   ./scripts/build-android.sh --debug   # Signed Debug APK -> output/android/gyrotube-android-debug.apk
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TAURI_DIR="${ROOT_DIR}/apps/tauri"
-OUT_DIR="${ROOT_DIR}/build"
+OUT_DIR="${ROOT_DIR}/output/android"
 
 MODE="release"
 EXTRA_ARGS=()

@@ -1,50 +1,26 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Builds all configured desktop installers for the current OS into <repo>/build/.
+# Builds GyroTube Desktop installers (Tauri v2) and copies them into <repo>/output/desktop/.
+# Usage:
+#   ./scripts/build-desktop.sh                 # All platform bundles (AppImage, rpm, deb, ...)
+#   ./scripts/build-desktop.sh --bundles rpm   # Specific bundle only
+
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-OUT_DIR="${ROOT_DIR}/build"
+TAURI_DIR="${ROOT_DIR}/apps/tauri"
 BUNDLE_DIR="${ROOT_DIR}/target/release/bundle"
+OUT_DIR="${ROOT_DIR}/output/desktop"
 
-if [[ "$(uname -s)" == Linux ]] && ! command -v patchelf >/dev/null 2>&1; then
-  echo "Error: falta patchelf para empaquetar AppImage." >&2
-  echo "Fedora: sudo dnf install patchelf | Debian/Ubuntu: sudo apt install patchelf" >&2
-  exit 1
-fi
+# Avoid linuxdeploy strip errors on modern glibc/ELF distros (e.g. Fedora)
+export NO_STRIP="${NO_STRIP:-true}"
 
-if [[ "$(uname -s)" == Linux ]]; then
-  # linuxdeploy guesses Debian paths, which do not match Fedora's layout.
-  GSTREAMER_PLUGINS_DIR="${GSTREAMER_PLUGINS_DIR:-$(pkg-config --variable=pluginsdir gstreamer-1.0)}"
-  GSTREAMER_HELPERS_DIR="${GSTREAMER_HELPERS_DIR:-$(pkg-config --variable=pluginscannerdir gstreamer-1.0)}"
-  export GSTREAMER_PLUGINS_DIR GSTREAMER_HELPERS_DIR
-  if [[ ! -d "$GSTREAMER_PLUGINS_DIR" || ! -d "$GSTREAMER_HELPERS_DIR" ]]; then
-    echo "Error: no se encontraron los directorios de plugins y helpers de GStreamer." >&2
-    exit 1
-  fi
-fi
-
-pnpm --dir "${ROOT_DIR}/apps/tauri/ui" install --frozen-lockfile
-(
-  cd "${ROOT_DIR}/apps/tauri"
-  CARGO_TARGET_DIR="${ROOT_DIR}/target" cargo tauri build
-)
-
-shopt -s nullglob
-INSTALLERS=(
-  "${BUNDLE_DIR}"/deb/*.deb
-  "${BUNDLE_DIR}"/rpm/*.rpm
-  "${BUNDLE_DIR}"/appimage/*.AppImage
-  "${BUNDLE_DIR}"/dmg/*.dmg
-  "${BUNDLE_DIR}"/msi/*.msi
-  "${BUNDLE_DIR}"/nsis/*.exe
-)
-
-if [[ ${#INSTALLERS[@]} -eq 0 ]]; then
-  echo "Error: no se encontraron instaladores en ${BUNDLE_DIR}" >&2
-  exit 1
-fi
+(cd "${TAURI_DIR}" && cargo tauri build "$@")
 
 mkdir -p "${OUT_DIR}"
-cp -f "${INSTALLERS[@]}" "${OUT_DIR}/"
+find "${BUNDLE_DIR}" -maxdepth 3 -type f \
+  \( -name "*.AppImage" -o -name "*.rpm" -o -name "*.deb" -o -name "*.msi" -o -name "*.exe" -o -name "*.dmg" \) \
+  -exec cp -f {} "${OUT_DIR}/" \;
+
+echo ""
 echo "Instaladores listos en: ${OUT_DIR}"
-printf '%s\n' "${INSTALLERS[@]##*/}"
+ls -lh "${OUT_DIR}"
