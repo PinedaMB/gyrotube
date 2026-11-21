@@ -116,86 +116,85 @@ GyroTube provides two distinct collaborative modes under **Modo SPIN**, unified 
 
 ## 6. UI/UX & Visual Design System
 
-### 6.1. Adaptive Layout (`adw::OverlaySplitView`)
-- **Left Sidebar (`360–440 px`)**: Houses the persistent **Player**, **Lyrics**, and **Queue** tabs.
-- **Main Content Area (`adw::ViewStack`)**:
-  - **Inicio (`home.rs`)**: Time-of-day contextual greeting, 4 adaptive quick-navigation cards, *Volver a escuchar* (Listen Again) history grid, *Destacado* (Featured Release) hero card, *Nuevos lanzamientos* carousel, *Tendencias / Top Música* chart list, and *Estaciones por género*.
-  - **Explorar (`explore.rs`)**: Instant search with `Tab` autocomplete, individually removable recent search history pills, category filter chips (*Todo*, *Canciones*, *Álbumes*, *Artistas*, *Playlists*), mood/genre grid with raw InnerTube JSON fallback, and full Artist & Album sub-views.
-  - **Colección (`collection.rs`)**: Favorites, user-created Playlists, and Recently Played tracks.
-- **Floating Mini-Player Bars & Bottom SPIN Bar**:
-  - When the sidebar is collapsed or the user switches to the Lyrics/Queue tab, a floating mini-player bar appears with cover art, track/status stack, progress bar, and transport controls.
-  - When a SPIN session is active, a dedicated bottom bar displays the active mode, host name, connected guest count, and quick actions (*Copiar código*, *Ver sala*, *Salir*).
+### 6.1. Brand Identity (`gyrotube.svg`)
+GyroTube's visual identity is derived directly from `gyrotube.svg` — a jewel-toned **Obsidian Vinyl + Jade Emerald + Spin Gold + Ruby Crimson** system designed for high contrast, low eye fatigue, and cohesive branding across Desktop (Tauri + GTK4), Android, and the embedded **Modo SPIN** guest web UI:
 
-### 6.2. Dynamic Ambient Lighting & Party Mode
-- **Cover-Art Color Extraction**: When a track's cover texture loads, GyroTube samples the image pixels to compute a dominant accent RGB color and injects dynamic CSS gradients into `.ambient-player` and `.player-cover-glow`.
-- **Party Mode (`party_mode.rs`, `F11`)**: Fullscreen two-column view with a 300×300 high-elevation cover, transport controls, *A continuación* (Up Next) preview card, and large-typography karaoke lyrics (`36 px` active line) with smooth cubic ease-out auto-centering and edge opacity fading.
+- **Obsidian Vinyl Surfaces**: Deep plum-obsidian dark surfaces (`#131218` canvas, `#17151d` sidebar, `#1e1c26` elevated cards/modals/mini-player) paired with warm pearl-jade surfaces in Light Mode (`#f6f7f6` canvas, `#eef0ef` sidebar, `#ffffff` elevated).
+- **Jade Emerald Primary Accent**: `#10b981` / `#34d399` in Dark Mode and `#059669` / `#047857` in Light Mode for primary actions, active navigation states, progress fills, and default ambient glow (`16, 185, 129`).
+- **Spin Gold Secondary Accent**: `#eab308` / `#fde047` (Dark) and `#ca8a04` / `#b45309` (Light) echoing the golden spiral (`"The Spin"`) in `gyrotube.svg`, dedicated to **Modo SPIN** badges, live indicators, and the bespoke orbital `SpinIcon` SVG.
+- **Ruby Crimson Favorites & Destructive Actions**: `#ff5c6c` for active favorites/hearts and `#e11d48` for destructive actions, echoing the central play ruby in `gyrotube.svg`.
+
+### 6.2. Adaptive Layout & Interaction Patterns
+- **Collapsible Navigation Rail & Right Player Sidebar**:
+  - Desktop left navigation rail (`240px` expanded / `74px` collapsed) and right player sidebar (`360–388px`) with 4 stacked icon+label tabs: **Player**, **Lyrics**, **Queue**, and **Related**.
+  - Centered content clamp (`max-width: 1400px`, `20px 28px 124px` desktop padding) for comfortable reading on 1080p and ultrawide displays.
+- **Mobile & Touch Adaptation**:
+  - Reactive device detection (`isMobile`, `isCompact`, `isTouch`, `isAndroid`) switches modals (`Settings`, `SPIN`, `Playlist Editor`) and the custom right-click **Context Menu** into native-feeling **Bottom Sheets** on mobile viewports.
+  - Floating rounded **Mini-Player** (`rounded-2xl` on desktop, full-width docked above bottom navigation on mobile) with a GPU-driven `scaleX` live progress bar and cover-art ambient tint.
+- **Borderless Content & Clean Controls**:
+  - Airy borderless track rows (`rounded-xl`) with hover-revealed inline actions and clickable cover play overlays.
+  - Borderless album and artist cards in horizontal carousels (`minCardWidth: 188px`, `gap: 14px`) with header-aligned `< >` navigation controls (no duplicate floating overlay arrows).
+  - Interactive pill-styled **Artist** and **Album** (`Disc3` chip) metadata buttons in the player controls, replacing raw underlined text links.
+  - Global `user-select: none` and `-webkit-user-drag: none` on UI chrome/images (preserving `user-select: text` on search inputs and text fields).
+
+### 6.3. Dynamic Ambient Lighting, Synchronized Lyrics & Party Mode
+- **Cover-Art Color Extraction**: When a track's cover loads, GyroTube samples its dominant RGB color (falling back to Jade Emerald `16, 185, 129`) to tint the non-scrolling `.ambient-surface` backdrop, player sidebar, and mini-player without triggering scroll-time repaints.
+- **Unified GPU Lyrics (`SidebarLyricsPane` & `PartyMode`)**: Active lines animate exclusively via `transform: scale(1.045)` and `opacity` (avoiding `filter: blur` and `font-size` reflows) for smooth 60 FPS karaoke scrolling across both the sidebar and fullscreen Party Mode.
 
 ---
 
-## 7. CSS & Visual Styling System (`src/style.css`)
+## 7. Visual Tokens & Styling System (`apps/tauri/ui/src/styles/app.css` & `spin.css`)
 
-GyroTube layers a custom GTK4 stylesheet (`src/style.css`) on top of **Libadwaita (`v1_6`)** semantic color tokens so it adapts automatically to light/dark themes while keeping a rich music-streaming visual identity.
+GyroTube uses semantic CSS custom properties shared across the Tauri/Svelte UI and the embedded **Modo SPIN** web client (`crates/gyrotube-core/assets/spin.html`), adapting automatically between Dark, Light, and System themes.
 
-### 7.1. Color Palette & Adwaita Semantic Tokens
+### 7.1. Core Color Tokens
 
-| Token / Color | Value / Source | Usage |
-| :--- | :--- | :--- |
-| `@window_bg_color` | Libadwaita window surface | Main background and `.party-mode-bg` canvas |
-| `@window_fg_color` | Libadwaita primary text | Typography and translucent surfaces via `alpha(@window_fg_color, 0.04..0.16)` |
-| `@sidebar_bg_color` | Libadwaita sidebar surface | Left player/lyrics/queue sidebar (`.sidebar-pane`) |
-| `@headerbar_bg_color` | Libadwaita header surface | Floating mini-player (`alpha(@headerbar_bg_color, 0.96)`) & mobile mini-bar |
-| `@accent_color` / `@accent_bg_color` | System / Dynamic cover accent | Active track titles (`.playing-title`), `.quality-pill`, active lyric lines, progress bars, SPIN bars |
-| **Quick-Card 1 (Red)** | `#e01b24` (Hover `#f66151`, Active `#c01c28`) | *Nuevos lanzamientos* badge (`.quick-badge-1`) & `.album-play-overlay` FAB |
-| **Quick-Card 2 (Blue)** | `#3584e4` | *Top listas* badge (`.quick-badge-2`) & gradient hover |
-| **Quick-Card 3 (Purple)** | `#c061cb` | *Estados de ánimo* badge (`.quick-badge-3`) & gradient hover |
-| **Quick-Card 4 (Green)** | `#2ec27e` | *Tu biblioteca* badge (`.quick-badge-4`) & gradient hover |
-| **Artist Hero Gradient** | `linear-gradient(135deg, #1b2832 0%, #16181d 60%, #101216 100%)` | Backdrop for artist header banners (`.artist-hero`) with `#0d0f12` bottom scrim |
+| Token | Dark Mode | Light Mode | Role |
+| :--- | :--- | :--- | :--- |
+| `--bg` | `#131218` | `#f6f7f6` | Main application canvas (Obsidian Vinyl / Pearl Jade) |
+| `--bg-sidebar` | `#17151d` | `#eef0ef` | Navigation rail & right player sidebar |
+| `--bg-elevated` | `#1e1c26` | `#ffffff` | Modals, bottom sheets, mini-player, SPIN cards |
+| `--surface` / `--surface-hover` | `rgba(255,255,255,0.048)` / `0.09` | `rgba(22,20,28,0.04)` / `0.08` | Interactive tiles, pills, and subtle containers |
+| `--border` / `--border-strong` | `rgba(255,255,255,0.08)` / `0.15` | `rgba(22,20,28,0.09)` / `0.16` | Hairline dividers & focused/elevated outlines |
+| `--text` / `--text-muted` | `#f5f4f8` / `rgba(245,244,248,0.72)` | `#16141c` / `rgba(22,20,28,0.70)` | Primary & secondary high-contrast typography |
+| `--accent` / `--accent-bright` | `#10b981` / `#34d399` | `#059669` / `#047857` | Primary Jade Emerald actions, active states, progress fills |
+| `--accent-soft` / `--accent-border` | `rgba(16,185,129,0.16)` / `0.40` | `rgba(5,150,105,0.12)` / `0.34` | Active pills, selected rows, quality badges |
+| `--gold` / `--gold-bright` | `#eab308` / `#fde047` | `#ca8a04` / `#b45309` | **Modo SPIN** icon, live badges, and orbital accents |
+| `--gold-soft` / `--gold-border` | `rgba(234,179,8,0.16)` / `0.38` | `rgba(202,138,4,0.14)` / `0.36` | SPIN modal emblem & live session pill |
+| `--fav-coral` / `--danger` | `#ff5c6c` / `#e11d48` | `#ff5c6c` / `#e11d48` | Ruby Crimson favorites, hearts, and destructive actions |
+| `--ambient-rgb` | `16, 185, 129` (default) | `16, 185, 129` (default) | Dynamic cover-art ambient radial glow |
 
-### 7.2. Surface Hierarchy, Borders & Elevation
-- **Glass & Translucent Cards**:
-  - **Level 1 (Subtle containers)**: `background-color: alpha(@window_fg_color, 0.035..0.04)` with `1px solid alpha(@window_fg_color, 0.06)` (`.empty-state-card`, `.lyrics-card`, `.genre-chip`).
-  - **Level 2 (Interactive cards & tiles)**: `background-color: alpha(@window_fg_color, 0.05)` with `1px solid alpha(@window_fg_color, 0.08)`, elevating on `:hover` to `alpha(@window_fg_color, 0.09..0.10)` and border `0.14..0.22` (`.album-featured-card`, `.quick-card`, `.bento-card`, `.listen-again-tile`, `.party-next-card`).
-  - **Level 3 (Floating overlays)**: `.floating-mini-player` uses `alpha(@headerbar_bg_color, 0.96)`, `1px solid alpha(@window_fg_color, 0.16)`, and `box-shadow: 0 10px 30px alpha(black, 0.50)`.
-- **Cover Art Shadows**:
-  - `.cover-art-large`: `16px` radius, `box-shadow: 0 10px 28px alpha(black, 0.34)`.
-  - `.home-hero-cover`: `12px` radius, `box-shadow: 0 10px 28px alpha(#000000, 0.45)`.
-  - `.party-cover`: `box-shadow: 0 18px 48px alpha(#000000, 0.55)`.
+### 7.2. Custom Brand & Feature Iconography
+- **App Emblem (`gyrotube.svg`)**: 3D metallic jade sphere housing an obsidian vinyl platter, symmetric golden spin trails, and a crimson ruby play button.
+- **Modo SPIN Icon (`SpinIcon.svelte` / `spin-icon.svg`)**: Custom `24×24` Lucide-compatible orbital vinyl icon with two symmetric arcs, two synced satellite nodes (host & guest), inner vinyl grooves, and a central spindle; smoothly rotates (`5.5s linear infinite`) whenever a SPIN session is live.
 
 ### 7.3. Border Radius & Spacing Scale
 
-| Element Type | Border Radius | CSS Classes |
+| Element Type | Border Radius | Usage |
 | :--- | :--- | :--- |
-| **Small Badges & Tags** | `6px` – `8px` | `.quality-pill`, `.brand-badge`, `.album-year-badge`, `.cover-art`, `.lyric-line` |
-| **Compact Tiles & Chips** | `10px` – `12px` | `.quick-icon-badge`, `.media-card`, `.genre-chip`, `.listen-again-tile`, `.lyrics-card`, `.spin-participants-card` |
-| **Featured & Bento Cards** | `14px` – `18px` | `.quick-card`, `.album-featured-card`, `.bento-card`, `.artist-hero`, `.album-page-hero`, `.home-hero-card`, `.floating-mini-player`, `.spin-qr-card` |
-| **Pills & Circular Controls** | `999px` | `.play-pill`, `.pill-switch`, `.pill-switch-group`, `.avatar-art`, `.header-search`, `.album-play-overlay`, `.party-badge`, `.spin-guest-pill` |
+| **Track Thumbnails** | `8px` – `9px` | Compact `40–44px` square album covers inside `TrackRow` and SPIN lists |
+| **Small Controls & Inputs** | `--radius-sm` (`10px`) | Dropdowns, compact buttons, keycaps |
+| **Cards & Rows** | `--radius-md` (`14px`) / `12px` | `TrackRow`, search cards, carousel artwork, SPIN cards |
+| **Hero Cards, Modals & Mini-Player** | `--radius-lg` (`18px`) / `16px` | Featured hero, artist/album headers, `ModalSheet`, floating `MiniPlayer` |
+| **Pills & Circular Controls** | `--radius-pill` (`999px`) | Play buttons, album/artist chips, search bar, SPIN/quality badges, avatars |
 
-### 7.4. Typography Scale
+### 7.4. Typography & Readability Scale
 
-| Role | Class | Size & Weight | Details |
-| :--- | :--- | :--- | :--- |
-| **Artist Hero Title** | `.artist-hero-title` | `32px`, `800` | White with `0 2px 12px` drop shadow |
-| **Album Hero Title** | `.album-hero-title` | `1.95em`, `800` | Tight tracking (`letter-spacing: -0.02em`) |
-| **Home Greeting** | `.home-greeting-title` | `1.9em`, `800` | Tight tracking (`letter-spacing: -0.02em`) |
-| **Party Active Lyric** | `.party-lyric-line.lyric-line-active` | `36px`, `800` | Highlighted with `alpha(@accent_bg_color, 0.18)` pill |
-| **Party Inactive Lyric** | `.party-lyric-line` | `28px`, `400` | `line-height: 1.4`, `14px` radius |
-| **Party Track Title** | `.party-title` | `26px`, `800` | Centered under 300×300 cover |
-| **Sidebar Active Lyric** | `.lyric-line-active` | `16px`, `700` | `@accent_color` text on `alpha(@accent_bg_color, 0.16)` |
-| **Sidebar Inactive Lyric** | `.lyric-line` | `15px`, `400` | `opacity: 0.55` (`0.9` on hover) |
-| **Plain Lyrics Body** | `.lyrics-plain` | `14.5px`, `400` | `line-height: 1.65` |
-| **Uppercase Section Eyebrows** | `.album-type-label`, `.chart-header-row` | `0.76em`–`0.78em`, `700` | `letter-spacing: 0.05em..0.08em`, uppercase |
-| **Micro Badges** | `.quality-pill`, `.home-hero-badge`, `.lyrics-badge-synced` | `10px`–`11px`, `700`–`800` | Tinted background `alpha(@accent_bg_color, 0.18..0.24)` with `@accent_color` foreground |
+| Role | Size & Weight | Details |
+| :--- | :--- | :--- |
+| **Font Stack** | `"Inter Variable", Inter, "SF Pro Display", "Segoe UI", system-ui` | `tabular-nums` (`.numeric`) for durations, counters, and seek timestamps |
+| **Home Greeting / Artist Hero** | `32px`, `800` | Tight tracking (`-0.02em`), paired with `14px` muted subtitle |
+| **Section Titles (`.section-title`)** | `22px`, `800` | Tight tracking (`-0.02em`) |
+| **Sidebar Player Title** | `19px`, `800` | `line-clamp-2`, paired with `14.5px` interactive artist button and `12px` album chip |
+| **Track Row Title / Subtitle** | `14px`–`15px` (`600`) / `12.5px`–`13px` | `44×44px` cover on desktop (`40×40px` on mobile) |
+| **Album / Artist Card Title** | `14.5px` (`700`) / `13px` muted | Borderless cards inside `188px+` carousels |
+| **Party Mode Lyrics** | `24px`–`34px`, `700`–`800` | GPU `scale(1.045)` + opacity highlight for active line |
+| **Micro Badges & Eyebrows** | `11px`–`11.5px`, `700` | Uppercase tracked labels (`0.08em`), quality pills, SPIN live pill |
 
-### 7.5. Micro-Interactions, Animations & Dynamic CSS Providers
-- **Card Play Button Reveal (`.album-play-overlay`)**:
-  - Rests at `opacity: 0; transform: translateY(4px);` and transitions over `150ms ease` to `opacity: 1; transform: translateY(0);` when `.album-featured-card:hover` or `:focus-within` is triggered.
-- **Play Pill Loader (`.play-pill spinner`)**:
-  - Renders a `20×20 px` pure white (`#ffffff`, `opacity: 1`) `GtkSpinner` inside the primary `56×44 px` pill button while keeping widget sensitivity active so GTK's CSS engine animates the spinner at 60 FPS.
-- **Runtime Dynamic CSS Providers**:
-  - **Ambient Cover Lighting (`widgets::update_ambient_color`)**: Injects a runtime `CssProvider` coloring `.ambient-player` and `.player-cover-glow` with radial/linear gradients derived from the current album cover's dominant RGB values.
-  - **Per-Genre Accent Tint (`explore.rs` / `home.rs`)**: Applies per-widget `CssProvider` rules using each YouTube Music mood/genre's hex color (`linear-gradient(90deg, alpha({color}, 0.14) 0%, ...)`).
-- **Responsive Breakpoints (`.mobile-layout` & `.rail-compact`)**:
-  - Below narrow widths, `.mobile-layout` compacts card padding (`12px`), font sizes (`.title-2` to `18px`, `.pill-switch` to `12.5px`), and switches from the floating mini-player to the docked `.mobile-mini-player`.
+### 7.5. Performance & Rendering Guidelines
+- **No Persistent `backdrop-blur` on Chrome/Modals**: Elevated surfaces use opaque `--bg-elevated` with subtle hairlines and soft shadows to avoid GPU compositing stalls in WebKitGTK and Android WebView.
+- **Transform & Opacity Animations Only**: Progress bars (`scaleX`), lyric focus (`scale` + `opacity`), and `SpinIcon` rotation stay strictly on the compositor thread.
+- **Reduced Motion**: Respects `prefers-reduced-motion: reduce` across transitions and animated indicators.
 
 ---
 
