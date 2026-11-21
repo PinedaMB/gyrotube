@@ -1,11 +1,10 @@
 <script lang="ts">
   import { Globe, HardDrive, Monitor, Moon, Sun, Trash2, X } from "lucide-svelte";
-  import { cubicOut } from "svelte/easing";
-  import { fade, scale } from "svelte/transition";
   import { api, isTauriRuntime } from "../lib/api";
   import { t } from "../lib/i18n.svelte";
   import { player } from "../lib/stores/player.svelte";
   import type { AppLanguage, ThemeMode } from "../lib/types";
+  import ModalSheet from "./ModalSheet.svelte";
 
   let cacheBytes = $state(0);
 
@@ -26,13 +25,6 @@
     player.showToast("Audio cache cleared");
   }
 
-  function handleKeydown(e: KeyboardEvent) {
-    if (player.settingsOpen && e.key === "Escape") {
-      e.preventDefault();
-      player.settingsOpen = false;
-    }
-  }
-
   const THEMES: ThemeMode[] = ["system", "dark", "light"];
   const LANGUAGES: { id: AppLanguage; label: string }[] = [
     { id: "Auto", label: "Auto" },
@@ -41,24 +33,12 @@
   ];
 </script>
 
-<svelte:window onkeydown={handleKeydown} />
-
-{#if player.settingsOpen}
-  <div
-    transition:fade={{ duration: 160 }}
-    class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70"
-    role="presentation"
-    onclick={(e) => {
-      if (e.target === e.currentTarget) player.settingsOpen = false;
-    }}
-  >
-    <div
-      transition:scale={{ start: 0.95, duration: 190, easing: cubicOut }}
-      role="dialog"
-      aria-modal="true"
-      aria-label={t("settings.title")}
-      class="w-[min(520px,calc(100vw-32px))] max-h-[calc(100vh-48px)] overflow-y-auto rounded-[18px] bg-[var(--bg-elevated)] text-[var(--text)] border border-[var(--border-strong)] shadow-[0_24px_64px_rgba(0,0,0,0.62)]"
-    >
+<ModalSheet
+  open={player.settingsOpen}
+  label={t("settings.title")}
+  maxWidth={520}
+  onClose={() => (player.settingsOpen = false)}
+>
       <div class="flex items-center justify-between px-6 py-4 border-b border-[var(--border)]">
         <h2 class="text-[18px] font-extrabold tracking-tight">{t("settings.title")}</h2>
         <button class="icon-btn" title="Close" onclick={() => (player.settingsOpen = false)}>
@@ -255,6 +235,4 @@
           </div>
         </section>
       </div>
-    </div>
-  </div>
-{/if}
+</ModalSheet>

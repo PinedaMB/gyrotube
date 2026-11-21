@@ -1,9 +1,8 @@
 <script lang="ts">
   import { Globe, Radio, Wifi, X } from "lucide-svelte";
-  import { cubicOut } from "svelte/easing";
-  import { fade, scale } from "svelte/transition";
   import { t } from "../../lib/i18n.svelte";
   import { player } from "../../lib/stores/player.svelte";
+  import ModalSheet from "../ModalSheet.svelte";
   import SpinLocalPane from "./SpinLocalPane.svelte";
   import SpinRemotePane from "./SpinRemotePane.svelte";
 
@@ -12,33 +11,14 @@
   let isLive = $derived(
     player.spinStatus.local_active || player.spinStatus.remote_role !== "idle",
   );
-
-  function handleKeydown(e: KeyboardEvent) {
-    if (player.spinOpen && e.key === "Escape") {
-      e.preventDefault();
-      player.spinOpen = false;
-    }
-  }
 </script>
 
-<svelte:window onkeydown={handleKeydown} />
-
-{#if player.spinOpen}
-  <div
-    transition:fade={{ duration: 160 }}
-    class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70"
-    role="presentation"
-    onclick={(e) => {
-      if (e.target === e.currentTarget) player.spinOpen = false;
-    }}
-  >
-    <div
-      transition:scale={{ start: 0.95, duration: 190, easing: cubicOut }}
-      role="dialog"
-      aria-modal="true"
-      aria-label={t("spin.title")}
-      class="w-[min(480px,calc(100vw-32px))] max-h-[calc(100vh-48px)] overflow-y-auto rounded-[18px] bg-[var(--bg-elevated)] text-[var(--text)] border border-[var(--border-strong)] shadow-[0_24px_64px_rgba(0,0,0,0.62)]"
-    >
+<ModalSheet
+  open={player.spinOpen}
+  label={t("spin.title")}
+  maxWidth={480}
+  onClose={() => (player.spinOpen = false)}
+>
       <!-- Header -->
       <div class="flex items-center justify-between px-6 py-4 border-b border-[var(--border)]">
         <div class="flex items-center gap-2.5">
@@ -95,6 +75,4 @@
           <SpinRemotePane />
         {/if}
       </div>
-    </div>
-  </div>
-{/if}
+</ModalSheet>

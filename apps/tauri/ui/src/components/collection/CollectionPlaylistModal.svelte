@@ -1,8 +1,7 @@
 <script lang="ts">
   import { Check, X } from "lucide-svelte";
-  import { cubicOut } from "svelte/easing";
-  import { fade, scale } from "svelte/transition";
   import type { UserPlaylist } from "../../lib/types";
+  import ModalSheet from "../ModalSheet.svelte";
   import PlaylistIcon, { PLAYLIST_ICON_IDS } from "./PlaylistIcon.svelte";
 
   const SWATCHES = [
@@ -71,24 +70,12 @@
   let previewColor = $derived(formColor ?? "#2190a4");
 </script>
 
-<svelte:window onkeydown={handleKeydown} />
-
-{#if open}
-  <div
-    transition:fade={{ duration: 160 }}
-    class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70"
-    role="presentation"
-    onclick={(e) => {
-      if (e.target === e.currentTarget) onClose();
-    }}
-  >
-    <div
-      transition:scale={{ start: 0.95, duration: 190, easing: cubicOut }}
-      role="dialog"
-      aria-modal="true"
-      aria-label={editing ? "Customize playlist" : "New playlist"}
-      class="w-[min(500px,calc(100vw-32px))] max-h-[calc(100vh-48px)] overflow-y-auto rounded-[18px] bg-[var(--bg-elevated)] text-[var(--text)] border border-[var(--border-strong)] shadow-[0_24px_64px_rgba(0,0,0,0.62)]"
-    >
+<ModalSheet
+  {open}
+  label={editing ? "Customize playlist" : "New playlist"}
+  maxWidth={500}
+  {onClose}
+>
       <form class="p-6 flex flex-col gap-5" onsubmit={handleSubmit}>
         <div class="flex items-center justify-between">
           <h3 class="text-[18px] font-extrabold tracking-tight">
@@ -206,6 +193,4 @@
           </button>
         </div>
       </form>
-    </div>
-  </div>
-{/if}
+</ModalSheet>

@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { Heart, Pause, Play, SkipBack, SkipForward } from "lucide-svelte";
   import { onMount } from "svelte";
   import { cubicOut } from "svelte/easing";
   import { fade, fly } from "svelte/transition";
@@ -8,10 +7,10 @@
   import CollectionView from "./components/CollectionView.svelte";
   import CollectionPlaylistModal from "./components/collection/CollectionPlaylistModal.svelte";
   import ContextMenu from "./components/ContextMenu.svelte";
-  import CoverImage from "./components/CoverImage.svelte";
   import ExploreView from "./components/ExploreView.svelte";
   import HeaderBar from "./components/HeaderBar.svelte";
   import HomeView from "./components/HomeView.svelte";
+  import MiniPlayer from "./components/MiniPlayer.svelte";
   import MobileNav from "./components/MobileNav.svelte";
   import NavSidebar from "./components/NavSidebar.svelte";
   import PartyMode from "./components/PartyMode.svelte";
@@ -112,55 +111,7 @@
     {/if}
   </div>
 
-  {#if !player.sidebarOpen && player.currentTrack}
-    <div
-      transition:fly={{ y: 24, duration: 240, easing: cubicOut }}
-      class="relative z-30 shrink-0 w-full flex items-center gap-2 sm:gap-2.5 px-3 sm:px-3.5 py-2 bg-[var(--bg-elevated)] border-t border-[var(--border)] md:fixed md:bottom-5 md:left-1/2 md:-translate-x-1/2 md:w-[min(560px,calc(100vw-24px))] md:rounded-full md:bg-[var(--bg-elevated)]/[0.97] md:border md:border-[var(--border-strong)] md:shadow-2xl"
-    >
-      <button
-        class="flex-1 min-w-0 flex items-center gap-2.5 text-left"
-        onclick={() => (player.sidebarOpen = true)}
-      >
-        <CoverImage
-          class="w-10 h-10 !rounded-[8px] object-cover shrink-0"
-          src={player.currentTrack.cover_url}
-          alt=""
-        />
-        <div class="track-meta">
-          <span class="track-title">{player.currentTrack.title}</span>
-          <span class="track-sub">{player.currentTrack.artist}</span>
-        </div>
-      </button>
-      <button
-        class="icon-btn"
-        class:fav-active={player.isFavorite(player.currentTrack.id)}
-        title="Favorite"
-        onclick={() => player.currentTrack && player.toggleFavorite(player.currentTrack)}
-      >
-        <Heart
-          size={17}
-          fill={player.isFavorite(player.currentTrack.id) ? "currentColor" : "none"}
-        />
-      </button>
-      <button class="icon-btn hidden sm:inline-flex" title="Previous" onclick={() => void player.prev()}>
-        <SkipBack size={17} fill="currentColor" />
-      </button>
-      <button
-        class="play-circle !w-10 !h-10"
-        title="Play / Pause"
-        onclick={() => void player.togglePlay()}
-      >
-        {#if player.isPlaying}
-          <Pause size={17} fill="currentColor" />
-        {:else}
-          <Play size={17} fill="currentColor" class="translate-x-[1px]" />
-        {/if}
-      </button>
-      <button class="icon-btn" title="Next" onclick={() => void player.next()}>
-        <SkipForward size={17} fill="currentColor" />
-      </button>
-    </div>
-  {/if}
+  <MiniPlayer />
 
   <MobileNav />
 

@@ -77,7 +77,7 @@
         <div class="flex items-center gap-1.5">
           <button
             type="button"
-            class="w-8 h-8 rounded-full inline-flex items-center justify-center bg-[var(--surface)] border border-[var(--border)] hover:bg-[var(--surface-hover)] hover:border-[var(--border-strong)] disabled:opacity-30 transition-all active:scale-95"
+            class="w-8 h-8 rounded-full inline-flex items-center justify-center bg-white/[0.06] border border-white/10 hover:bg-white/[0.14] hover:border-white/20 disabled:opacity-25 disabled:pointer-events-none transition-colors active:scale-95"
             disabled={!canPrev}
             title="Scroll left"
             aria-label="Scroll left"
@@ -87,7 +87,7 @@
           </button>
           <button
             type="button"
-            class="w-8 h-8 rounded-full inline-flex items-center justify-center bg-[var(--surface)] border border-[var(--border)] hover:bg-[var(--surface-hover)] hover:border-[var(--border-strong)] disabled:opacity-30 transition-all active:scale-95"
+            class="w-8 h-8 rounded-full inline-flex items-center justify-center bg-white/[0.06] border border-white/10 hover:bg-white/[0.14] hover:border-white/20 disabled:opacity-25 disabled:pointer-events-none transition-colors active:scale-95"
             disabled={!canNext}
             title="Scroll right"
             aria-label="Scroll right"
@@ -100,7 +100,7 @@
     </div>
   {/if}
 
-  <div class="relative group">
+  <div class="relative">
     <div
       bind:this={scroller}
       class="carousel-track scroll-smooth"
@@ -109,28 +109,6 @@
     >
       {@render children()}
     </div>
-
-    {#if canPrev}
-      <button
-        type="button"
-        class="hidden md:inline-flex items-center justify-center w-9 h-9 rounded-full absolute left-2 top-1/2 -translate-y-1/2 bg-[var(--bg-elevated)] border border-[var(--border-strong)] shadow-xl opacity-0 group-hover:opacity-100 transition-all duration-200 hover:bg-[var(--accent)] hover:text-white hover:border-transparent active:scale-95"
-        aria-label="Scroll left"
-        onclick={() => scrollPage(-1)}
-      >
-        <ChevronLeft size={18} />
-      </button>
-    {/if}
-
-    {#if canNext}
-      <button
-        type="button"
-        class="hidden md:inline-flex items-center justify-center w-9 h-9 rounded-full absolute right-2 top-1/2 -translate-y-1/2 bg-[var(--bg-elevated)] border border-[var(--border-strong)] shadow-xl opacity-0 group-hover:opacity-100 transition-all duration-200 hover:bg-[var(--accent)] hover:text-white hover:border-transparent active:scale-95"
-        aria-label="Scroll right"
-        onclick={() => scrollPage(1)}
-      >
-        <ChevronRight size={18} />
-      </button>
-    {/if}
   </div>
 </section>
 

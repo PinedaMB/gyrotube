@@ -102,21 +102,28 @@
       <Carousel title={t("home.new_releases")} id="new-releases">
         {#each releaseAlbums as album (album.id)}
           <button
-            class="p-2 md:p-2.5 rounded-2xl bg-[var(--surface)] border border-[var(--border)] hover:bg-[var(--surface-hover)] hover:border-[var(--border-strong)] text-left flex flex-col gap-1.5 transition-colors"
+            type="button"
+            class="group p-2 rounded-2xl hover:bg-white/[0.06] text-left flex flex-col gap-2 transition-colors"
             onclick={() => player.openAlbum(album.id, album.title, album.cover_url)}
           >
-            <div class="relative w-full">
-              <CoverImage class="media-cover" src={album.cover_url} alt={album.title} />
+            <div class="relative w-full rounded-xl overflow-hidden shadow-[0_8px_22px_rgba(0,0,0,0.35)] border border-white/[0.07]">
+              <CoverImage
+                class="media-cover !rounded-none transition-transform duration-300 group-hover:scale-[1.03]"
+                src={album.cover_url}
+                alt={album.title}
+              />
               {#if album.year}
                 <span
-                  class="absolute top-2 left-2 px-2 py-0.5 rounded-md text-[11px] font-bold bg-black/65 text-white numeric"
+                  class="absolute top-2 left-2 px-2 py-0.5 rounded-md text-[10.5px] font-bold bg-black/70 text-white numeric"
                 >
                   {album.year}
                 </span>
               {/if}
             </div>
-            <strong class="w-full text-[13.5px] max-md:line-clamp-2 max-md:leading-snug max-md:whitespace-normal md:truncate">{album.title}</strong>
-            <span class="text-[12px] text-[var(--text-muted)] truncate w-full">{album.artist}</span>
+            <div class="px-0.5 space-y-0.5 w-full">
+              <strong class="block w-full text-[13.5px] font-bold max-md:line-clamp-2 max-md:leading-snug max-md:whitespace-normal md:truncate">{album.title}</strong>
+              <span class="block text-[12px] text-[var(--text-muted)] truncate w-full">{album.artist}</span>
+            </div>
           </button>
         {/each}
       </Carousel>
@@ -130,18 +137,21 @@
       <Carousel title={t("home.top_artists")} id="top-artists">
         {#each topArtists as artist (artist.id)}
           <button
-            class="p-3 rounded-2xl bg-[var(--surface)] border border-[var(--border)] hover:bg-[var(--surface-hover)] hover:border-[var(--border-strong)] flex flex-col items-center text-center gap-2 transition-colors"
+            type="button"
+            class="group p-2.5 rounded-2xl hover:bg-white/[0.06] flex flex-col items-center text-center gap-2 transition-colors"
             onclick={() => player.openArtist(artist.id, artist.name)}
           >
-            <CoverImage
-              class="w-full aspect-square rounded-full"
-              src={artist.avatar_url}
-              alt={artist.name}
-              fallbackIcon="👤"
-            />
-            <strong class="w-full text-[13.5px] truncate">{artist.name}</strong>
+            <div class="w-full aspect-square rounded-full overflow-hidden shadow-[0_8px_22px_rgba(0,0,0,0.35)] border border-white/[0.08]">
+              <CoverImage
+                class="w-full h-full transition-transform duration-300 group-hover:scale-[1.04]"
+                src={artist.avatar_url}
+                alt={artist.name}
+                fallbackIcon="👤"
+              />
+            </div>
+            <strong class="w-full text-[13.5px] font-bold truncate">{artist.name}</strong>
             {#if artist.subscriber_count}
-              <span class="text-[11.5px] text-[var(--text-muted)] truncate w-full">
+              <span class="text-[11.5px] text-[var(--text-muted)] truncate w-full -mt-1">
                 {formatSubscribers(artist.subscriber_count)}
               </span>
             {/if}
