@@ -1,5 +1,6 @@
 <script lang="ts">
   import TrackRow from "../TrackRow.svelte";
+  import { t } from "../../lib/i18n.svelte";
   import { player } from "../../lib/stores/player.svelte";
   import type { Track } from "../../lib/types";
 
@@ -33,6 +34,6 @@
       {/each}
     </div>
   {:else}
-    <p class="text-[var(--text-muted)] py-10 text-center">No tracks found.</p>
+    <p class="text-[var(--text-muted)] py-10 text-center">{t("album.no_tracks")}</p>
   {/if}
 </section>

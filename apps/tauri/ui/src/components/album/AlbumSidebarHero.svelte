@@ -108,7 +108,7 @@
     <button
       class="w-11 h-11 rounded-full inline-flex items-center justify-center bg-white/[0.08] hover:bg-white/[0.15] border border-white/10 transition-all active:scale-95 disabled:opacity-40"
       disabled={tracks.length === 0}
-      title="Shuffle"
+      title={t("player.shuffle")}
       onclick={shuffleAll}
     >
       <Shuffle size={18} />
@@ -117,7 +117,7 @@
     <button
       class="play-circle !w-[60px] !h-[60px]"
       disabled={tracks.length === 0}
-      title="Play all"
+      title={t("home.play")}
       onclick={playAll}
     >
       <Play size={24} fill="currentColor" class="translate-x-[1.5px]" />

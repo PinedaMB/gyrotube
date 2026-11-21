@@ -6,6 +6,7 @@
   import CollectionPlaylistModal from "./components/collection/CollectionPlaylistModal.svelte";
   import ContextMenu from "./components/ContextMenu.svelte";
   import ExploreView from "./components/ExploreView.svelte";
+  import GlobalTooltip from "./components/GlobalTooltip.svelte";
   import HeaderBar from "./components/HeaderBar.svelte";
   import HomeView from "./components/HomeView.svelte";
   import MiniPlayer from "./components/MiniPlayer.svelte";
@@ -137,6 +138,7 @@
   {/if}
 
   <ContextMenu />
+  <GlobalTooltip />
 
   {#if player.playlistDraftTrack}
     <CollectionPlaylistModal

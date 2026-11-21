@@ -167,7 +167,7 @@
           class="icon-btn !w-10 !h-10 relative {player.shuffle
             ? 'active'
             : 'text-[var(--text-muted)] hover:text-[var(--text)]'}"
-          title="Shuffle"
+          title={t("player.shuffle")}
           onclick={() => player.toggleShuffle()}
         >
           <Shuffle size={18} />
@@ -179,7 +179,7 @@
         <button
           class="icon-btn !w-11 !h-11"
           disabled={!player.currentTrack}
-          title="Previous"
+          title={t("player.previous")}
           onclick={() => void player.prev()}
         >
           <SkipBack size={22} fill="currentColor" />
@@ -188,7 +188,7 @@
         <button
           class="play-circle !w-[62px] !h-[62px]"
           disabled={!player.currentTrack}
-          title="Play / Pause"
+          title={t("player.play_pause")}
           onclick={() => void player.togglePlay()}
         >
           {#if player.isPlaying}
@@ -201,7 +201,7 @@
         <button
           class="icon-btn !w-11 !h-11"
           disabled={!player.currentTrack}
-          title="Next"
+          title={t("player.next")}
           onclick={() => void player.next()}
         >
           <SkipForward size={22} fill="currentColor" />
@@ -211,7 +211,7 @@
           class="icon-btn !w-10 !h-10 relative {player.repeat
             ? 'active'
             : 'text-[var(--text-muted)] hover:text-[var(--text)]'}"
-          title="Repeat"
+          title={t("player.repeat")}
           onclick={() => player.toggleRepeat()}
         >
           <Repeat size={18} />

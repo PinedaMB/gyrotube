@@ -44,10 +44,10 @@
       <button
         class="w-9 h-9 rounded-full inline-flex items-center justify-center shrink-0 bg-white/10 text-white group-hover:bg-[var(--accent)] transition-all active:scale-95 disabled:opacity-35"
         disabled={player.favorites.length === 0}
-        title="Play favorites"
+        title={t("home.play")}
         onclick={(e) => {
           e.stopPropagation();
-          if (player.favorites.length) player.replaceQueueAndPlay(player.favorites, 0, "Favorites");
+          if (player.favorites.length) player.replaceQueueAndPlay(player.favorites, 0, t("collection.favorites"));
         }}
       >
         <Play size={15} fill="currentColor" class="translate-x-[1px]" />
@@ -74,13 +74,15 @@
         <div class="min-w-0 flex-1">
           <strong class="block text-[14.5px] font-bold truncate">{pl.name}</strong>
           <span class="block text-[12px] text-[var(--text-muted)] truncate">
-            {pl.tracks.length} {pl.tracks.length === 1 ? "song" : "songs"}{pl.description ? ` · ${pl.description}` : ""}
+            {pl.tracks.length === 1
+              ? t("collection.song_one")
+              : t("collection.song_many", { count: pl.tracks.length })}{pl.description ? ` · ${pl.description}` : ""}
           </span>
         </div>
         <div class="flex items-center gap-1 shrink-0">
           <button
             class="icon-btn !w-8 !h-8 opacity-0 group-hover:opacity-100 transition-opacity"
-            title="Customize playlist"
+            title={t("collection.modal_edit")}
             onclick={(e) => {
               e.stopPropagation();
               onEditPlaylist(pl);
@@ -91,7 +93,7 @@
           <button
             class="w-9 h-9 rounded-full inline-flex items-center justify-center bg-white/10 text-white group-hover:bg-[var(--accent)] transition-all active:scale-95 disabled:opacity-35"
             disabled={pl.tracks.length === 0}
-            title="Play playlist"
+            title={t("home.play")}
             onclick={(e) => {
               e.stopPropagation();
               if (pl.tracks.length) player.replaceQueueAndPlay(pl.tracks, 0, pl.name);

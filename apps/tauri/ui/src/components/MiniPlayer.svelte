@@ -84,7 +84,7 @@
         <button
           type="button"
           class="icon-btn !w-9 !h-9 hidden sm:inline-flex"
-          title="Previous"
+          title={t("player.previous")}
           onclick={() => void player.prev()}
         >
           <SkipBack size={17} fill="currentColor" />
@@ -92,8 +92,8 @@
 
         <button
           type="button"
-          class="play-circle !w-10 !h-10 shadow-[0_4px_14px_rgba(33,144,164,0.42)]"
-          title="Play / Pause"
+          class="play-circle !w-10 !h-10 shadow-[0_4px_14px_rgba(16,185,129,0.42)]"
+          title={t("player.play_pause")}
           onclick={() => void player.togglePlay()}
         >
           {#if player.isPlaying}
@@ -106,7 +106,7 @@
         <button
           type="button"
           class="icon-btn !w-9 !h-9"
-          title="Next"
+          title={t("player.next")}
           onclick={() => void player.next()}
         >
           <SkipForward size={17} fill="currentColor" />

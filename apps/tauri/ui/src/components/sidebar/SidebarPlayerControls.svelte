@@ -166,7 +166,7 @@
         class="icon-btn relative {player.shuffle
           ? 'active'
           : 'text-[var(--text-muted)] hover:text-[var(--text)]'}"
-        title="Shuffle"
+        title={t("player.shuffle")}
         onclick={() => player.toggleShuffle()}
       >
         <Shuffle size={17} />
@@ -205,7 +205,7 @@
         type="button"
         class="icon-btn !w-9 !h-9"
         disabled={!player.currentTrack}
-        title={t("party.up_next")}
+        title={t("player.next")}
         onclick={() => void player.next()}
       >
         <SkipForward size={20} fill="currentColor" />
@@ -216,7 +216,7 @@
         class="icon-btn relative {player.repeat
           ? 'active'
           : 'text-[var(--text-muted)] hover:text-[var(--text)]'}"
-        title="Repeat"
+        title={t("player.repeat")}
         onclick={() => player.toggleRepeat()}
       >
         <Repeat size={17} />

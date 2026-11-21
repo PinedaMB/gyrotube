@@ -41,7 +41,7 @@
 >
       <div class="flex items-center justify-between px-6 py-4 border-b border-[var(--border)]">
         <h2 class="text-[18px] font-extrabold tracking-tight">{t("settings.title")}</h2>
-        <button class="icon-btn" title="Close" onclick={() => (player.settingsOpen = false)}>
+        <button class="icon-btn" title={t("common.close")} onclick={() => (player.settingsOpen = false)}>
           <X size={17} />
         </button>
       </div>

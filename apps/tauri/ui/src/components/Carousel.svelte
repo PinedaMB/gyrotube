@@ -1,6 +1,7 @@
 <script lang="ts">
   import { ChevronLeft, ChevronRight } from "lucide-svelte";
   import { onMount, type Snippet } from "svelte";
+  import { t } from "../lib/i18n.svelte";
 
   interface Props {
     title?: string;
@@ -79,8 +80,8 @@
             type="button"
             class="w-8 h-8 rounded-full inline-flex items-center justify-center bg-white/[0.06] border border-white/10 hover:bg-white/[0.14] hover:border-white/20 disabled:opacity-25 disabled:pointer-events-none transition-colors active:scale-95"
             disabled={!canPrev}
-            title="Scroll left"
-            aria-label="Scroll left"
+            title={t("carousel.prev")}
+            aria-label={t("carousel.prev")}
             onclick={() => scrollPage(-1)}
           >
             <ChevronLeft size={16} />
@@ -89,8 +90,8 @@
             type="button"
             class="w-8 h-8 rounded-full inline-flex items-center justify-center bg-white/[0.06] border border-white/10 hover:bg-white/[0.14] hover:border-white/20 disabled:opacity-25 disabled:pointer-events-none transition-colors active:scale-95"
             disabled={!canNext}
-            title="Scroll right"
-            aria-label="Scroll right"
+            title={t("carousel.next")}
+            aria-label={t("carousel.next")}
             onclick={() => scrollPage(1)}
           >
             <ChevronRight size={16} />

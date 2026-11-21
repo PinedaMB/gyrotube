@@ -212,7 +212,7 @@
             </span>
             <button
               class="w-11 h-11 md:w-9 md:h-9 rounded-full inline-flex items-center justify-center bg-black/45 hover:bg-black/65 border border-white/15 text-white shadow-md transition-all active:scale-95"
-              title="Play {genre.name}"
+              title="{t('home.play')} {genre.name}"
               disabled={loadingStationId === genre.id}
               onclick={(e) => {
                 e.stopPropagation();

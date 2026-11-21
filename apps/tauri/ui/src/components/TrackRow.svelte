@@ -1,6 +1,8 @@
 <script lang="ts">
-  import { AudioLines, Ellipsis, Heart, ListPlus, Pause, Play, Plus, Trash2 } from "lucide-svelte";
+  import { AudioLines, Check, Ellipsis, Heart, ListPlus, Pause, Play, Plus, Trash2, X } from "lucide-svelte";
   import type { Snippet } from "svelte";
+  import { cubicOut } from "svelte/easing";
+  import { fly } from "svelte/transition";
   import { t } from "../lib/i18n.svelte";
   import { contextMenu } from "../lib/stores/contextMenu.svelte";
   import { player } from "../lib/stores/player.svelte";
@@ -26,7 +28,7 @@
   let pickerId = $props.id();
 </script>
 
-<div>
+<div class="relative">
   <div
     role="group"
     class="group relative flex min-w-0 items-center gap-2 rounded-xl px-2 py-1.5 transition-colors {playing
@@ -172,31 +174,68 @@
   </div>
 
   {#if pickerOpen}
-    <div id={pickerId} class="flex flex-wrap items-center gap-2 rounded-xl bg-[var(--surface)] border border-[var(--border)] mx-2 my-1 px-3 py-2">
-      <span class="w-full text-xs text-[var(--text-muted)]">{t("collection.add_to_playlist")}</span>
-      {#each player.userPlaylists as playlist (playlist.id)}
+    <button
+      type="button"
+      aria-label="Close playlist picker"
+      class="fixed inset-0 z-30 cursor-default bg-transparent"
+      onclick={() => (pickerOpen = false)}
+    ></button>
+    <div
+      id={pickerId}
+      transition:fly={{ y: -6, duration: 150, easing: cubicOut }}
+      class="absolute right-2 top-full mt-1 z-40 w-[236px] rounded-2xl bg-[var(--bg-elevated)] border border-[var(--border-strong)] shadow-[0_18px_44px_rgba(0,0,0,0.6)] p-1.5 select-none"
+    >
+      <div class="flex items-center justify-between px-2.5 pt-1 pb-1.5 mb-1 border-b border-white/[0.08]">
+        <span class="text-[11px] font-bold uppercase tracking-[0.06em] text-[var(--text-muted)]">
+          {t("collection.add_to_playlist").replace(/:$/, "")}
+        </span>
         <button
           type="button"
-          class="pill-btn min-w-0 max-w-full"
-          onclick={() => {
-            player.addTrackToPlaylist(playlist.id, track);
-            pickerOpen = false;
-          }}
+          class="w-5 h-5 rounded-full flex items-center justify-center text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-white/10 transition-colors"
+          aria-label="Close"
+          onclick={() => (pickerOpen = false)}
         >
-          <PlaylistIcon name={playlist.icon_name} size={13} />
-          <span class="truncate">{playlist.name}</span>
+          <X size={12} />
         </button>
-      {/each}
+      </div>
+
+      {#if player.userPlaylists.length > 0}
+        <div class="max-h-44 overflow-y-auto scroll-y space-y-0.5 mb-1">
+          {#each player.userPlaylists as playlist (playlist.id)}
+            {@const alreadyIn = playlist.tracks.some((tr) => tr.id === track.id)}
+            <button
+              type="button"
+              class="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-xl text-[13px] font-medium text-left hover:bg-white/[0.08] transition-colors"
+              onclick={() => {
+                player.addTrackToPlaylist(playlist.id, track);
+                pickerOpen = false;
+              }}
+            >
+              <span
+                class="w-6 h-6 rounded-lg flex items-center justify-center shrink-0 text-white"
+                style="background: {playlist.color_hex || '#10b981'};"
+              >
+                <PlaylistIcon name={playlist.icon_name} size={13} />
+              </span>
+              <span class="truncate flex-1">{playlist.name}</span>
+              {#if alreadyIn}
+                <Check size={14} class="text-[var(--accent-bright)] shrink-0" />
+              {/if}
+            </button>
+          {/each}
+        </div>
+      {/if}
+
       <button
         type="button"
-        class="pill-btn primary"
+        class="w-full flex items-center gap-2 px-2.5 py-2 rounded-xl text-[13px] font-semibold text-[var(--accent-bright)] hover:bg-[var(--accent-soft)] transition-colors"
         onclick={() => {
           pickerOpen = false;
           player.playlistDraftTrack = track;
         }}
       >
-        <Plus size={13} />
-        {t("collection.new_playlist")}
+        <Plus size={14} />
+        <span>{t("collection.new_playlist")}</span>
       </button>
     </div>
   {/if}
