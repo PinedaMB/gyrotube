@@ -130,7 +130,7 @@
     </div>
   {:else if player.lyrics.type === "Plain"}
     <div class="lyrics-fade flex-1 min-h-0 overflow-y-auto py-6">
-      <pre class="whitespace-pre-wrap font-sans text-[14.5px] leading-relaxed text-[var(--text)]/85">{player.lyrics.text}</pre>
+      <pre class="whitespace-pre-wrap text-[15px] font-semibold leading-relaxed text-[var(--text)]/85" style="font-family: var(--lyrics-font);">{player.lyrics.text}</pre>
     </div>
   {:else}
     <div class="flex-1 flex flex-col items-center justify-center text-center gap-2 py-12 text-[var(--text-muted)]">
@@ -154,6 +154,7 @@
   }
 
   .sb-lyric-line {
+    font-family: var(--lyrics-font);
     font-size: 16.5px;
     font-weight: 700;
     line-height: 1.4;

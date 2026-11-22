@@ -353,7 +353,7 @@
         </div>
       {:else if player.lyrics.type === "Plain"}
         <div class="party-lyrics-scroll flex-1 min-h-0 overflow-y-auto py-8 lg:py-12 pr-2 lg:pr-6">
-          <pre class="whitespace-pre-wrap font-sans text-[19px] sm:text-[22px] lg:text-[24px] font-bold leading-[1.55] tracking-[-0.02em] text-[var(--text)]/85">{player.lyrics.text}</pre>
+          <pre class="whitespace-pre-wrap text-[19px] sm:text-[22px] lg:text-[24px] font-bold leading-[1.55] tracking-[-0.02em] text-[var(--text)]/85" style="font-family: var(--lyrics-font);">{player.lyrics.text}</pre>
         </div>
       {:else}
         <div class="flex-1 flex flex-col items-center justify-center text-center gap-3 text-[var(--text-muted)]">
@@ -474,6 +474,7 @@
 
   .party-line {
     position: relative;
+    font-family: var(--lyrics-font);
     font-size: clamp(20px, 5.2vw, 34px);
     font-weight: 700;
     line-height: 1.38;
