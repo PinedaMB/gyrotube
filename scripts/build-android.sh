@@ -107,7 +107,7 @@ else
     ALIGNED_APK="${OUT_DIR}/.gyrotube-android-release-aligned.apk"
     rm -f "${ALIGNED_APK}" "${DEST_APK}" "${DEST_APK}.idsig"
     "${ZIPALIGN}" -f -p 4 "${SRC_APK}" "${ALIGNED_APK}"
-    "${APKSIGNER}" -J--enable-native-access=ALL-UNNAMED sign \
+    "${APKSIGNER}" -J-enable-native-access=ALL-UNNAMED sign \
       --ks "${KEYSTORE}" \
       --ks-pass "pass:${KEYSTORE_PASS}" \
       --ks-key-alias "${KEY_ALIAS}" \
