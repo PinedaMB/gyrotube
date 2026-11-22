@@ -175,6 +175,10 @@ impl AudioStreamer {
         format!("http://127.0.0.1:{}/stream/{session_key}.{ext}", self.port)
     }
 
+    pub fn cover_base_url(&self) -> String {
+        format!("http://127.0.0.1:{}/cover", self.port)
+    }
+
     pub(crate) fn can_reuse_url(&self, url: &reqwest::Url) -> bool {
         if url.port() != Some(self.port) {
             return false;
@@ -952,6 +956,40 @@ async fn handle_client(
             "HTTP/1.1 204 No Content\r\n{CORS_HEADERS}Content-Length: 0\r\nConnection: close\r\n\r\n"
         );
         write_half.write_all(hdr.as_bytes()).await?;
+        return Ok(());
+    }
+
+    if let Some(raw_cover_id) = path.strip_prefix("/cover/") {
+        let video_id = raw_cover_id.split('?').next().unwrap_or(raw_cover_id);
+        if crate::backend::validate_video_id(video_id).is_ok()
+            && let Some(dl_dir) = crate::models::downloads_dir()
+        {
+            let cover_path = dl_dir.join(format!("{video_id}.cover"));
+            if let Ok(bytes) = tokio::fs::read(&cover_path).await
+                && !bytes.is_empty()
+            {
+                let mime = if bytes.starts_with(b"\x89PNG") {
+                    "image/png"
+                } else if bytes.len() >= 12 && &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
+                    "image/webp"
+                } else {
+                    "image/jpeg"
+                };
+                let hdr = format!(
+                    "HTTP/1.1 200 OK\r\n{CORS_HEADERS}Content-Type: {mime}\r\nCache-Control: public, max-age=31536000\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    bytes.len()
+                );
+                write_half.write_all(hdr.as_bytes()).await?;
+                if !method.eq_ignore_ascii_case("HEAD") {
+                    write_half.write_all(&bytes).await?;
+                }
+                return Ok(());
+            }
+        }
+        let not_found = format!(
+            "HTTP/1.1 404 Not Found\r\n{CORS_HEADERS}Content-Length: 0\r\nConnection: close\r\n\r\n"
+        );
+        write_half.write_all(not_found.as_bytes()).await?;
         return Ok(());
     }
 

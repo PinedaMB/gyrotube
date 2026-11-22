@@ -148,3 +148,9 @@ pub async fn get_downloads_bytes() -> u64 {
         .await
         .unwrap_or(0)
 }
+
+#[tauri::command]
+pub async fn get_offline_cover_base_url() -> Result<String, String> {
+    let streamer = AudioStreamer::global().await?;
+    Ok(streamer.cover_base_url())
+}

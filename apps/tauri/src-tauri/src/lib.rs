@@ -199,6 +199,7 @@ pub fn run() {
             commands::download_track_offline,
             commands::remove_downloaded_tracks,
             commands::get_downloads_bytes,
+            commands::get_offline_cover_base_url,
             commands::spin_status,
             commands::spin_start_local,
             commands::spin_stop_local,

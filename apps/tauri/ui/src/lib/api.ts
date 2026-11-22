@@ -98,6 +98,7 @@ export const api = {
   removeDownloadedTracks: (trackIds: string[]): Promise<void> =>
     call("remove_downloaded_tracks", { trackIds }),
   getDownloadsBytes: (): Promise<number> => call("get_downloads_bytes"),
+  getOfflineCoverBaseUrl: (): Promise<string> => call("get_offline_cover_base_url"),
 
   spinStatus: (): Promise<SpinStatus> => call("spin_status"),
   spinStartLocal: (): Promise<SpinStatus> => call("spin_start_local"),

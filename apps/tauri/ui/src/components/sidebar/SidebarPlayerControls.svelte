@@ -208,8 +208,8 @@
         >
           <CoverImage
             class="cover-large !w-[264px] !h-[264px] !rounded-2xl border border-[var(--border)] shadow-[0_22px_50px_rgba(15,23,42,0.28)] transition-transform duration-300 hover:scale-[1.015]"
-            src={player.currentTrack?.cover_large_url}
-            fallbackSrc={player.currentTrack?.cover_url}
+            src={player.trackCoverUrl(player.currentTrack, true)}
+            fallbackSrc={player.currentTrack ? (player.offlineCoverUrl(player.currentTrack.id) ?? player.currentTrack.cover_url) : null}
             alt={player.currentTrack?.title ?? ""}
             eager={true}
           />

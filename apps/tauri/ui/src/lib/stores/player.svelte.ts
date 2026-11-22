@@ -134,6 +134,7 @@ class PlayerStore {
   // Network & offline downloads
   isOffline = $state(typeof navigator !== "undefined" ? !navigator.onLine : false);
   downloadedTrackIds = $state<Set<string>>(new Set());
+  offlineCoverBaseUrl = $state<string | null>(null);
   downloadingPlaylistKey = $state<string | null>(null);
   downloadProgress = $state<{ done: number; total: number } | null>(null);
 
@@ -477,11 +478,30 @@ class PlayerStore {
     return this.downloadedTrackIds.has(trackId);
   }
 
+  public offlineCoverUrl(trackId: string): string | null {
+    if (!this.offlineCoverBaseUrl || !this.downloadedTrackIds.has(trackId)) return null;
+    return `${this.offlineCoverBaseUrl}/${encodeURIComponent(trackId)}`;
+  }
+
+  public trackCoverUrl(track: Track | null | undefined, preferLarge = false): string | null {
+    if (!track) return null;
+    const local = this.offlineCoverUrl(track.id);
+    if (local && this.isOffline) return local;
+    const remote = preferLarge
+      ? (track.cover_large_url || track.cover_url || null)
+      : (track.cover_url || track.cover_large_url || null);
+    return remote || local;
+  }
+
   public async refreshDownloadedTracks(): Promise<void> {
     if (!isTauriRuntime()) return;
     try {
-      const ids = await api.listDownloadedTracks();
+      const [ids, coverBase] = await Promise.all([
+        api.listDownloadedTracks(),
+        api.getOfflineCoverBaseUrl().catch(() => null),
+      ]);
       this.downloadedTrackIds = new Set(ids);
+      if (coverBase) this.offlineCoverBaseUrl = coverBase;
     } catch {
       // ignore
     }
@@ -1251,7 +1271,7 @@ class PlayerStore {
     if (isTauriRuntime()) void api.saveRecentTracks(this.recentTracks);
 
     // Extract ambient cover color
-    const cover = track.cover_large_url || track.cover_url;
+    const cover = this.trackCoverUrl(track, true);
     if (cover) {
       void extractDominantRgb(cover).then((rgb) => {
         if (this.loadGen === gen) this.ambientRgb = rgb;
@@ -1513,7 +1533,7 @@ class PlayerStore {
       keepPlaying,
       cur?.title ?? "GyroTube",
       cur?.artist ?? "",
-      cur?.cover_url ?? cur?.cover_large_url ?? "",
+      this.trackCoverUrl(cur, false) ?? "",
       Boolean(cur),
       posMs,
       durMs,

@@ -58,7 +58,12 @@
       {/if}
 
       <div class="relative shrink-0">
-        <CoverImage class="track-cover !w-10 !h-10 md:!w-11 md:!h-11 !rounded-[8px]" src={track.cover_url} alt="" />
+        <CoverImage
+          class="track-cover !w-10 !h-10 md:!w-11 md:!h-11 !rounded-[8px]"
+          src={player.trackCoverUrl(track, false)}
+          fallbackSrc={player.offlineCoverUrl(track.id)}
+          alt=""
+        />
         {#if current}
           <span
             class="absolute inset-0 rounded-[8px] bg-black/55 flex items-center justify-center text-[var(--accent-bright)]"

@@ -51,7 +51,8 @@
         <div class="relative shrink-0">
           <CoverImage
             class="track-cover !w-[42px] !h-[42px] !rounded-[9px] border border-[var(--border)] shadow-sm"
-            src={track.cover_url}
+            src={player.trackCoverUrl(track, false)}
+            fallbackSrc={player.offlineCoverUrl(track.id)}
             alt=""
             eager={true}
           />

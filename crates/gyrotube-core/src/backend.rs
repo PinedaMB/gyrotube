@@ -1012,9 +1012,48 @@ impl Backend {
             .sum()
     }
 
+    async fn download_cover_offline(track: &Track, dl_dir: &std::path::Path) {
+        let cover_path = dl_dir.join(format!("{}.cover", track.id));
+        if std::fs::metadata(&cover_path).is_ok_and(|m| m.is_file() && m.len() > 0) {
+            return;
+        }
+        let Some(url) = track
+            .cover_large_url
+            .as_deref()
+            .filter(|s| s.starts_with("http://") || s.starts_with("https://"))
+            .or_else(|| {
+                track
+                    .cover_url
+                    .as_deref()
+                    .filter(|s| s.starts_with("http://") || s.starts_with("https://"))
+            })
+        else {
+            return;
+        };
+        let Ok(client) = crate::tls::http_client_builder()
+            .connect_timeout(Duration::from_secs(6))
+            .read_timeout(Duration::from_secs(10))
+            .build()
+        else {
+            return;
+        };
+        if let Ok(resp) = client.get(url).send().await
+            && resp.status().is_success()
+            && let Ok(bytes) = resp.bytes().await
+            && !bytes.is_empty()
+            && bytes.len() <= 5 * 1024 * 1024
+        {
+            let tmp = dl_dir.join(format!("{}.cover.part", track.id));
+            if tokio::fs::write(&tmp, &bytes).await.is_ok() {
+                let _ = tokio::fs::rename(&tmp, &cover_path).await;
+            }
+        }
+    }
+
     pub async fn download_track_offline(&self, track: &Track) -> Result<String, String> {
         validate_video_id(&track.id)?;
         let dl_dir = Self::downloads_dir_ready()?;
+        Self::download_cover_offline(track, &dl_dir).await;
         if audio_cache::find(&track.id, &dl_dir).is_some() {
             return Ok(track.id.clone());
         }
