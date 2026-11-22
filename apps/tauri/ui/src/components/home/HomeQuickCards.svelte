@@ -6,11 +6,11 @@
 
 <section class="grid grid-cols-2 lg:grid-cols-4 gap-2.5 mb-6 max-md:mb-5">
   <button
-    class="flex items-center gap-3 px-3.5 py-3 max-md:min-h-14 max-md:gap-2 max-md:px-2.5 max-md:py-2 rounded-2xl border border-[var(--border)] hover:border-[var(--border-strong)] text-left transition-all duration-150 hover:-translate-y-0.5 active:scale-[0.98]"
-    style="background: linear-gradient(135deg, rgba(224, 27, 36, 0.16), var(--surface) 70%);"
+    class="flex items-center gap-3 px-3.5 py-3 max-md:min-h-14 max-md:gap-2.5 max-md:px-3 max-md:py-2 rounded-2xl border border-[var(--border)] hover:border-[var(--border-strong)] text-left transition-all duration-150 hover:-translate-y-0.5 active:scale-[0.98]"
+    style="background: linear-gradient(135deg, rgba(225, 29, 72, 0.11), var(--card-bg) 72%); box-shadow: var(--card-shadow);"
     onclick={() => document.getElementById("new-releases")?.scrollIntoView({ behavior: "smooth" })}
   >
-    <span class="w-9 h-9 max-md:w-8 max-md:h-8 rounded-xl inline-flex items-center justify-center bg-[var(--surface-hover)] shrink-0">
+    <span class="w-9 h-9 max-md:w-8 max-md:h-8 rounded-xl inline-flex items-center justify-center shrink-0" style="background: rgba(225, 29, 72, 0.13); color: #e11d48;">
       <Disc3 size={18} />
     </span>
     <span class="min-w-0 flex flex-col gap-0.5">
@@ -20,11 +20,11 @@
   </button>
 
   <button
-    class="flex items-center gap-3 px-3.5 py-3 max-md:min-h-14 max-md:gap-2 max-md:px-2.5 max-md:py-2 rounded-2xl border border-[var(--border)] hover:border-[var(--border-strong)] text-left transition-all duration-150 hover:-translate-y-0.5 active:scale-[0.98]"
-    style="background: linear-gradient(135deg, rgba(53, 132, 228, 0.16), var(--surface) 70%);"
+    class="flex items-center gap-3 px-3.5 py-3 max-md:min-h-14 max-md:gap-2.5 max-md:px-3 max-md:py-2 rounded-2xl border border-[var(--border)] hover:border-[var(--border-strong)] text-left transition-all duration-150 hover:-translate-y-0.5 active:scale-[0.98]"
+    style="background: linear-gradient(135deg, rgba(37, 99, 235, 0.11), var(--card-bg) 72%); box-shadow: var(--card-shadow);"
     onclick={() => document.getElementById("trending-hits")?.scrollIntoView({ behavior: "smooth" })}
   >
-    <span class="w-9 h-9 max-md:w-8 max-md:h-8 rounded-xl inline-flex items-center justify-center bg-[var(--surface-hover)] shrink-0">
+    <span class="w-9 h-9 max-md:w-8 max-md:h-8 rounded-xl inline-flex items-center justify-center shrink-0" style="background: rgba(37, 99, 235, 0.13); color: #2563eb;">
       <TrendingUp size={18} />
     </span>
     <span class="min-w-0 flex flex-col gap-0.5">
@@ -34,14 +34,14 @@
   </button>
 
   <button
-    class="flex items-center gap-3 px-3.5 py-3 max-md:min-h-14 max-md:gap-2 max-md:px-2.5 max-md:py-2 rounded-2xl border border-[var(--border)] hover:border-[var(--border-strong)] text-left transition-all duration-150 hover:-translate-y-0.5 active:scale-[0.98]"
-    style="background: linear-gradient(135deg, rgba(192, 97, 203, 0.16), var(--surface) 70%);"
+    class="flex items-center gap-3 px-3.5 py-3 max-md:min-h-14 max-md:gap-2.5 max-md:px-3 max-md:py-2 rounded-2xl border border-[var(--border)] hover:border-[var(--border-strong)] text-left transition-all duration-150 hover:-translate-y-0.5 active:scale-[0.98]"
+    style="background: linear-gradient(135deg, rgba(147, 51, 234, 0.11), var(--card-bg) 72%); box-shadow: var(--card-shadow);"
     onclick={() => {
       player.clearSearch();
       player.navigateTab("explore");
     }}
   >
-    <span class="w-9 h-9 max-md:w-8 max-md:h-8 rounded-xl inline-flex items-center justify-center bg-[var(--surface-hover)] shrink-0">
+    <span class="w-9 h-9 max-md:w-8 max-md:h-8 rounded-xl inline-flex items-center justify-center shrink-0" style="background: rgba(147, 51, 234, 0.13); color: #9333ea;">
       <Compass size={18} />
     </span>
     <span class="min-w-0 flex flex-col gap-0.5">
@@ -51,11 +51,11 @@
   </button>
 
   <button
-    class="flex items-center gap-3 px-3.5 py-3 max-md:min-h-14 max-md:gap-2 max-md:px-2.5 max-md:py-2 rounded-2xl border border-[var(--border)] hover:border-[var(--border-strong)] text-left transition-all duration-150 hover:-translate-y-0.5 active:scale-[0.98]"
-    style="background: linear-gradient(135deg, rgba(46, 194, 126, 0.16), var(--surface) 70%);"
+    class="flex items-center gap-3 px-3.5 py-3 max-md:min-h-14 max-md:gap-2.5 max-md:px-3 max-md:py-2 rounded-2xl border border-[var(--border)] hover:border-[var(--border-strong)] text-left transition-all duration-150 hover:-translate-y-0.5 active:scale-[0.98]"
+    style="background: linear-gradient(135deg, rgba(16, 185, 129, 0.12), var(--card-bg) 72%); box-shadow: var(--card-shadow);"
     onclick={() => player.navigateTab("collection")}
   >
-    <span class="w-9 h-9 max-md:w-8 max-md:h-8 rounded-xl inline-flex items-center justify-center bg-[var(--surface-hover)] shrink-0">
+    <span class="w-9 h-9 max-md:w-8 max-md:h-8 rounded-xl inline-flex items-center justify-center shrink-0" style="background: var(--accent-soft); color: var(--accent);">
       <Heart size={18} />
     </span>
     <span class="min-w-0 flex flex-col gap-0.5">

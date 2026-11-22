@@ -64,7 +64,7 @@
 <aside class="lg:sticky lg:top-8 flex flex-col items-center text-center gap-4">
   <div class="w-full flex items-center justify-start">
     <button
-      class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[12.5px] font-semibold text-[var(--text-muted)] hover:text-[var(--text)] bg-white/[0.05] hover:bg-white/[0.1] border border-white/10 transition-all active:scale-95"
+      class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[12.5px] font-semibold text-[var(--text-muted)] hover:text-[var(--text)] bg-[var(--surface)] hover:bg-[var(--surface-hover)] border border-[var(--border)] transition-all active:scale-95"
       title={t("nav.back")}
       onclick={() => player.goBack()}
     >
@@ -107,7 +107,7 @@
   <!-- 3 centered circular controls -->
   <div class="flex items-center justify-center gap-4 pt-2">
     <button
-      class="w-11 h-11 rounded-full inline-flex items-center justify-center bg-white/[0.08] hover:bg-white/[0.15] border border-white/10 transition-all active:scale-95 disabled:opacity-40"
+      class="w-11 h-11 rounded-full inline-flex items-center justify-center bg-[var(--surface)] hover:bg-[var(--surface-hover)] border border-[var(--border)] transition-all active:scale-95 disabled:opacity-40"
       disabled={tracks.length === 0}
       title={t("player.shuffle")}
       onclick={shuffleAll}
@@ -125,7 +125,7 @@
     </button>
 
     <button
-      class="w-11 h-11 rounded-full inline-flex items-center justify-center bg-white/[0.08] hover:bg-white/[0.15] border border-white/10 transition-all active:scale-95 disabled:opacity-40"
+      class="w-11 h-11 rounded-full inline-flex items-center justify-center bg-[var(--surface)] hover:bg-[var(--surface-hover)] border border-[var(--border)] transition-all active:scale-95 disabled:opacity-40"
       disabled={tracks.length === 0}
       title={t("queue.add")}
       onclick={queueAll}
@@ -135,7 +135,7 @@
 
     {#if isPlaylist}
       <button
-        class="w-11 h-11 rounded-full inline-flex items-center justify-center bg-white/[0.08] hover:bg-white/[0.15] border border-white/10 transition-all active:scale-95 disabled:opacity-40"
+        class="w-11 h-11 rounded-full inline-flex items-center justify-center bg-[var(--surface)] hover:bg-[var(--surface-hover)] border border-[var(--border)] transition-all active:scale-95 disabled:opacity-40"
         disabled={startingRadio}
         title={t("album.start_radio")}
         onclick={() => void startPlaylistRadio()}

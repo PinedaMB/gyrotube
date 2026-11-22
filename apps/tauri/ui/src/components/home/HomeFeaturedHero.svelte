@@ -10,8 +10,8 @@
 
 <section class="mt-5 md:mt-6">
   <div
-    class="flex items-center gap-3 p-3 md:gap-6 md:py-5 md:px-6 rounded-[18px] border border-[var(--border)] md:shadow-[0_12px_32px_rgba(0,0,0,0.28)]"
-    style="background: linear-gradient(135deg, rgba(var(--ambient-rgb), 0.24), var(--surface) 65%);"
+    class="flex items-center gap-3 p-3 md:gap-6 md:py-5 md:px-6 rounded-[18px] border border-[var(--border)] md:shadow-[0_12px_32px_rgba(15,23,42,0.14)]"
+    style="background: linear-gradient(135deg, rgba(var(--ambient-rgb), var(--ambient-card-a)), var(--card-bg) 68%); box-shadow: var(--card-shadow);"
   >
     <CoverImage class="hero-cover max-md:!w-22 max-md:!h-22" src={album.cover_url} alt={album.title} />
     <div class="min-w-0 flex flex-col gap-1.5">

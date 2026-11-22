@@ -56,12 +56,12 @@
   }
 
   function lineOpacity(idx: number): number {
-    if (player.activeLyricIndex == null) return 0.7;
+    if (player.activeLyricIndex == null) return 0.72;
     if (idx === player.activeLyricIndex) return 1.0;
     const diff = Math.abs(idx - player.activeLyricIndex);
-    if (diff === 1) return 0.48;
-    if (diff === 2) return 0.3;
-    return 0.18;
+    if (diff === 1) return 0.54;
+    if (diff === 2) return 0.36;
+    return 0.24;
   }
 
   function handleProgressClick(e: MouseEvent) {
@@ -74,7 +74,7 @@
 
 <div
   class="fixed inset-0 z-50 flex flex-col bg-[var(--bg)] text-[var(--text)] select-none overflow-hidden"
-  style="background-image: radial-gradient(ellipse at 26% 36%, rgba(var(--ambient-rgb), 0.34) 0%, rgba(var(--ambient-rgb), 0.1) 42%, transparent 74%);"
+  style="background-image: radial-gradient(ellipse at 26% 36%, rgba(var(--ambient-rgb), var(--ambient-party-a)) 0%, rgba(var(--ambient-rgb), var(--ambient-party-b)) 42%, transparent 74%);"
 >
   <!-- Top bar -->
   <header

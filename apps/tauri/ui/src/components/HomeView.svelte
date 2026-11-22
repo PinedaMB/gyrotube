@@ -111,7 +111,7 @@
             class="group p-2 rounded-2xl hover:bg-[var(--surface-hover)] text-left flex flex-col gap-2 transition-colors"
             onclick={() => player.openAlbum(album.id, album.title, album.cover_url)}
           >
-            <div class="relative w-full rounded-xl overflow-hidden shadow-[0_8px_22px_rgba(0,0,0,0.35)] border border-white/[0.07]">
+            <div class="relative w-full rounded-xl overflow-hidden shadow-[0_6px_18px_rgba(15,23,42,0.18)] border border-[var(--border)]">
               <CoverImage
                 class="media-cover !rounded-none transition-transform duration-300 group-hover:scale-[1.03]"
                 src={album.cover_url}
@@ -146,7 +146,7 @@
             class="group p-2.5 rounded-2xl hover:bg-[var(--surface-hover)] flex flex-col items-center text-center gap-2 transition-colors"
             onclick={() => player.openArtist(artist.id, artist.name)}
           >
-            <div class="w-full aspect-square rounded-full overflow-hidden shadow-[0_8px_22px_rgba(0,0,0,0.35)] border border-white/[0.08]">
+            <div class="w-full aspect-square rounded-full overflow-hidden shadow-[0_6px_18px_rgba(15,23,42,0.18)] border border-[var(--border)]">
               <CoverImage
                 class="w-full h-full transition-transform duration-300 group-hover:scale-[1.04]"
                 src={artist.avatar_url}
