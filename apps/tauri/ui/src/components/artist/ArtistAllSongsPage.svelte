@@ -30,7 +30,7 @@
   }
 </script>
 
-<div class="w-full max-w-[1280px] mx-auto px-6 pt-6 pb-28 space-y-6">
+<div class="w-full max-w-[1280px] mx-auto px-6 pt-[max(1.25rem,env(safe-area-inset-top))] md:pt-6 pb-28 space-y-6">
   <!-- Top navigation & header -->
   <div class="space-y-4">
     <button

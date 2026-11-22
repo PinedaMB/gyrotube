@@ -43,6 +43,7 @@ class PlayerStore {
   // Navigation & layout
   activeTab = $state<MainTab>("home");
   activeView = $state<ActiveView>({ kind: "home" });
+  collectionDetailOpen = $state(false);
   sidebarOpen = $state(true);
   navCollapsed = $state(false);
   sidebarTab = $state<"player" | "lyrics" | "queue" | "related">("player");

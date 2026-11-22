@@ -77,7 +77,7 @@
     style="background: linear-gradient(180deg, rgba(12, 12, 15, 0.14) 0%, rgba(12, 12, 15, 0.1) 36%, rgba(12, 12, 15, 0.62) 70%, rgba(12, 12, 15, 0.25) 90%, transparent 100%);"
   ></div>
 
-  <div class="relative z-10 w-full max-w-[1280px] mx-auto px-6 pt-4 pb-8 flex-1 flex flex-col justify-between">
+  <div class="relative z-10 w-full max-w-[1280px] mx-auto px-6 pt-[max(1rem,env(safe-area-inset-top))] md:pt-4 pb-8 flex-1 flex flex-col justify-between">
     <div>
       <button
         class="w-9 h-9 rounded-full inline-flex items-center justify-center bg-black/60 hover:bg-black/75 border border-white/15 text-white transition-all active:scale-95"

@@ -19,6 +19,13 @@
   let modalOpen = $state(false);
   let editingPlaylist = $state<UserPlaylist | null>(null);
 
+  $effect(() => {
+    player.collectionDetailOpen = screen.kind !== "overview";
+    return () => {
+      player.collectionDetailOpen = false;
+    };
+  });
+
   let activePlaylist = $derived.by(() => {
     const s = screen;
     if (s.kind !== "playlist") return null;
