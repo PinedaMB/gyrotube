@@ -42,13 +42,13 @@
         {@const c = colorForGenre(m.name)}
         <button
           type="button"
-          class="flex items-center gap-2.5 px-3.5 py-3 rounded-xl border text-left font-semibold hover:brightness-110 transition-all"
-          style="background: linear-gradient(135deg, {c}33, var(--surface) 68%); border-color: {c}44;"
+          class="flex items-center gap-2.5 px-3.5 py-3 rounded-xl border text-left font-semibold hover:-translate-y-0.5 transition-all"
+          style="background: linear-gradient(135deg, {c}26, var(--card-bg) 68%); border-color: {c}44; box-shadow: var(--card-shadow);"
           onclick={() => void player.runSearch(m.name)}
         >
           <span
             class="w-8 h-8 rounded-[10px] inline-flex items-center justify-center shrink-0"
-            style="background: {c}33; color: {c};"
+            style="background: {c}26; color: {c};"
           >
             ♪
           </span>
@@ -68,8 +68,8 @@
         {@const c = colorForGenre(g.name)}
         <button
           type="button"
-          class="flex items-center gap-2.5 px-3.5 py-3 rounded-xl border border-[var(--border)] hover:border-[var(--border-strong)] text-left font-semibold transition-colors"
-          style="background: linear-gradient(90deg, {c}26, var(--surface) 62%);"
+          class="flex items-center gap-2.5 px-3.5 py-3 rounded-xl border border-[var(--border)] hover:border-[var(--border-strong)] hover:-translate-y-0.5 text-left font-semibold transition-all"
+          style="background: linear-gradient(90deg, {c}1f, var(--card-bg) 62%); box-shadow: var(--card-shadow);"
           onclick={() => void player.runSearch(g.name)}
         >
           <span class="w-1 h-[22px] rounded-full shrink-0" style="background: {c};"></span>

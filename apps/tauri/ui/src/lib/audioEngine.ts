@@ -24,6 +24,7 @@ export class DualDeckAudioEngine {
   private fadeTimer: number | null = null;
   private fadeStep: (() => void) | null = null;
   private loading = false;
+  private opGen = 0;
   private callbacks: AudioCallbacks;
 
   constructor(callbacks: AudioCallbacks) {
@@ -36,7 +37,7 @@ export class DualDeckAudioEngine {
     audio.preload = "auto";
 
     audio.addEventListener("timeupdate", () => {
-      if (index !== this.activeIndex) return;
+      if (this.decks[index] !== audio || index !== this.activeIndex) return;
       // Keep crossfade progressing even if background timers are throttled by the OS
       if (this.fadeStep) {
         this.fadeStep();
@@ -59,16 +60,27 @@ export class DualDeckAudioEngine {
     });
 
     audio.addEventListener("play", () => {
-      if (index === this.activeIndex) this.callbacks.onPlayStateChange(true);
+      if (this.decks[index] === audio && index === this.activeIndex) {
+        this.callbacks.onPlayStateChange(true);
+      }
     });
     audio.addEventListener("pause", () => {
-      if (index === this.activeIndex) this.callbacks.onPlayStateChange(false);
+      if (this.decks[index] === audio && index === this.activeIndex) {
+        this.callbacks.onPlayStateChange(false);
+      }
     });
     audio.addEventListener("ended", () => {
-      if (index === this.activeIndex) this.callbacks.onEnded();
+      if (this.decks[index] === audio && index === this.activeIndex) {
+        this.callbacks.onEnded();
+      }
     });
     audio.addEventListener("error", () => {
-      if (index === this.activeIndex && audio.src && !this.loading) {
+      if (
+        this.decks[index] === audio &&
+        index === this.activeIndex &&
+        audio.src &&
+        !this.loading
+      ) {
         const code = audio.error?.code;
         const detail =
           audio.error?.message ||
@@ -84,6 +96,24 @@ export class DualDeckAudioEngine {
       }
     });
     return audio;
+  }
+
+  private disposeAudio(audio: HTMLAudioElement): void {
+    // Mute and zero volume synchronously before pausing so residual PCM buffers
+    // in WebView / GStreamer audio sinks never leak when stopping or switching tracks.
+    audio.muted = true;
+    audio.volume = 0;
+    audio.pause();
+    audio.removeAttribute("src");
+    audio.load();
+  }
+
+  private resetDeck(index: 0 | 1): HTMLAudioElement {
+    const old = this.decks[index];
+    const fresh = this.createDeck(index);
+    this.decks[index] = fresh;
+    this.disposeAudio(old);
+    return fresh;
   }
 
   private cancelFade(): void {
@@ -116,11 +146,28 @@ export class DualDeckAudioEngine {
     this.cancelFade();
     this.crossfadeFired = false;
     this.loading = true;
+    const gen = ++this.opGen;
 
     const outgoingIndex = this.activeIndex;
-    const wantDualDeck = useCrossfade && !startPaused && this.crossfadeSecs > 0;
-    const incomingIndex: 0 | 1 = wantDualDeck ? (outgoingIndex === 0 ? 1 : 0) : outgoingIndex;
     const outgoing = this.decks[outgoingIndex];
+    const wantDualDeck = useCrossfade && !startPaused && this.crossfadeSecs > 0;
+    const canCrossfade =
+      wantDualDeck &&
+      !outgoing.paused &&
+      !outgoing.ended &&
+      Boolean(outgoing.src);
+
+    // Always allocate a brand-new HTMLAudioElement for the incoming track so the
+    // WebView / GStreamer audio pipeline never flushes residual PCM frames from
+    // the previous track when starting playback on a cold load.
+    const incomingIndex: 0 | 1 = canCrossfade ? (outgoingIndex === 0 ? 1 : 0) : outgoingIndex;
+    if (!canCrossfade) {
+      // Silence & tear down both decks before starting the new track
+      this.resetDeck(0);
+      this.resetDeck(1);
+    } else {
+      this.resetDeck(incomingIndex);
+    }
     const incoming = this.decks[incomingIndex];
 
     this.activeIndex = incomingIndex;
@@ -132,7 +179,7 @@ export class DualDeckAudioEngine {
       incoming.addEventListener(
         "loadedmetadata",
         () => {
-          if (incoming.src === url && Number.isFinite(targetPos)) {
+          if (this.opGen === gen && incoming.src === url && Number.isFinite(targetPos)) {
             incoming.currentTime = targetPos;
           }
         },
@@ -141,27 +188,21 @@ export class DualDeckAudioEngine {
     }
 
     try {
-      const canCrossfade =
-        wantDualDeck &&
-        outgoingIndex !== incomingIndex &&
-        !outgoing.paused &&
-        !outgoing.ended;
-
       if (canCrossfade) {
         const startVolOut = outgoing.volume;
         incoming.volume = 0.01;
         try {
           await incoming.play();
         } catch {
+          if (this.opGen !== gen) return;
           // On mobile WebViews (Android), two simultaneous <audio> elements can
           // fail AudioFocus; fall back to stopping the outgoing deck first.
-          outgoing.pause();
-          outgoing.removeAttribute("src");
-          outgoing.load();
+          this.resetDeck(outgoingIndex);
           incoming.volume = this.volume;
           await incoming.play();
           return;
         }
+        if (this.opGen !== gen) return;
 
         const durationMs = this.crossfadeSecs * 1000;
         const startedAt = Date.now();
@@ -169,15 +210,13 @@ export class DualDeckAudioEngine {
           const t = Math.min(1, (Date.now() - startedAt) / durationMs);
           outgoing.volume = Math.max(0, startVolOut * (1 - t));
           incoming.volume = Math.min(1, this.volume * t);
-          if (t >= 1 || this.activeIndex !== incomingIndex) {
+          if (t >= 1 || this.activeIndex !== incomingIndex || this.opGen !== gen) {
             this.cancelFade();
-            if (this.activeIndex === incomingIndex) {
+            if (this.activeIndex === incomingIndex && this.opGen === gen) {
               incoming.volume = this.volume;
             }
             if (this.activeIndex !== outgoingIndex) {
-              outgoing.pause();
-              outgoing.removeAttribute("src");
-              outgoing.load();
+              this.resetDeck(outgoingIndex);
             }
           }
         };
@@ -185,16 +224,12 @@ export class DualDeckAudioEngine {
         this.fadeTimer = window.setInterval(step, 50);
         step();
       } else {
-        if (outgoingIndex !== incomingIndex) {
-          outgoing.pause();
-          outgoing.removeAttribute("src");
-          outgoing.load();
-        }
         incoming.volume = this.volume;
         if (!startPaused) {
           try {
             await incoming.play();
           } catch (firstErr) {
+            if (this.opGen !== gen) return;
             // If WebView rejected play() before initial metadata/buffer arrived,
             // wait briefly for canplay on this exact URL and retry once.
             if (incoming.src === url && incoming.readyState < 2) {
@@ -209,7 +244,7 @@ export class DualDeckAudioEngine {
                 incoming.addEventListener("canplay", done, { once: true });
                 incoming.addEventListener("error", done, { once: true });
               });
-              if (incoming.src === url && this.activeIndex === incomingIndex) {
+              if (this.opGen === gen && incoming.src === url && this.activeIndex === incomingIndex) {
                 await incoming.play();
               }
             } else {
@@ -219,6 +254,7 @@ export class DualDeckAudioEngine {
         }
       }
     } catch (err) {
+      if (this.opGen !== gen) return;
       console.error("[GyroTube play() failed]", {
         url,
         err,
@@ -229,7 +265,9 @@ export class DualDeckAudioEngine {
       });
       throw err;
     } finally {
-      this.loading = false;
+      if (this.opGen === gen) {
+        this.loading = false;
+      }
     }
   }
 
@@ -250,12 +288,11 @@ export class DualDeckAudioEngine {
   }
 
   public stop(): void {
+    ++this.opGen;
+    this.loading = false;
     this.cancelFade();
-    for (const d of this.decks) {
-      d.pause();
-      d.removeAttribute("src");
-      d.load();
-    }
+    this.resetDeck(0);
+    this.resetDeck(1);
     this.callbacks.onPlayStateChange(false);
     this.callbacks.onTimeUpdate(0, 0);
   }

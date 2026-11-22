@@ -2,6 +2,7 @@ import { api, isTauriRuntime } from "../api";
 import { DualDeckAudioEngine, extractDominantRgb } from "../audioEngine";
 import { hashToView, isSameView, type RouteState, viewToHash } from "../router";
 import { contextMenu } from "./contextMenu.svelte";
+import { device } from "./device.svelte";
 import { bindTauriPlayerEvents } from "./nativeEvents";
 import {
   findActiveLyricIndex,
@@ -130,6 +131,9 @@ class PlayerStore {
     remote_qr_svg: null,
   });
 
+  // Network status
+  isOffline = $state(typeof navigator !== "undefined" ? !navigator.onLine : false);
+
   // Toasts
   toasts = $state<ToastItem[]>([]);
   private toastSeq = 0;
@@ -245,7 +249,7 @@ class PlayerStore {
       this.unshuffledQueue = s.unshuffled_queue;
       this.currentIndex = s.current_index;
       this.sourceName = s.source_name || "Not playing";
-      this.volume = s.user_volume ?? 1.0;
+      this.volume = device.isAndroid ? 1.0 : (s.user_volume ?? 1.0);
       this.shuffle = s.shuffle;
       this.repeat = s.repeat;
       this.crossfadeSecs = s.crossfade_secs ?? 0;
@@ -414,6 +418,11 @@ class PlayerStore {
   }
 
   public setVolume(v: number): void {
+    if (device.isAndroid) {
+      this.volume = 1.0;
+      this.engine.setVolume(1.0);
+      return;
+    }
     this.volume = Math.max(0, Math.min(1, v));
     this.engine.setVolume(this.volume);
     void this.persistSession();
@@ -478,19 +487,21 @@ class PlayerStore {
 
       const st = event.state as RouteState | null;
       const parsed = hashToView(window.location.hash);
-      if (st?.view) {
-        this.activeView = st.view;
-        this.activeTab = st.tab;
-        this.routeDepth = st.depth ?? 0;
-      } else {
-        this.activeView = parsed.view;
-        this.activeTab = parsed.tab;
-        this.routeDepth = 0;
+      const nextView = st?.view ?? parsed.view;
+      const nextTab = st?.view ? st.tab : parsed.tab;
+      if (!isSameView(this.activeView, nextView)) {
+        this.activeView = nextView;
       }
+      this.activeTab = nextTab;
+      this.routeDepth = st?.view ? (st.depth ?? 0) : 0;
       if (this.isMobilePlayerHistoryEnabled()) {
         this.sidebarOpen = Boolean(st?.playerOpen ?? parsed.playerOpen);
       }
     });
+
+    (
+      window as unknown as { __GYROTUBE_DISMISS_OVERLAY__?: () => boolean }
+    ).__GYROTUBE_DISMISS_OVERLAY__ = () => this.dismissTopOverlay();
   }
 
   public openPlayerSheet(): void {

@@ -229,5 +229,8 @@
   "player.mode_song": "Canción",
   "player.mode_video": "Video",
   "player.video_fullscreen": "Pantalla completa",
-  "player.video_unavailable": "Video no disponible para esta pista"
+  "player.video_unavailable": "Video no disponible para esta pista",
+  "network.offline_title": "Sin conexión a internet",
+  "network.offline_sub": "Revisa tu conexión para reproducir música",
+  "network.back_online": "Conexión restaurada"
 }

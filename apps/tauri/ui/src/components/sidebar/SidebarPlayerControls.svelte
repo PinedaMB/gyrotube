@@ -207,7 +207,7 @@
             : "transition: transform 180ms cubic-bezier(0.22, 1, 0.36, 1), opacity 180ms ease;"}
         >
           <CoverImage
-            class="cover-large !w-[264px] !h-[264px] !rounded-2xl border border-white/10 shadow-[0_22px_50px_rgba(0,0,0,0.48)] transition-transform duration-300 hover:scale-[1.015]"
+            class="cover-large !w-[264px] !h-[264px] !rounded-2xl border border-[var(--border)] shadow-[0_22px_50px_rgba(15,23,42,0.28)] transition-transform duration-300 hover:scale-[1.015]"
             src={player.currentTrack?.cover_large_url}
             fallbackSrc={player.currentTrack?.cover_url}
             alt={player.currentTrack?.title ?? ""}
@@ -406,16 +406,16 @@
   :global(.sidebar-seek::-webkit-slider-thumb) {
     width: 17px;
     height: 17px;
-    background: #e5e7eb;
-    border: none;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.45);
+    background: #ffffff;
+    border: 2px solid var(--accent);
+    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.28);
   }
 
   :global(.sidebar-seek::-moz-range-thumb) {
     width: 17px;
     height: 17px;
-    background: #e5e7eb;
-    border: none;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.45);
+    background: #ffffff;
+    border: 2px solid var(--accent);
+    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.28);
   }
 </style>

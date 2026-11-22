@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { WifiOff } from "lucide-svelte";
   import { onMount } from "svelte";
   import { cubicOut } from "svelte/easing";
   import { fade, fly } from "svelte/transition";
@@ -13,6 +14,7 @@
   import MobileNav from "./components/MobileNav.svelte";
   import NavSidebar from "./components/NavSidebar.svelte";
   import SidebarPlayer from "./components/SidebarPlayer.svelte";
+  import { t } from "./lib/i18n.svelte";
   import { contextMenu } from "./lib/stores/contextMenu.svelte";
   import { player } from "./lib/stores/player.svelte";
 
@@ -33,6 +35,27 @@
       window.clearTimeout(safetyTimer);
       dismissSplash();
     });
+
+    const handleOffline = () => {
+      player.isOffline = true;
+    };
+    const handleOnline = () => {
+      const wasOffline = player.isOffline;
+      player.isOffline = false;
+      if (wasOffline) {
+        player.showToast(t("network.back_online"));
+        if (!player.homeFeed && !player.homeLoading) {
+          void player.loadHome();
+        }
+      }
+    };
+    player.isOffline = !navigator.onLine;
+    window.addEventListener("offline", handleOffline);
+    window.addEventListener("online", handleOnline);
+    return () => {
+      window.removeEventListener("offline", handleOffline);
+      window.removeEventListener("online", handleOnline);
+    };
   });
 
   function playerFly(node: Element) {
@@ -48,15 +71,50 @@
 
   let exploreMounted = $state(false);
   let lastArtist = $state<{ artistId: string; artistName: string } | null>(null);
+  let lastAlbum = $state<{
+    id: string;
+    title: string;
+    coverUrl?: string | null;
+    isPlaylist: boolean;
+  } | null>(null);
+
+  let miniPlayerVisible = $derived(!player.sidebarOpen && Boolean(player.currentTrack));
+
+  let toastBottomClass = $derived(
+    miniPlayerVisible
+      ? "bottom-[calc(8.25rem+env(safe-area-inset-bottom))] md:bottom-[5.75rem]"
+      : player.sidebarOpen
+        ? "bottom-[calc(1.5rem+env(safe-area-inset-bottom))] md:bottom-5"
+        : "bottom-[calc(4.5rem+env(safe-area-inset-bottom))] md:bottom-5",
+  );
 
   $effect(() => {
     if (player.activeView.kind === "explore") {
       exploreMounted = true;
     } else if (player.activeView.kind === "artist") {
-      lastArtist = {
-        artistId: player.activeView.artistId,
-        artistName: player.activeView.artistName,
-      };
+      if (
+        !lastArtist ||
+        lastArtist.artistId !== player.activeView.artistId ||
+        lastArtist.artistName !== player.activeView.artistName
+      ) {
+        lastArtist = {
+          artistId: player.activeView.artistId,
+          artistName: player.activeView.artistName,
+        };
+      }
+    } else if (player.activeView.kind === "album") {
+      if (
+        !lastAlbum ||
+        lastAlbum.id !== player.activeView.id ||
+        lastAlbum.isPlaylist !== Boolean(player.activeView.isPlaylist)
+      ) {
+        lastAlbum = {
+          id: player.activeView.id,
+          title: player.activeView.title,
+          coverUrl: player.activeView.coverUrl,
+          isPlaylist: Boolean(player.activeView.isPlaylist),
+        };
+      }
     }
   });
 
@@ -73,6 +131,19 @@
 
 <div class="h-screen w-screen overflow-hidden flex flex-col bg-[var(--bg)] text-[var(--text)]">
   <HeaderBar />
+
+  {#if player.isOffline}
+    <div
+      role="alert"
+      aria-live="assertive"
+      transition:fly={{ y: -12, duration: 180, easing: cubicOut }}
+      class="shrink-0 z-30 flex items-center justify-center gap-2.5 px-4 py-2 bg-[var(--danger)]/15 border-b border-[var(--danger)]/35 text-[var(--text)] text-[13px]"
+    >
+      <WifiOff size={15} class="shrink-0 text-[var(--danger)]" />
+      <span class="font-semibold">{t("network.offline_title")}</span>
+      <span class="hidden sm:inline text-[var(--text-muted)]">· {t("network.offline_sub")}</span>
+    </div>
+  {/if}
 
   <div class="flex-1 min-h-0 flex overflow-hidden relative">
     <!-- Left navigation sidebar -->
@@ -105,6 +176,22 @@
           </div>
         {/if}
 
+        {#if lastAlbum}
+          <div
+            class="w-full h-full overflow-y-auto overflow-x-hidden scroll-y"
+            class:hidden={player.activeView.kind !== "album"}
+          >
+            {#await import("./components/AlbumView.svelte") then { default: AlbumView }}
+              <AlbumView
+                id={lastAlbum.id}
+                title={lastAlbum.title}
+                coverUrl={lastAlbum.coverUrl}
+                isPlaylist={lastAlbum.isPlaylist}
+              />
+            {/await}
+          </div>
+        {/if}
+
         {#if player.activeView.kind === "home"}
           <div class="w-full h-full overflow-y-auto overflow-x-hidden scroll-y">
             <HomeView />
@@ -113,20 +200,6 @@
           <div class="w-full h-full overflow-y-auto overflow-x-hidden scroll-y">
             <CollectionView />
           </div>
-        {:else if player.activeView.kind === "album"}
-          {@const albumView = player.activeView}
-          {#key albumView.id}
-            <div class="w-full h-full overflow-y-auto overflow-x-hidden scroll-y">
-              {#await import("./components/AlbumView.svelte") then { default: AlbumView }}
-                <AlbumView
-                  id={albumView.id}
-                  title={albumView.title}
-                  coverUrl={albumView.coverUrl}
-                  isPlaylist={albumView.isPlaylist}
-                />
-              {/await}
-            </div>
-          {/key}
         {/if}
       </main>
     </div>
@@ -192,13 +265,13 @@
 
   {#if player.toasts.length > 0}
     <div
-      class="fixed bottom-5 left-1/2 -translate-x-1/2 z-50 flex flex-col items-center gap-2 pointer-events-none"
+      class="fixed {toastBottomClass} left-1/2 -translate-x-1/2 z-[60] max-w-[calc(100vw-2rem)] flex flex-col items-center gap-2 pointer-events-none transition-[bottom] duration-200"
       aria-live="polite"
     >
       {#each player.toasts as toast (toast.id)}
         <div
           transition:fly={{ y: 14, duration: 200, easing: cubicOut }}
-          class="px-4 py-2 rounded-full text-[13px] font-medium bg-[var(--bg-elevated)] border border-[var(--border-strong)] shadow-xl"
+          class="px-4 py-2 rounded-full text-[13px] font-medium text-center bg-[var(--bg-elevated)] border border-[var(--border-strong)] shadow-xl"
         >
           {toast.message}
         </div>

@@ -47,13 +47,14 @@
       startingMix = false;
     }
   }
+  let hasBanner = $derived(Boolean(details?.header_url));
 </script>
 
 <section class="relative w-full min-h-[340px] sm:min-h-[440px] flex flex-col justify-between overflow-hidden">
   {#if details?.header_url}
     <!-- Edge-to-edge full-width banner dissolving smoothly at the bottom into the page background -->
     <div
-      class="absolute inset-0 pointer-events-none"
+      class="absolute inset-0 pointer-events-none bg-[#16151d]"
       style="-webkit-mask-image: linear-gradient(180deg, #000 0%, #000 54%, rgba(0,0,0,0.72) 72%, rgba(0,0,0,0.25) 88%, transparent 100%);
              mask-image: linear-gradient(180deg, #000 0%, #000 54%, rgba(0,0,0,0.72) 72%, rgba(0,0,0,0.25) 88%, transparent 100%);"
     >
@@ -69,18 +70,20 @@
         onload={() => (bannerLoaded = true)}
       />
     </div>
-  {/if}
 
-  <!-- Soft bottom readability gradient (transparent at top and at the very bottom edge) -->
-  <div
-    class="absolute inset-0 pointer-events-none"
-    style="background: linear-gradient(180deg, rgba(12, 12, 15, 0.14) 0%, rgba(12, 12, 15, 0.1) 36%, rgba(12, 12, 15, 0.62) 70%, rgba(12, 12, 15, 0.25) 90%, transparent 100%);"
-  ></div>
+    <!-- Soft bottom readability gradient over banner -->
+    <div
+      class="absolute inset-0 pointer-events-none"
+      style="background: linear-gradient(180deg, rgba(12, 12, 15, 0.14) 0%, rgba(12, 12, 15, 0.16) 36%, rgba(12, 12, 15, 0.68) 70%, rgba(12, 12, 15, 0.28) 90%, transparent 100%);"
+    ></div>
+  {/if}
 
   <div class="relative z-10 w-full max-w-[1280px] mx-auto px-6 pt-[max(1rem,env(safe-area-inset-top))] md:pt-4 pb-8 flex-1 flex flex-col justify-between">
     <div>
       <button
-        class="w-9 h-9 rounded-full inline-flex items-center justify-center bg-black/60 hover:bg-black/75 border border-white/15 text-white transition-all active:scale-95"
+        class="w-9 h-9 rounded-full inline-flex items-center justify-center transition-all active:scale-95 {hasBanner
+          ? 'bg-black/60 hover:bg-black/75 border border-white/15 text-white'
+          : 'bg-[var(--surface)] hover:bg-[var(--surface-hover)] border border-[var(--border)] text-[var(--text)]'}"
         title={t("nav.back")}
         onclick={() => player.goBack()}
       >
@@ -89,12 +92,20 @@
     </div>
 
     <div class="mt-14 sm:mt-24 max-w-2xl space-y-2.5">
-      <h1 class="text-[38px] sm:text-[50px] font-black tracking-[-0.035em] leading-[1.04] text-white drop-shadow-[0_2px_14px_rgba(0,0,0,0.45)]">
+      <h1
+        class="text-[38px] sm:text-[50px] font-black tracking-[-0.035em] leading-[1.04] {hasBanner
+          ? 'text-white drop-shadow-[0_2px_14px_rgba(0,0,0,0.55)]'
+          : 'text-[var(--text)]'}"
+      >
         {details?.name ?? artistName}
       </h1>
 
       {#if details?.subscriber_count}
-        <p class="text-[13.5px] font-medium text-white/80 drop-shadow-sm">
+        <p
+          class="text-[13.5px] font-medium {hasBanner
+            ? 'text-white/85 drop-shadow-sm'
+            : 'text-[var(--text-muted)]'}"
+        >
           {formatSubscribers(details.subscriber_count)}
         </p>
       {/if}
@@ -102,7 +113,9 @@
       {#if details?.description}
         <div class="pt-0.5 max-w-xl">
           <p
-            class="text-[13.5px] leading-relaxed text-white/85 drop-shadow-sm {bioExpanded
+            class="text-[13.5px] leading-relaxed {hasBanner
+              ? 'text-white/85 drop-shadow-sm'
+              : 'text-[var(--text-muted)]'} {bioExpanded
               ? ''
               : 'line-clamp-2'}"
           >
@@ -111,7 +124,9 @@
           {#if details.description.length > 140}
             <button
               type="button"
-              class="mt-1 text-[11.5px] font-bold uppercase tracking-wider text-white/90 hover:text-[var(--accent-bright)] transition-colors"
+              class="mt-1 text-[11.5px] font-bold uppercase tracking-wider transition-colors {hasBanner
+                ? 'text-white/90 hover:text-[var(--accent-bright)]'
+                : 'text-[var(--accent-bright)] hover:underline'}"
               onclick={() => (bioExpanded = !bioExpanded)}
             >
               {bioExpanded ? t("artist.show_less") : t("artist.more")}
@@ -131,7 +146,9 @@
         </button>
 
         <button
-          class="pill-btn justify-center !gap-0 sm:!gap-2 !w-9 !h-9 !p-0 sm:!w-auto sm:!h-auto sm:!px-4 sm:!py-2 !text-[13.5px] !bg-black/55 hover:!bg-black/70 !border-white/20 !text-white"
+          class="pill-btn justify-center !gap-0 sm:!gap-2 !w-9 !h-9 !p-0 sm:!w-auto sm:!h-auto sm:!px-4 sm:!py-2 !text-[13.5px] {hasBanner
+            ? '!bg-black/55 hover:!bg-black/70 !border-white/20 !text-white'
+            : ''}"
           disabled={!details?.tracks.length}
           title={t("artist.shuffle")}
           aria-label={t("artist.shuffle")}
@@ -142,7 +159,9 @@
         </button>
 
         <button
-          class="pill-btn justify-center !gap-0 sm:!gap-2 !w-9 !h-9 !p-0 sm:!w-auto sm:!h-auto sm:!px-4 sm:!py-2 !text-[13.5px] !bg-black/55 hover:!bg-black/70 !border-white/20 !text-white"
+          class="pill-btn justify-center !gap-0 sm:!gap-2 !w-9 !h-9 !p-0 sm:!w-auto sm:!h-auto sm:!px-4 sm:!py-2 !text-[13.5px] {hasBanner
+            ? '!bg-black/55 hover:!bg-black/70 !border-white/20 !text-white'
+            : ''}"
           disabled={!details?.tracks.length || startingMix}
           title={t("artist.mix")}
           aria-label={t("artist.mix")}
@@ -158,9 +177,13 @@
 
         <button
           type="button"
-          class="pill-btn !px-3.5 sm:!px-4 !py-2 !text-[13px] sm:!text-[13.5px] {following
-            ? '!bg-black/60 !border-[var(--accent)] !text-emerald-300'
-            : '!bg-black/55 hover:!bg-black/70 !border-white/20 !text-white'}"
+          class="pill-btn !px-3.5 sm:!px-4 !py-2 !text-[13px] sm:!text-[13.5px] {hasBanner
+            ? following
+              ? '!bg-black/60 !border-[var(--accent)] !text-emerald-300'
+              : '!bg-black/55 hover:!bg-black/70 !border-white/20 !text-white'
+            : following
+              ? '!bg-[var(--accent-soft)] !border-[var(--accent-border)] !text-[var(--accent-bright)]'
+              : ''}"
           onclick={() =>
             player.toggleFollowArtist({
               id: artistId,

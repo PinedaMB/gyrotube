@@ -11,6 +11,7 @@
   import { cubicOut } from "svelte/easing";
   import { fly } from "svelte/transition";
   import { t } from "../../lib/i18n.svelte";
+  import { device } from "../../lib/stores/device.svelte";
   import { player } from "../../lib/stores/player.svelte";
   import { formatDuration } from "../../lib/types";
 
@@ -44,22 +45,24 @@
 </script>
 
 <div class="relative w-full flex items-center justify-center gap-5 py-0.5">
-  <button
-    type="button"
-    class="icon-btn !w-9 !h-9 {openPopover === 'volume' || player.volume === 0
-      ? 'active'
-      : 'text-[var(--text-muted)] hover:text-[var(--text)]'}"
-    title="{t('player.volume')} ({volumePct}%)"
-    onclick={() => togglePopover("volume")}
-  >
-    {#if player.volume === 0}
-      <VolumeX size={18} />
-    {:else if player.volume < 0.5}
-      <Volume1 size={18} />
-    {:else}
-      <Volume2 size={18} />
-    {/if}
-  </button>
+  {#if !device.isAndroid}
+    <button
+      type="button"
+      class="icon-btn !w-9 !h-9 {openPopover === 'volume' || player.volume === 0
+        ? 'active'
+        : 'text-[var(--text-muted)] hover:text-[var(--text)]'}"
+      title="{t('player.volume')} ({volumePct}%)"
+      onclick={() => togglePopover("volume")}
+    >
+      {#if player.volume === 0}
+        <VolumeX size={18} />
+      {:else if player.volume < 0.5}
+        <Volume1 size={18} />
+      {:else}
+        <Volume2 size={18} />
+      {/if}
+    </button>
+  {/if}
 
   <button
     type="button"

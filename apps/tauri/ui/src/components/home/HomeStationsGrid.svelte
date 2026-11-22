@@ -139,7 +139,7 @@
         {@const icon = stationIconKind(genre.name)}
         {@const bgUrl = stationCovers[genre.id]}
         <div
-          class="group relative overflow-hidden rounded-2xl p-2.5 md:p-4 border border-white/10 hover:border-white/20 cursor-pointer transition-all duration-200 hover:-translate-y-0.5 flex flex-col justify-between md:min-h-[152px] bg-[var(--surface)]"
+          class="group relative overflow-hidden rounded-2xl p-2.5 md:p-4 border border-[var(--border-strong)] hover:border-[var(--accent-border)] cursor-pointer transition-all duration-200 hover:-translate-y-0.5 flex flex-col justify-between md:min-h-[152px] bg-[#16151d] text-white shadow-[0_6px_20px_rgba(15,23,42,0.12)]"
           role="button"
           tabindex="0"
           onclick={() => void player.runSearch(genre.name)}
@@ -155,63 +155,68 @@
               referrerpolicy="no-referrer"
               onload={() => (loadedCovers = { ...loadedCovers, [genre.id]: true })}
               class="absolute inset-0 w-full h-full object-cover scale-105 group-hover:scale-110 transition-all duration-500 pointer-events-none {loadedCovers[genre.id]
-                ? 'opacity-20 md:opacity-35'
+                ? 'opacity-35 md:opacity-45'
                 : 'opacity-0'}"
             />
           {/if}
 
-          <!-- Color tint + readability scrim -->
+          <!-- Color tint + high-contrast readability scrim -->
           <div
             class="absolute inset-0 pointer-events-none"
-            style="background: linear-gradient(155deg, {c}80 0%, {c}44 45%, rgba(18, 18, 22, 0.88) 100%);"
+            style="background: linear-gradient(145deg, {c}cc 0%, {c}66 42%, rgba(16, 15, 22, 0.92) 100%);"
+          ></div>
+          <div
+            class="absolute inset-0 pointer-events-none"
+            style="background: linear-gradient(180deg, rgba(12, 12, 18, 0.16) 0%, rgba(12, 12, 18, 0.44) 55%, rgba(12, 12, 18, 0.78) 100%);"
           ></div>
 
           <!-- Card content -->
           <div class="relative z-10 flex items-center justify-end md:justify-between gap-2">
             <span
-              class="hidden md:inline px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-black/55"
-              style="color: {c};"
+              class="hidden md:inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-black/45 text-white border border-white/15 backdrop-blur-xs"
             >
+              <span class="w-1.5 h-1.5 rounded-full shrink-0" style="background: {c};"></span>
               {t("home.station_badge")}
             </span>
-            <span class="opacity-90" style="color: {c};">
+            <span
+              class="w-7 h-7 rounded-full inline-flex items-center justify-center bg-black/35 border border-white/15 text-white/95"
+            >
               {#if icon === "moon"}
-                <Moon size={16} />
+                <Moon size={14} />
               {:else if icon === "car"}
-                <Car size={16} />
+                <Car size={14} />
               {:else if icon === "zap"}
-                <Zap size={16} />
+                <Zap size={14} />
               {:else if icon === "heart"}
-                <Heart size={16} fill="currentColor" />
+                <Heart size={14} fill="currentColor" />
               {:else if icon === "target"}
-                <Target size={16} />
+                <Target size={14} />
               {:else if icon === "headphones"}
-                <Headphones size={16} />
+                <Headphones size={14} />
               {:else}
-                <Music size={16} />
+                <Music size={14} />
               {/if}
             </span>
           </div>
 
           <div class="relative z-10 my-1 md:my-3">
-            <h3 class="text-[16px] md:text-[18px] font-extrabold tracking-tight leading-snug drop-shadow-sm break-words">
+            <h3 class="text-[16px] md:text-[18px] font-extrabold tracking-tight leading-snug text-white drop-shadow-[0_1px_6px_rgba(0,0,0,0.45)] break-words">
               {genre.name}
             </h3>
-            <p class="hidden md:line-clamp-1 text-[12px] text-white/75 mt-0.5">
+            <p class="hidden md:line-clamp-1 text-[12px] text-white/85 drop-shadow-[0_1px_4px_rgba(0,0,0,0.4)] mt-0.5">
               {t("home.station_sub")}
             </p>
           </div>
 
           <div class="relative z-10 flex items-center justify-between gap-2">
             <span
-              class="inline-flex items-center gap-1 text-[12px] font-bold group-hover:translate-x-0.5 transition-transform"
-              style="color: {c};"
+              class="inline-flex items-center gap-1 text-[12px] font-bold text-white/95 group-hover:translate-x-0.5 transition-transform drop-shadow-[0_1px_3px_rgba(0,0,0,0.45)]"
             >
               <span class="hidden md:inline">{t("home.explore_station")}</span>
               <ArrowRight size={13} />
             </span>
             <button
-              class="w-11 h-11 md:w-9 md:h-9 rounded-full inline-flex items-center justify-center bg-black/45 hover:bg-black/65 border border-white/15 text-white shadow-md transition-all active:scale-95"
+              class="w-11 h-11 md:w-9 md:h-9 rounded-full inline-flex items-center justify-center bg-black/45 hover:bg-black/65 border border-white/20 text-white shadow-md transition-all active:scale-95"
               title="{t('home.play')} {genre.name}"
               disabled={loadingStationId === genre.id}
               onclick={(e) => {

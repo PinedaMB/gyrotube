@@ -57,7 +57,7 @@
   {@const fav = player.isFavorite(track.id)}
 
   <!-- Track header -->
-  <div class="flex items-center gap-2.5 px-2.5 py-2 mb-1 border-b border-white/[0.08]">
+  <div class="flex items-center gap-2.5 px-2.5 py-2 mb-1 border-b border-[var(--border)]">
     <CoverImage class="track-cover !w-9 !h-9 !rounded-[7px] shrink-0" src={track.cover_url} alt="" eager={true} />
     <div class="min-w-0 flex-1">
       <div class="text-[12.5px] font-bold truncate leading-tight">{track.title}</div>
@@ -161,7 +161,7 @@
   {/if}
 
   {#if track.artist || track.album_id}
-    <div class="my-1 border-t border-white/[0.08]"></div>
+    <div class="my-1 border-t border-[var(--border)]"></div>
   {/if}
 
   {#if track.artist}
@@ -196,7 +196,7 @@
     </button>
   {/if}
 
-  <div class="my-1 border-t border-white/[0.08]"></div>
+  <div class="my-1 border-t border-[var(--border)]"></div>
 
   <button
     type="button"
@@ -254,7 +254,7 @@
       <SkipForward size={15} />
       <span>{t("party.up_next")}</span>
     </button>
-    <div class="my-1 border-t border-white/[0.08]"></div>
+    <div class="my-1 border-t border-[var(--border)]"></div>
   {/if}
 
   <button
@@ -294,7 +294,7 @@
     <span>{t("nav.collection")}</span>
   </button>
 
-  <div class="my-1 border-t border-white/[0.08]"></div>
+  <div class="my-1 border-t border-[var(--border)]"></div>
 
   <button
     type="button"

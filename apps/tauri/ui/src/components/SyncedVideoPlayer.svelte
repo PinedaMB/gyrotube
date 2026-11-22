@@ -15,6 +15,7 @@
   import { onMount } from "svelte";
   import { isTauriRuntime } from "../lib/api";
   import { t } from "../lib/i18n.svelte";
+  import { device } from "../lib/stores/device.svelte";
   import { player } from "../lib/stores/player.svelte";
   import { formatDuration } from "../lib/types";
 
@@ -395,29 +396,31 @@
           </div>
 
           <div class="flex items-center justify-end gap-2.5 min-w-[140px]">
-            <button
-              type="button"
-              class="w-8 h-8 rounded-full inline-flex items-center justify-center text-white/85 hover:text-white hover:bg-white/15 transition-colors"
-              title={t("player.volume")}
-              onclick={toggleMute}
-            >
-              {#if player.volume === 0}
-                <VolumeX size={17} />
-              {:else}
-                <Volume2 size={17} />
-              {/if}
-            </button>
-            <input
-              type="range"
-              class="w-24"
-              min="0"
-              max="1"
-              step="0.02"
-              value={player.volume}
-              aria-label={t("player.volume")}
-              style="background: linear-gradient(to right, var(--accent-bright) {volumePct}%, rgba(255,255,255,0.28) {volumePct}%);"
-              oninput={(e) => player.setVolume(Number((e.currentTarget as HTMLInputElement).value))}
-            />
+            {#if !device.isAndroid}
+              <button
+                type="button"
+                class="w-8 h-8 rounded-full inline-flex items-center justify-center text-white/85 hover:text-white hover:bg-white/15 transition-colors"
+                title={t("player.volume")}
+                onclick={toggleMute}
+              >
+                {#if player.volume === 0}
+                  <VolumeX size={17} />
+                {:else}
+                  <Volume2 size={17} />
+                {/if}
+              </button>
+              <input
+                type="range"
+                class="w-24"
+                min="0"
+                max="1"
+                step="0.02"
+                value={player.volume}
+                aria-label={t("player.volume")}
+                style="background: linear-gradient(to right, var(--accent-bright) {volumePct}%, rgba(255,255,255,0.28) {volumePct}%);"
+                oninput={(e) => player.setVolume(Number((e.currentTarget as HTMLInputElement).value))}
+              />
+            {/if}
           </div>
         </div>
       </div>

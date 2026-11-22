@@ -229,5 +229,8 @@
   "player.mode_song": "Song",
   "player.mode_video": "Video",
   "player.video_fullscreen": "Fullscreen",
-  "player.video_unavailable": "Video unavailable for this track"
+  "player.video_unavailable": "Video unavailable for this track",
+  "network.offline_title": "No internet connection",
+  "network.offline_sub": "Check your connection to stream music",
+  "network.back_online": "Back online"
 }

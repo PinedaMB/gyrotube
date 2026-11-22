@@ -3,12 +3,14 @@ package com.github.gyrotube.GyroTube
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.media.AudioManager
 import android.os.Build
 import android.os.Bundle
 import android.view.View
 import android.webkit.JavascriptInterface
 import android.webkit.WebSettings
 import android.webkit.WebView
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.enableEdgeToEdge
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -16,6 +18,10 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 
 class MainActivity : TauriActivity() {
+  // Handle Back presses ourselves so exhausting the WebView history moves the app
+  // to the background instead of destroying the Activity and killing playback.
+  override val handleBackNavigation: Boolean = false
+
   private var activeWebView: WebView? = null
   @Volatile
   private var playbackActive: Boolean = false
@@ -25,7 +31,30 @@ class MainActivity : TauriActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
     enableEdgeToEdge()
     super.onCreate(savedInstanceState)
+    // Route hardware volume keys to media volume even before audio starts playing.
+    volumeControlStream = AudioManager.STREAM_MUSIC
     captureSpinDeepLink(intent)
+
+    onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+      override fun handleOnBackPressed() {
+        val wv = activeWebView
+        if (wv != null && wv.canGoBack()) {
+          wv.goBack()
+          return
+        }
+        if (wv != null) {
+          wv.evaluateJavascript(
+            "Boolean(window.__GYROTUBE_DISMISS_OVERLAY__ && window.__GYROTUBE_DISMISS_OVERLAY__())"
+          ) { dismissed ->
+            if (dismissed != "true") {
+              moveTaskToBack(true)
+            }
+          }
+        } else {
+          moveTaskToBack(true)
+        }
+      }
+    })
 
     // Request runtime notification permission on Android 13+ so the persistent
     // media playback notification is visible in the shade and on the lock screen.
