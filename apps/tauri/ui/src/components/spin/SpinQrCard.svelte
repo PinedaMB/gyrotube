@@ -37,20 +37,20 @@
   </span>
 
   {#if qrSvg}
-    <div class="qr-box w-[184px] h-[184px] p-2.5 rounded-2xl bg-white shadow-[0_10px_28px_rgba(0,0,0,0.36)]">
+    <div class="qr-box w-[184px] h-[184px] p-2.5 rounded-2xl bg-white border border-[var(--border)] shadow-[0_8px_24px_rgba(15,23,42,0.16)]">
       {@html qrSvg}
     </div>
   {/if}
 
-  <div class="w-full flex items-center gap-2 bg-black/25 border border-[var(--border)] rounded-xl px-3 py-2">
+  <div class="w-full flex items-center gap-2 bg-[var(--bg-elevated)] border border-[var(--border)] rounded-xl px-3 py-2">
     <code class="flex-1 min-w-0 text-[12px] text-[var(--text)]/90 truncate select-all">
       {value}
     </code>
     <button
       type="button"
       class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[12px] font-semibold shrink-0 transition-all active:scale-95 {copied
-        ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-        : 'bg-white/[0.08] hover:bg-white/[0.15] text-[var(--text)] border border-white/10'}"
+        ? 'bg-[var(--accent-soft)] text-[var(--accent-bright)] border border-[var(--accent-border)]'
+        : 'bg-[var(--surface)] hover:bg-[var(--surface-hover)] text-[var(--text)] border border-[var(--border)]'}"
       onclick={() => void handleCopy()}
     >
       {#if copied}

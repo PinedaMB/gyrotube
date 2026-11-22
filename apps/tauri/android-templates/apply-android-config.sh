@@ -80,6 +80,17 @@ service_decl = (
 if "PlaybackForegroundService" not in text:
     text = text.replace("</application>", f"{service_decl}    </application>", 1)
 
+deep_link_filter = (
+    '            <intent-filter>\n'
+    '                <action android:name="android.intent.action.VIEW" />\n'
+    '                <category android:name="android.intent.category.DEFAULT" />\n'
+    '                <category android:name="android.intent.category.BROWSABLE" />\n'
+    '                <data android:scheme="gyrotube" android:host="spin" />\n'
+    '            </intent-filter>\n'
+)
+if 'android:scheme="gyrotube"' not in text:
+    text = text.replace("</activity>", f"{deep_link_filter}        </activity>", 1)
+
 path.write_text(text, encoding="utf-8")
 print("Applied GyroTube Android manifest & foreground service configuration.")
 PY

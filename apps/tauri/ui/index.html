@@ -17,8 +17,168 @@
         } catch (e) {}
       })();
     </script>
+    <style>
+      #app-splash {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 18px;
+        background: #131218;
+        color: #f5f4f8;
+        font-family: "Inter Variable", Inter, "SF Pro Display", system-ui, -apple-system, sans-serif;
+        transition: opacity 280ms cubic-bezier(0.22, 1, 0.36, 1), transform 280ms cubic-bezier(0.22, 1, 0.36, 1);
+      }
+      @media (prefers-color-scheme: light) {
+        :root:not([data-theme="dark"]) #app-splash {
+          background: #f5f6f8;
+          color: #111318;
+        }
+      }
+      :root[data-theme="light"] #app-splash {
+        background: #f5f6f8;
+        color: #111318;
+      }
+      #app-splash.splash-exit {
+        opacity: 0;
+        transform: scale(1.04);
+        pointer-events: none;
+      }
+      .splash-logo-wrap {
+        position: relative;
+        width: 96px;
+        height: 96px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        animation: splash-pop 520ms cubic-bezier(0.22, 1, 0.36, 1) both;
+      }
+      .splash-aura {
+        position: absolute;
+        inset: -22px;
+        border-radius: 999px;
+        background: radial-gradient(circle, rgba(16, 185, 129, 0.32) 0%, rgba(16, 185, 129, 0.08) 46%, transparent 72%);
+        animation: splash-pulse 1.8s ease-in-out infinite;
+      }
+      .splash-spin-arcs {
+        transform-origin: 64px 62px;
+        animation: splash-spin 1.6s linear infinite;
+      }
+      .splash-wordmark {
+        font-size: 22px;
+        font-weight: 800;
+        letter-spacing: -0.03em;
+        animation: splash-text 480ms cubic-bezier(0.22, 1, 0.36, 1) 120ms both;
+      }
+      @keyframes splash-pop {
+        from { opacity: 0; transform: scale(0.82); }
+        to { opacity: 1; transform: scale(1); }
+      }
+      @keyframes splash-spin {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
+      }
+      @keyframes splash-pulse {
+        0%, 100% { transform: scale(0.94); opacity: 0.72; }
+        50% { transform: scale(1.08); opacity: 1; }
+      }
+      @keyframes splash-text {
+        from { opacity: 0; transform: translateY(6px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .splash-logo-wrap, .splash-aura, .splash-spin-arcs, .splash-wordmark {
+          animation: none !important;
+        }
+      }
+    </style>
   </head>
   <body>
+    <div id="app-splash" aria-label="Loading GyroTube">
+      <div class="splash-logo-wrap">
+        <div class="splash-aura" aria-hidden="true"></div>
+        <svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 128 128" style="position:relative;z-index:1;">
+          <defs>
+            <linearGradient id="sp-rim" x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0%" stop-color="#064e3b" />
+              <stop offset="25%" stop-color="#10b981" />
+              <stop offset="50%" stop-color="#047857" />
+              <stop offset="75%" stop-color="#10b981" />
+              <stop offset="100%" stop-color="#064e3b" />
+            </linearGradient>
+            <radialGradient id="sp-sphere" cx="0.5" cy="0.22" r="0.8">
+              <stop offset="0%" stop-color="#6ee7b7" />
+              <stop offset="40%" stop-color="#10b981" />
+              <stop offset="85%" stop-color="#047857" />
+              <stop offset="100%" stop-color="#065f46" />
+            </radialGradient>
+            <radialGradient id="sp-vinyl" cx="0.5" cy="0.35" r="0.7">
+              <stop offset="0%" stop-color="#2a2733" />
+              <stop offset="65%" stop-color="#16141c" />
+              <stop offset="100%" stop-color="#0d0c12" />
+            </radialGradient>
+            <linearGradient id="sp-gold1" x1="0" y1="0" x2="1" y2="0.4">
+              <stop offset="0%" stop-color="#fffbeb" />
+              <stop offset="30%" stop-color="#fde047" />
+              <stop offset="70%" stop-color="#eab308" />
+              <stop offset="100%" stop-color="#ca8a04" stop-opacity="0" />
+            </linearGradient>
+            <linearGradient id="sp-gold2" x1="0" y1="0" x2="1" y2="0.3">
+              <stop offset="0%" stop-color="#fef08a" stop-opacity="0.9" />
+              <stop offset="55%" stop-color="#f59e0b" stop-opacity="0.6" />
+              <stop offset="100%" stop-color="#b45309" stop-opacity="0" />
+            </linearGradient>
+            <linearGradient id="sp-bezel" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0%" stop-color="#fef08a" />
+              <stop offset="50%" stop-color="#d97706" />
+              <stop offset="100%" stop-color="#78350f" />
+            </linearGradient>
+            <linearGradient id="sp-crimson" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#ff5c6c" />
+              <stop offset="45%" stop-color="#e11d48" />
+              <stop offset="100%" stop-color="#9f1239" />
+            </linearGradient>
+          </defs>
+          <circle cx="64" cy="66" r="56" fill="url(#sp-rim)" />
+          <circle cx="64" cy="62" r="56" fill="url(#sp-sphere)" />
+          <circle cx="64" cy="62" r="55.5" fill="none" stroke="#ffffff" stroke-opacity="0.35" stroke-width="1" />
+          <g fill="none" stroke-linecap="round">
+            <path d="M 23 36 A 49 49 0 0 1 105 36" stroke="#064e3b" stroke-width="3.5" opacity="0.55" />
+            <path d="M 23 37 A 49 49 0 0 1 105 37" stroke="#6ee7b7" stroke-width="1" opacity="0.3" />
+            <path d="M 23 88 A 49 49 0 0 0 105 88" stroke="#064e3b" stroke-width="3.5" opacity="0.55" />
+          </g>
+          <circle cx="64" cy="62" r="44.5" fill="none" stroke="#022c22" stroke-width="2" />
+          <circle cx="64" cy="62" r="44" fill="url(#sp-vinyl)" />
+          <g fill="none" stroke="#ffffff" stroke-opacity="0.05" stroke-width="1">
+            <circle cx="64" cy="62" r="36" />
+            <circle cx="64" cy="62" r="31" />
+            <circle cx="64" cy="62" r="26" />
+          </g>
+          <g class="splash-spin-arcs" fill="none" stroke-linecap="round">
+            <g transform="rotate(-15 64 62)">
+              <path d="M 64 26 A 36 36 0 0 1 96.6 77.2" stroke="url(#sp-gold1)" stroke-width="3.2" />
+              <path d="M 64 31 A 31 31 0 0 1 92.1 75.1" stroke="url(#sp-gold2)" stroke-width="2.2" transform="rotate(35 64 62)" />
+              <path d="M 64 36 A 26 26 0 0 1 86.5 75.0" stroke="url(#sp-gold2)" stroke-width="1.5" transform="rotate(70 64 62)" />
+            </g>
+            <g transform="rotate(165 64 62)">
+              <path d="M 64 26 A 36 36 0 0 1 96.6 77.2" stroke="url(#sp-gold1)" stroke-width="3.2" />
+              <path d="M 64 31 A 31 31 0 0 1 92.1 75.1" stroke="url(#sp-gold2)" stroke-width="2.2" transform="rotate(35 64 62)" />
+              <path d="M 64 36 A 26 26 0 0 1 86.5 75.0" stroke="url(#sp-gold2)" stroke-width="1.5" transform="rotate(70 64 62)" />
+            </g>
+          </g>
+          <circle cx="64" cy="64.5" r="20.5" fill="#000000" fill-opacity="0.5" />
+          <circle cx="64" cy="63.5" r="19.5" fill="#680921" />
+          <circle cx="64" cy="61.5" r="19.5" fill="url(#sp-crimson)" stroke="url(#sp-bezel)" stroke-width="1.2" />
+          <circle cx="64" cy="61.5" r="18.3" fill="none" stroke="#ffffff" stroke-opacity="0.25" stroke-width="0.8" />
+          <path d="M 60.0 54.2 C 58.7 53.4 57.5 54.3 57.5 55.8 L 57.5 69.2 C 57.5 70.7 58.7 71.6 60.0 70.8 L 71.5 64.1 C 72.8 63.3 72.8 61.7 71.5 60.9 Z" fill="#680921" opacity="0.45" />
+          <path d="M 60.0 53.0 C 58.7 52.2 57.5 53.1 57.5 54.6 L 57.5 68.0 C 57.5 69.5 58.7 70.4 60.0 69.6 L 71.5 62.9 C 72.8 62.1 72.8 60.5 71.5 59.7 Z" fill="#ffffff" />
+        </svg>
+      </div>
+      <span class="splash-wordmark">GyroTube</span>
+    </div>
     <div id="app"></div>
     <script type="module" src="/src/main.ts"></script>
   </body>

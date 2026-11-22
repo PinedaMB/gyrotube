@@ -19,10 +19,13 @@ class MainActivity : TauriActivity() {
   private var activeWebView: WebView? = null
   @Volatile
   private var playbackActive: Boolean = false
+  @Volatile
+  private var pendingSpinCode: String? = null
 
   override fun onCreate(savedInstanceState: Bundle?) {
     enableEdgeToEdge()
     super.onCreate(savedInstanceState)
+    captureSpinDeepLink(intent)
 
     // Request runtime notification permission on Android 13+ so the persistent
     // media playback notification is visible in the shade and on the lock screen.
@@ -83,6 +86,38 @@ class MainActivity : TauriActivity() {
     }
   }
 
+  override fun onNewIntent(intent: Intent) {
+    super.onNewIntent(intent)
+    setIntent(intent)
+    captureSpinDeepLink(intent)
+    dispatchPendingSpinLink()
+  }
+
+  private fun captureSpinDeepLink(intent: Intent?) {
+    val uri = intent?.data ?: return
+    if (uri.scheme.equals("gyrotube", ignoreCase = true) &&
+      uri.host.equals("spin", ignoreCase = true)
+    ) {
+      val code = uri.pathSegments.firstOrNull()?.trim()
+      if (!code.isNullOrEmpty()) {
+        pendingSpinCode = code
+      }
+    }
+  }
+
+  private fun dispatchPendingSpinLink() {
+    val code = pendingSpinCode ?: return
+    val wv = activeWebView ?: return
+    pendingSpinCode = null
+    val escaped = code.replace("\\", "\\\\").replace("'", "\\'")
+    runOnUiThread {
+      wv.evaluateJavascript(
+        "if (window.__GYROTUBE_SPIN_LINK__) { window.__GYROTUBE_SPIN_LINK__('$escaped'); }",
+        null
+      )
+    }
+  }
+
   override fun onDestroy() {
     PlaybackForegroundService.onMediaAction = null
     stopService(Intent(this, PlaybackForegroundService::class.java))
@@ -91,6 +126,13 @@ class MainActivity : TauriActivity() {
   }
 
   private inner class AndroidPlaybackBridge {
+    @JavascriptInterface
+    fun consumePendingSpinLink(): String {
+      val code = pendingSpinCode ?: return ""
+      pendingSpinCode = null
+      return code
+    }
+
     @JavascriptInterface
     fun setPlaybackActive(
       playing: Boolean,

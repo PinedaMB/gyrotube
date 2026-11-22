@@ -130,7 +130,7 @@
   </button>
 
   {#if showPlaylists}
-    <div class="mx-1.5 my-1 p-1 rounded-xl bg-black/25 border border-white/[0.06] space-y-0.5 max-h-36 overflow-y-auto scroll-y">
+    <div class="mx-1.5 my-1 p-1 rounded-xl bg-[var(--surface)] border border-[var(--border)] space-y-0.5 max-h-36 overflow-y-auto scroll-y">
       {#each player.userPlaylists as pl (pl.id)}
         <button
           type="button"

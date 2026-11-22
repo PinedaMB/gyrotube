@@ -113,6 +113,11 @@ pub fn normalize_room_code(input: &str) -> Result<String, String> {
         }
         return Ok(trimmed.trim_end_matches('/').to_string());
     }
+    let trimmed = trimmed
+        .strip_prefix("gyrotube://spin/")
+        .or_else(|| trimmed.strip_prefix("GYROTUBE://SPIN/"))
+        .unwrap_or(trimmed)
+        .trim_matches('/');
     let code = trimmed.strip_prefix("GYRO-").unwrap_or(trimmed);
     parse_ticket(code)?;
     Ok(code.to_owned())

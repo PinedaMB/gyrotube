@@ -295,6 +295,35 @@ class PlayerStore {
     void this.loadGenres();
     void this.refreshSpinStatus();
     void this.bindNativeEvents();
+    this.bindAndroidSpinDeepLink();
+  }
+
+  private bindAndroidSpinDeepLink(): void {
+    if (typeof window === "undefined") return;
+    const win = window as unknown as {
+      __GYROTUBE_ANDROID__?: {
+        consumePendingSpinLink?: () => string;
+      };
+      __GYROTUBE_SPIN_LINK__?: (code: string) => void;
+    };
+    win.__GYROTUBE_SPIN_LINK__ = (code: string) => {
+      void this.joinSpinFromDeepLink(code);
+    };
+    const pending = win.__GYROTUBE_ANDROID__?.consumePendingSpinLink?.();
+    if (pending && pending.trim()) {
+      void this.joinSpinFromDeepLink(pending.trim());
+    }
+  }
+
+  public async joinSpinFromDeepLink(code: string): Promise<void> {
+    const clean = code.trim();
+    if (!clean || !isTauriRuntime()) return;
+    try {
+      this.spinStatus = await api.spinJoinRemote(clean);
+      this.showToast("SPIN · Connecting…");
+    } catch (err) {
+      this.showToast(String(err));
+    }
   }
 
   private async bindNativeEvents(): Promise<void> {

@@ -17,7 +17,22 @@
   import { player } from "./lib/stores/player.svelte";
 
   onMount(() => {
-    void player.bootstrap();
+    const startedAt = performance.now();
+    const dismissSplash = () => {
+      const splash = document.getElementById("app-splash");
+      if (!splash || splash.classList.contains("splash-exit")) return;
+      const elapsed = performance.now() - startedAt;
+      const waitMs = Math.max(0, 520 - elapsed);
+      window.setTimeout(() => {
+        splash.classList.add("splash-exit");
+        window.setTimeout(() => splash.remove(), 300);
+      }, waitMs);
+    };
+    const safetyTimer = window.setTimeout(dismissSplash, 1400);
+    void player.bootstrap().finally(() => {
+      window.clearTimeout(safetyTimer);
+      dismissSplash();
+    });
   });
 
   function playerFly(node: Element) {

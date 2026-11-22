@@ -57,7 +57,7 @@
       disabled={busy}
       class="relative w-11 h-6 rounded-full transition-colors shrink-0 disabled:opacity-50 {isHost
         ? 'bg-[var(--accent)]'
-        : 'bg-white/15'}"
+        : 'bg-[var(--control-track)]'}"
       onclick={() => void toggleRemoteHost()}
     >
       <span
@@ -92,7 +92,7 @@
 
     <div class="flex items-center gap-2">
       <input
-        class="flex-1 min-w-0 px-3 py-2 rounded-xl bg-black/25 border border-[var(--border-strong)] text-[13px] outline-none focus:border-[var(--accent)] transition-colors"
+        class="flex-1 min-w-0 px-3 py-2 rounded-xl bg-[var(--bg-elevated)] border border-[var(--border-strong)] text-[13px] placeholder:text-[var(--text-muted)]/70 outline-none focus:border-[var(--accent)] transition-colors"
         type="text"
         bind:value={joinCode}
         disabled={isGuest || busy}
