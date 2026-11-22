@@ -15,12 +15,6 @@
       });
     }
   });
-
-  function closeMobileSheet() {
-    if (typeof window !== "undefined" && window.innerWidth < 1024) {
-      player.sidebarOpen = false;
-    }
-  }
 </script>
 
 <div in:fade={{ duration: 150 }} class="flex-1 flex flex-col gap-5 py-2">
@@ -101,7 +95,6 @@
               type="button"
               class="flex items-center gap-2.5 p-2 rounded-xl bg-[var(--surface)] hover:bg-[var(--surface-hover)] border border-[var(--border)] text-left transition-colors"
               onclick={() => {
-                closeMobileSheet();
                 player.openArtist(artist.id, artist.name);
               }}
             >
@@ -129,7 +122,6 @@
               type="button"
               class="p-2 rounded-xl bg-[var(--surface)] hover:bg-[var(--surface-hover)] border border-[var(--border)] text-left flex flex-col gap-1.5 transition-colors"
               onclick={() => {
-                closeMobileSheet();
                 player.openAlbum(album.id, album.title, album.cover_url);
               }}
             >

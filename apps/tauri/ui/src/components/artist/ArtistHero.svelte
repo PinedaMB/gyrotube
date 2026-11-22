@@ -120,9 +120,9 @@
         </div>
       {/if}
 
-      <div class="flex flex-wrap items-center gap-2.5 pt-2">
+      <div class="flex flex-nowrap sm:flex-wrap items-center gap-2 sm:gap-2.5 pt-2">
         <button
-          class="pill-btn primary !px-5 !py-2 !text-[13.5px] shadow-[0_6px_20px_rgba(16,185,129,0.35)]"
+          class="pill-btn primary !px-4 sm:!px-5 !py-2 !text-[13px] sm:!text-[13.5px] shadow-[0_6px_20px_rgba(16,185,129,0.35)]"
           disabled={!details?.tracks.length}
           onclick={() => details && player.replaceQueueAndPlay(details.tracks, 0, details.name)}
         >
@@ -131,17 +131,21 @@
         </button>
 
         <button
-          class="pill-btn !px-4 !py-2 !text-[13.5px] !bg-black/55 hover:!bg-black/70 !border-white/20 !text-white"
+          class="pill-btn justify-center !gap-0 sm:!gap-2 !w-9 !h-9 !p-0 sm:!w-auto sm:!h-auto sm:!px-4 sm:!py-2 !text-[13.5px] !bg-black/55 hover:!bg-black/70 !border-white/20 !text-white"
           disabled={!details?.tracks.length}
+          title={t("artist.shuffle")}
+          aria-label={t("artist.shuffle")}
           onclick={shufflePlay}
         >
           <Shuffle size={15} />
-          {t("artist.shuffle")}
+          <span class="hidden sm:inline">{t("artist.shuffle")}</span>
         </button>
 
         <button
-          class="pill-btn !px-4 !py-2 !text-[13.5px] !bg-black/55 hover:!bg-black/70 !border-white/20 !text-white"
+          class="pill-btn justify-center !gap-0 sm:!gap-2 !w-9 !h-9 !p-0 sm:!w-auto sm:!h-auto sm:!px-4 sm:!py-2 !text-[13.5px] !bg-black/55 hover:!bg-black/70 !border-white/20 !text-white"
           disabled={!details?.tracks.length || startingMix}
+          title={t("artist.mix")}
+          aria-label={t("artist.mix")}
           onclick={() => void startArtistMix()}
         >
           {#if startingMix}
@@ -149,12 +153,12 @@
           {:else}
             <Radio size={15} />
           {/if}
-          {t("artist.mix")}
+          <span class="hidden sm:inline">{t("artist.mix")}</span>
         </button>
 
         <button
           type="button"
-          class="pill-btn !px-4 !py-2 !text-[13.5px] {following
+          class="pill-btn !px-3.5 sm:!px-4 !py-2 !text-[13px] sm:!text-[13.5px] {following
             ? '!bg-black/60 !border-[var(--accent)] !text-emerald-300'
             : '!bg-black/55 hover:!bg-black/70 !border-white/20 !text-white'}"
           onclick={() =>

@@ -13,6 +13,7 @@ import {
 import {
   applyThemeToDocument,
   readChartCountry,
+  readThemeMode,
   SessionPersister,
   writeChartCountry,
 } from "./sessionPersistence";
@@ -72,7 +73,7 @@ class PlayerStore {
   crossfadeSecs = $state(0);
   autoplayRelated = $state(true);
   backgroundPlayback = $state(true);
-  themeMode = $state<ThemeMode>("system");
+  themeMode = $state<ThemeMode>(readThemeMode());
   language = $state<AppLanguage>("Auto");
 
   // Dynamic ambient color extracted from current cover
@@ -174,6 +175,7 @@ class PlayerStore {
           if (cur && cur.duration_secs == null) {
             this.backfillTrackDuration(cur.id, Math.round(dur));
           }
+          this.syncAndroidForegroundService(this.isPlaying);
         }
         if (!this.videoMode) {
           this.updateActiveLyric(pos);
@@ -396,6 +398,15 @@ class PlayerStore {
     }, 3200);
   }
 
+  private isMobilePlayerHistoryEnabled(): boolean {
+    if (typeof window === "undefined") return false;
+    const win = window as unknown as { __GYROTUBE_ANDROID__?: unknown };
+    const isMobilePlatform =
+      Boolean(win.__GYROTUBE_ANDROID__) ||
+      /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+    return isMobilePlatform && window.innerWidth < 1024;
+  }
+
   private initRouter(): void {
     if (typeof window === "undefined" || this.routerBound) return;
     this.routerBound = true;
@@ -404,15 +415,15 @@ class PlayerStore {
     this.activeView = initial.view;
     this.activeTab = initial.tab;
     this.routeDepth = 0;
-    const isCompact = window.innerWidth < 1024;
-    if (isCompact) {
+    const useMobilePlayerHistory = this.isMobilePlayerHistoryEnabled();
+    if (useMobilePlayerHistory) {
       this.sidebarOpen = initial.playerOpen;
     }
     const initialState: RouteState = {
       view: initial.view,
       tab: initial.tab,
       depth: 0,
-      playerOpen: isCompact ? initial.playerOpen : false,
+      playerOpen: useMobilePlayerHistory ? initial.playerOpen : false,
     };
     window.history.replaceState(
       initialState,
@@ -423,7 +434,7 @@ class PlayerStore {
     window.addEventListener("popstate", (event) => {
       // On Android / desktop Back button, dismiss open modals before navigating away
       if (this.dismissTopOverlay()) {
-        const keepPlayer = window.innerWidth < 1024 && this.sidebarOpen;
+        const keepPlayer = this.isMobilePlayerHistoryEnabled() && this.sidebarOpen;
         const plainView = $state.snapshot(this.activeView);
         const keep: RouteState = {
           view: plainView,
@@ -447,7 +458,7 @@ class PlayerStore {
         this.activeTab = parsed.tab;
         this.routeDepth = 0;
       }
-      if (window.innerWidth < 1024) {
+      if (this.isMobilePlayerHistoryEnabled()) {
         this.sidebarOpen = Boolean(st?.playerOpen ?? parsed.playerOpen);
       }
     });
@@ -456,7 +467,7 @@ class PlayerStore {
   public openPlayerSheet(): void {
     if (this.sidebarOpen) return;
     this.sidebarOpen = true;
-    if (typeof window !== "undefined" && window.innerWidth < 1024) {
+    if (this.isMobilePlayerHistoryEnabled()) {
       this.routeDepth += 1;
       const plainView = $state.snapshot(this.activeView);
       const state: RouteState = {
@@ -473,7 +484,7 @@ class PlayerStore {
 
   public closePlayerSheet(): void {
     if (!this.sidebarOpen) return;
-    if (typeof window !== "undefined" && window.innerWidth < 1024) {
+    if (this.isMobilePlayerHistoryEnabled()) {
       const st = window.history.state as RouteState | null;
       if (st?.playerOpen && this.routeDepth > 0) {
         window.history.back();
@@ -524,18 +535,45 @@ class PlayerStore {
 
   private commitRoute(view: ActiveView, tab: MainTab): void {
     const changed = !isSameView(this.activeView, view);
-    const wasCompactPlayer =
-      typeof window !== "undefined" && window.innerWidth < 1024 && this.sidebarOpen;
+    const isCompact = typeof window !== "undefined" && window.innerWidth < 1024;
+    const wasCompactPlayer = isCompact && this.sidebarOpen;
+    const useMobilePlayerHistory = this.isMobilePlayerHistoryEnabled();
+    const currentState =
+      typeof window !== "undefined" ? (window.history.state as RouteState | null) : null;
+    const replacePlayerEntry = useMobilePlayerHistory && Boolean(currentState?.playerOpen);
+
+    // Navigating from the open mobile player to the exact view already underneath:
+    // pop the `?player=1` entry so we don't duplicate the underlying view in history.
+    if (!changed && replacePlayerEntry && this.routeDepth > 0) {
+      window.history.back();
+      return;
+    }
+
     if (wasCompactPlayer) {
       this.sidebarOpen = false;
     }
     this.activeTab = tab;
     this.activeView = view;
-    if (typeof window !== "undefined" && (changed || wasCompactPlayer)) {
-      this.routeDepth += 1;
+    if (typeof window !== "undefined" && (changed || replacePlayerEntry)) {
       const plainView = $state.snapshot(view);
-      const state: RouteState = { view: plainView, tab, depth: this.routeDepth, playerOpen: false };
-      window.history.pushState(state, "", viewToHash(plainView, false));
+      if (replacePlayerEntry) {
+        const state: RouteState = {
+          view: plainView,
+          tab,
+          depth: this.routeDepth,
+          playerOpen: false,
+        };
+        window.history.replaceState(state, "", viewToHash(plainView, false));
+      } else {
+        this.routeDepth += 1;
+        const state: RouteState = {
+          view: plainView,
+          tab,
+          depth: this.routeDepth,
+          playerOpen: false,
+        };
+        window.history.pushState(state, "", viewToHash(plainView, false));
+      }
     }
   }
 
@@ -1194,6 +1232,7 @@ class PlayerStore {
     this.positionSecs = secs;
     this.engine.seek(secs);
     this.updateActiveLyric(secs);
+    this.syncAndroidForegroundService(this.isPlaying);
     void this.syncSpinSnapshot();
   }
 
@@ -1299,6 +1338,8 @@ class PlayerStore {
           artist: string,
           coverUrl: string,
           hasTrack: boolean,
+          positionMs: number,
+          durationMs: number,
         ) => void;
       };
       __GYROTUBE_MEDIA_ACTION__?: (action: string) => void;
@@ -1310,6 +1351,12 @@ class PlayerStore {
         else if (action === "toggle") void this.togglePlay();
         else if (action === "play" && !this.isPlaying) void this.togglePlay();
         else if (action === "pause" && this.isPlaying) void this.togglePlay();
+        else if (action.startsWith("seek:")) {
+          const ms = Number(action.slice(5));
+          if (Number.isFinite(ms) && ms >= 0) {
+            this.seek(ms / 1000);
+          }
+        }
       };
     }
     const bridge = win.__GYROTUBE_ANDROID__;
@@ -1317,12 +1364,17 @@ class PlayerStore {
     const cur = this.currentTrack;
     // Keep the foreground service & WebView alive during track-to-track transitions
     const keepPlaying = playing || this.inFlightTransitionGen !== null;
+    const posMs = Math.max(0, Math.round(this.getExactPositionSecs() * 1000));
+    const durSecs = this.durationSecs > 0 ? this.durationSecs : (cur?.duration_secs ?? 0);
+    const durMs = Math.max(0, Math.round(durSecs * 1000));
     bridge.setPlaybackActive(
       keepPlaying,
       cur?.title ?? "GyroTube",
       cur?.artist ?? "",
       cur?.cover_url ?? cur?.cover_large_url ?? "",
       Boolean(cur),
+      posMs,
+      durMs,
     );
   }
 

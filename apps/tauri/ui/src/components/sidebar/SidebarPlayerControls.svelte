@@ -32,7 +32,28 @@
 
   let seeking = $state(false);
   let seekDraft = $state(0);
-  let resolvingArtist = $state(false);
+  let resolvingArtist = $state<string | null>(null);
+
+  let artistNames = $derived.by(() => {
+    const raw = player.currentTrack?.artist?.trim();
+    if (!raw) return [];
+    const parts = raw
+      .split(/\s*(?:,|feat\.?|ft\.?|featuring)\s+/i)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    return parts.length > 0 ? parts : [raw];
+  });
+
+  async function goToArtist(name: string, index: number) {
+    const tr = player.currentTrack;
+    if (!tr || resolvingArtist) return;
+    resolvingArtist = name;
+    try {
+      await player.openArtistByNameOrId(index === 0 ? tr.artist_id : null, name);
+    } finally {
+      resolvingArtist = null;
+    }
+  }
 
   // Horizontal swipe (next/prev) & double-tap (±10s seek) gestures on cover stage
   let swipeX = $state(0);
@@ -215,35 +236,29 @@
       <h2 class="text-[19px] font-extrabold leading-tight tracking-tight line-clamp-2">
         {player.currentTrack?.title ?? t("player.nothing_playing")}
       </h2>
-      {#if player.currentTrack?.artist}
-        <button
-          type="button"
-          disabled={resolvingArtist}
-          class="group inline-flex items-center justify-center gap-1.5 max-w-full px-2.5 py-0.5 rounded-full text-[14.5px] font-semibold text-[var(--text-muted)] hover:text-[var(--accent-bright)] hover:bg-[var(--surface-hover)] transition-colors"
-          title={t("ctx.go_artist")}
-          onclick={async () => {
-            const tr = player.currentTrack;
-            if (!tr?.artist || resolvingArtist) return;
-            resolvingArtist = true;
-            try {
-              if (typeof window !== "undefined" && window.innerWidth < 1024) {
-                player.sidebarOpen = false;
-              }
-              await player.openArtistByNameOrId(tr.artist_id, tr.artist);
-            } finally {
-              resolvingArtist = false;
-            }
-          }}
-        >
-          {#if resolvingArtist}
-            <span class="w-3 h-3 rounded-full border-2 border-current/30 border-t-current animate-spin shrink-0"></span>
-          {/if}
-          <span class="truncate">{player.currentTrack.artist}</span>
-          <ChevronRight
-            size={13}
-            class="shrink-0 opacity-0 -ml-1 group-hover:opacity-80 group-hover:ml-0 transition-all"
-          />
-        </button>
+      {#if artistNames.length > 0}
+        <div class="flex flex-wrap items-center justify-center gap-x-0.5 gap-y-0.5 max-w-full">
+          {#each artistNames as name, i (`${name}:${i}`)}
+            <button
+              type="button"
+              disabled={resolvingArtist !== null}
+              class="group inline-flex items-center justify-center gap-1 max-w-full px-2 py-0.5 rounded-full text-[14.5px] font-semibold text-[var(--text-muted)] hover:text-[var(--accent-bright)] hover:bg-[var(--surface-hover)] active:bg-[var(--surface-hover)] transition-colors"
+              title={t("ctx.go_artist")}
+              onclick={() => void goToArtist(name, i)}
+            >
+              {#if resolvingArtist === name}
+                <span class="w-3 h-3 rounded-full border-2 border-current/30 border-t-current animate-spin shrink-0"></span>
+              {/if}
+              <span class="truncate">{name}</span>
+              {#if artistNames.length === 1}
+                <ChevronRight
+                  size={13}
+                  class="shrink-0 opacity-0 -ml-0.5 group-hover:opacity-80 group-hover:ml-0 transition-all"
+                />
+              {/if}
+            </button>{#if i < artistNames.length - 1}<span class="text-[14px] font-semibold text-[var(--text-muted)]/60 -ml-1 mr-0.5 select-none">,</span>{/if}
+          {/each}
+        </div>
       {:else}
         <p class="text-[14px] font-medium text-[var(--text-muted)] truncate">
           {t("player.select_song")}
@@ -258,7 +273,6 @@
             onclick={() => {
               const tr = player.currentTrack;
               if (!tr?.album_id || !tr.album) return;
-              if (typeof window !== "undefined" && window.innerWidth < 1024) player.sidebarOpen = false;
               player.openAlbum(tr.album_id, tr.album, tr.cover_large_url ?? tr.cover_url);
             }}
           >

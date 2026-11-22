@@ -6,6 +6,17 @@
     <meta name="color-scheme" content="dark light" />
     <link rel="icon" type="image/svg+xml" href="/gyrotube.svg" />
     <title>GyroTube</title>
+    <script>
+      (function () {
+        try {
+          var mode = localStorage.getItem("gyrotube.themeMode");
+          if (mode === "light" || mode === "dark") {
+            document.documentElement.setAttribute("data-theme", mode);
+            document.documentElement.style.colorScheme = mode;
+          }
+        } catch (e) {}
+      })();
+    </script>
   </head>
   <body>
     <div id="app"></div>

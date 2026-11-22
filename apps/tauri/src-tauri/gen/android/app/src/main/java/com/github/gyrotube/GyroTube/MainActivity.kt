@@ -97,7 +97,9 @@ class MainActivity : TauriActivity() {
       title: String,
       artist: String,
       coverUrl: String,
-      hasTrack: Boolean
+      hasTrack: Boolean,
+      positionMs: Long,
+      durationMs: Long
     ) {
       playbackActive = playing
       runOnUiThread {
@@ -110,6 +112,8 @@ class MainActivity : TauriActivity() {
           putExtra(PlaybackForegroundService.EXTRA_ARTIST, artist)
           putExtra(PlaybackForegroundService.EXTRA_COVER_URL, coverUrl)
           putExtra(PlaybackForegroundService.EXTRA_PLAYING, playing)
+          putExtra(PlaybackForegroundService.EXTRA_POSITION_MS, positionMs.coerceAtLeast(0L))
+          putExtra(PlaybackForegroundService.EXTRA_DURATION_MS, durationMs.coerceAtLeast(0L))
         }
         try {
           ContextCompat.startForegroundService(this@MainActivity, intent)
