@@ -95,3 +95,21 @@ if 'android:scheme="gyrotube"' not in text:
 path.write_text(text, encoding="utf-8")
 print("Applied GyroTube Android manifest & foreground service configuration.")
 PY
+
+BUILD_GRADLE="${SCRIPT_DIR}/../src-tauri/gen/android/app/build.gradle.kts"
+if [[ -f "${BUILD_GRADLE}" ]]; then
+  python3 - "${BUILD_GRADLE}" <<'PY'
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+text = path.read_text(encoding="utf-8")
+updated = (
+    text.replace("JavaVersion.VERSION_1_8", "JavaVersion.VERSION_17")
+        .replace("JvmTarget.JVM_1_8", "JvmTarget.JVM_17")
+)
+if updated != text:
+    path.write_text(updated, encoding="utf-8")
+    print("Updated Android app/build.gradle.kts to Java/Kotlin target 17.")
+PY
+fi
