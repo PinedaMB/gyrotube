@@ -38,7 +38,7 @@
 <section class="min-w-0 flex flex-col gap-3">
   {#if tracks.length === 0}
     <div
-      class="min-h-[340px] flex flex-col items-center justify-center text-center px-6 py-12 rounded-2xl bg-white/[0.025] border border-dashed border-white/[0.1]"
+      class="min-h-[340px] flex flex-col items-center justify-center text-center px-6 py-12 rounded-2xl bg-[var(--surface)] border border-dashed border-[var(--border-strong)]"
     >
       <div
         class="w-14 h-14 rounded-2xl flex items-center justify-center text-white mb-4 shadow-lg border border-white/15"
@@ -62,6 +62,7 @@
       </p>
       <button
         class="pill-btn primary !px-4 !py-2"
+        disabled={player.isOffline}
         onclick={() => player.navigateTab("explore")}
       >
         <Compass size={15} />
@@ -72,7 +73,7 @@
     {#if tracks.length > 1}
       <div class="flex items-center justify-end">
         <button
-          class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[12px] font-semibold bg-white/[0.05] hover:bg-white/[0.1] border border-white/10 transition-colors"
+          class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[12px] font-semibold bg-[var(--surface)] hover:bg-[var(--surface-hover)] border border-[var(--border)] transition-colors"
           onclick={onCycleSort}
         >
           <ArrowUpDown size={13} />
@@ -84,13 +85,22 @@
     <div>
       <div class="track-list">
         {#each tracks as track, i (track.id + ":" + i)}
-          <TrackRow
-            {track}
-            number={i + 1}
-            onPlay={() => onPlayTrack(i)}
-            onRemove={mode === "playlist" && playlist ? () => player.removeTrackFromPlaylist(playlist.id, track.id) : undefined}
-            removeLabel={t("collection.remove_from_playlist")}
-          />
+          {@const unavailableOffline = player.isOffline && !player.isTrackDownloaded(track.id)}
+          <div class={unavailableOffline ? "opacity-45" : ""}>
+            <TrackRow
+              {track}
+              number={i + 1}
+              onPlay={() => {
+                if (unavailableOffline) {
+                  player.showToast(t("offline.not_downloaded"));
+                  return;
+                }
+                onPlayTrack(i);
+              }}
+              onRemove={mode === "playlist" && playlist ? () => player.removeTrackFromPlaylist(playlist.id, track.id) : undefined}
+              removeLabel={t("collection.remove_from_playlist")}
+            />
+          </div>
         {/each}
       </div>
     </div>

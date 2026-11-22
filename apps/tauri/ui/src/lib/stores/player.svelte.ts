@@ -131,8 +131,11 @@ class PlayerStore {
     remote_qr_svg: null,
   });
 
-  // Network status
+  // Network & offline downloads
   isOffline = $state(typeof navigator !== "undefined" ? !navigator.onLine : false);
+  downloadedTrackIds = $state<Set<string>>(new Set());
+  downloadingPlaylistKey = $state<string | null>(null);
+  downloadProgress = $state<{ done: number; total: number } | null>(null);
 
   // Toasts
   toasts = $state<ToastItem[]>([]);
@@ -297,6 +300,7 @@ class PlayerStore {
     }
     void this.loadHome();
     void this.loadGenres();
+    void this.refreshDownloadedTracks();
     void this.refreshSpinStatus();
     void this.bindNativeEvents();
     this.bindAndroidSpinDeepLink();
@@ -428,12 +432,109 @@ class PlayerStore {
     void this.persistSession();
   }
 
+  private formatErrorMessage(raw: string): string {
+    const msg = raw.trim();
+    const lower = msg.toLowerCase();
+    const isEs =
+      this.language === "Es" ||
+      (this.language === "Auto" &&
+        typeof navigator !== "undefined" &&
+        (navigator.language || "").toLowerCase().startsWith("es"));
+
+    if (
+      this.isOffline ||
+      lower.includes("dns error") ||
+      lower.includes("failed to lookup address") ||
+      lower.includes("error sending request") ||
+      lower.includes("network error") ||
+      lower.includes("connection refused") ||
+      lower.includes("connect error")
+    ) {
+      return isEs ? "Sin conexión a internet" : "No internet connection";
+    }
+    if (lower.includes("timed out") || lower.includes("timeout")) {
+      return isEs ? "Tiempo de espera agotado. Intenta de nuevo." : "Request timed out. Please try again.";
+    }
+    if (lower.includes("http 403") || lower.includes("http 410") || lower.includes("unavailable")) {
+      return isEs ? "Esta canción no está disponible en este momento" : "This track is currently unavailable";
+    }
+    if (lower.includes("not supported") || lower.includes("audio error (code")) {
+      return isEs ? "No se pudo reproducir el audio de esta canción" : "Could not play audio for this track";
+    }
+    return msg.length > 140 ? `${msg.slice(0, 137)}…` : msg;
+  }
+
   public showToast(message: string): void {
+    const clean = this.formatErrorMessage(message);
     const id = ++this.toastSeq;
-    this.toasts = [...this.toasts, { id, message }];
+    this.toasts = [...this.toasts, { id, message: clean }];
     window.setTimeout(() => {
       this.toasts = this.toasts.filter((t) => t.id !== id);
     }, 3200);
+  }
+
+  public isTrackDownloaded(trackId: string): boolean {
+    return this.downloadedTrackIds.has(trackId);
+  }
+
+  public async refreshDownloadedTracks(): Promise<void> {
+    if (!isTauriRuntime()) return;
+    try {
+      const ids = await api.listDownloadedTracks();
+      this.downloadedTrackIds = new Set(ids);
+    } catch {
+      // ignore
+    }
+  }
+
+  public async downloadPlaylistTracks(
+    playlistKey: string,
+    tracks: Track[],
+  ): Promise<{ done: number; total: number }> {
+    if (!isTauriRuntime() || this.isOffline || this.downloadingPlaylistKey) {
+      return { done: 0, total: tracks.length };
+    }
+    const pending = tracks.filter((tr) => !this.downloadedTrackIds.has(tr.id));
+    if (pending.length === 0) {
+      return { done: tracks.length, total: tracks.length };
+    }
+    this.downloadingPlaylistKey = playlistKey;
+    let done = tracks.length - pending.length;
+    const total = tracks.length;
+    this.downloadProgress = { done, total };
+    try {
+      for (const tr of pending) {
+        if (this.isOffline) break;
+        try {
+          await api.downloadTrackOffline(tr);
+          const next = new Set(this.downloadedTrackIds);
+          next.add(tr.id);
+          this.downloadedTrackIds = next;
+          done += 1;
+          this.downloadProgress = { done, total };
+        } catch {
+          // Continue downloading remaining tracks even if one fails
+        }
+      }
+      return { done, total };
+    } finally {
+      this.downloadingPlaylistKey = null;
+      this.downloadProgress = null;
+    }
+  }
+
+  public async removeDownloadedPlaylistTracks(tracks: Track[]): Promise<void> {
+    if (!isTauriRuntime() || tracks.length === 0) return;
+    const ids = tracks.map((t) => t.id).filter((id) => this.downloadedTrackIds.has(id));
+    if (ids.length === 0) return;
+    try {
+      await api.removeDownloadedTracks(ids);
+      const next = new Set(this.downloadedTrackIds);
+      for (const id of ids) next.delete(id);
+      this.downloadedTrackIds = next;
+    } catch (err) {
+      this.showToast(String(err));
+    }
   }
 
   private isMobilePlayerHistoryEnabled(): boolean {

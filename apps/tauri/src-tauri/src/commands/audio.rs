@@ -117,3 +117,34 @@ pub async fn clear_audio_cache() -> Result<(), String> {
     .await
     .map_err(|e| e.to_string())
 }
+
+#[tauri::command]
+pub async fn list_downloaded_tracks() -> Vec<String> {
+    tokio::task::spawn_blocking(gyrotube_core::backend::Backend::list_downloaded_track_ids)
+        .await
+        .unwrap_or_default()
+}
+
+#[tauri::command]
+pub async fn download_track_offline(
+    state: State<'_, AppCoreState>,
+    track: Track,
+) -> Result<String, String> {
+    state.backend.download_track_offline(&track).await
+}
+
+#[tauri::command]
+pub async fn remove_downloaded_tracks(track_ids: Vec<String>) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || {
+        gyrotube_core::backend::Backend::remove_downloaded_tracks(&track_ids)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn get_downloads_bytes() -> u64 {
+    tokio::task::spawn_blocking(gyrotube_core::backend::Backend::downloads_bytes)
+        .await
+        .unwrap_or(0)
+}

@@ -92,6 +92,12 @@ export const api = {
     call("cancel_stale_streams", { keepIds }),
   getCacheBytes: (): Promise<number> => call("get_cache_bytes"),
   clearAudioCache: (): Promise<void> => call("clear_audio_cache"),
+  listDownloadedTracks: (): Promise<string[]> => call("list_downloaded_tracks"),
+  downloadTrackOffline: (track: Track): Promise<string> =>
+    call("download_track_offline", { track }),
+  removeDownloadedTracks: (trackIds: string[]): Promise<void> =>
+    call("remove_downloaded_tracks", { trackIds }),
+  getDownloadsBytes: (): Promise<number> => call("get_downloads_bytes"),
 
   spinStatus: (): Promise<SpinStatus> => call("spin_status"),
   spinStartLocal: (): Promise<SpinStatus> => call("spin_start_local"),

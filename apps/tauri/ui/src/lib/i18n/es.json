@@ -236,5 +236,13 @@
   "network.go_collection": "Ir a playlists locales",
   "network.search_disabled": "Búsqueda no disponible sin conexión",
   "network.related_offline": "Conéctate a internet para ver música similar.",
-  "network.back_online": "Conexión restaurada"
+  "network.back_online": "Conexión restaurada",
+  "offline.download": "Descargar",
+  "offline.downloaded": "Descargada",
+  "offline.downloading": "Descargando {done}/{total}…",
+  "offline.remove_downloads": "Eliminar descargas",
+  "offline.download_done": "Playlist disponible sin conexión",
+  "offline.download_partial": "Se descargaron {done} de {total} canciones",
+  "offline.downloads_removed": "Descargas eliminadas",
+  "offline.not_downloaded": "No descargada para modo sin conexión"
 }

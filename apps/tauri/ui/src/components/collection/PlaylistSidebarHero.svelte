@@ -1,5 +1,15 @@
 <script lang="ts">
-  import { ArrowLeft, Heart, ListPlus, Pencil, Play, Shuffle, Trash2 } from "lucide-svelte";
+  import {
+    ArrowLeft,
+    CheckCircle2,
+    Download,
+    Heart,
+    ListPlus,
+    Pencil,
+    Play,
+    Shuffle,
+    Trash2,
+  } from "lucide-svelte";
   import { t } from "../../lib/i18n.svelte";
   import { player } from "../../lib/stores/player.svelte";
   import type { Track, UserPlaylist } from "../../lib/types";
@@ -35,6 +45,30 @@
     onDelete,
   }: Props = $props();
 
+  let playlistKey = $derived(mode === "favorites" ? "__favorites__" : (playlist?.id ?? "__playlist__"));
+  let downloadedCount = $derived(
+    tracks.reduce((acc, tr) => acc + (player.isTrackDownloaded(tr.id) ? 1 : 0), 0),
+  );
+  let allDownloaded = $derived(tracks.length > 0 && downloadedCount === tracks.length);
+  let isDownloadingThis = $derived(player.downloadingPlaylistKey === playlistKey);
+  let isDownloadingAny = $derived(player.downloadingPlaylistKey !== null);
+
+  async function handleDownloadClick() {
+    if (tracks.length === 0 || isDownloadingAny) return;
+    if (allDownloaded) {
+      await player.removeDownloadedPlaylistTracks(tracks);
+      player.showToast(t("offline.downloads_removed"));
+      return;
+    }
+    if (player.isOffline) return;
+    const res = await player.downloadPlaylistTracks(playlistKey, tracks);
+    if (res.done === res.total) {
+      player.showToast(t("offline.download_done"));
+    } else if (res.done > 0) {
+      player.showToast(t("offline.download_partial", { done: res.done, total: res.total }));
+    }
+  }
+
   function queueAll() {
     if (!tracks.length) return;
     for (const tr of tracks) {
@@ -48,7 +82,7 @@
 <aside class="lg:sticky lg:top-8 flex flex-col items-center text-center gap-4">
   <div class="w-full flex items-center justify-start">
     <button
-      class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[12.5px] font-semibold text-[var(--text-muted)] hover:text-[var(--text)] bg-white/[0.06] hover:bg-white/[0.12] border border-white/10 transition-all active:scale-95"
+      class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[12.5px] font-semibold text-[var(--text-muted)] hover:text-[var(--text)] bg-[var(--surface)] hover:bg-[var(--surface-hover)] border border-[var(--border)] transition-all active:scale-95"
       title={t("nav.back")}
       onclick={onBack}
     >
@@ -59,7 +93,7 @@
 
   <!-- Large playlist artwork tile matching AlbumSidebarHero (248px) -->
   <div
-    class="relative w-[248px] h-[248px] rounded-2xl flex items-center justify-center text-white overflow-hidden border border-white/15 shadow-[0_24px_56px_rgba(0,0,0,0.5)]"
+    class="relative w-[248px] h-[248px] rounded-2xl flex items-center justify-center text-white overflow-hidden border border-[var(--border-strong)] shadow-[0_24px_56px_rgba(15,23,42,0.28)]"
     style={mode === "favorites"
       ? "background: linear-gradient(135deg, #e01b24 0%, #ff6b81 100%);"
       : `background: linear-gradient(135deg, ${accentColor} 0%, ${accentColor}b8 100%);`}
@@ -84,7 +118,7 @@
       <p class="text-[13px] text-[var(--text-muted)] leading-snug">{description}</p>
     {/if}
     <div class="flex items-center justify-center gap-2 text-[12.5px] font-medium text-[var(--text-muted)] pt-0.5">
-      <span class="px-2.5 py-0.5 rounded-full text-[10.5px] font-bold uppercase tracking-wider bg-white/[0.08] text-[var(--text)]/90 border border-white/10">
+      <span class="px-2.5 py-0.5 rounded-full text-[10.5px] font-bold uppercase tracking-wider bg-[var(--surface)] text-[var(--text)]/90 border border-[var(--border)]">
         {mode === "favorites" ? t("collection.favorites") : t("collection.local_badge")}
       </span>
       <span>·</span>
@@ -101,7 +135,7 @@
   <!-- Centered circular controls matching AlbumSidebarHero -->
   <div class="flex items-center justify-center gap-4 pt-1">
     <button
-      class="w-11 h-11 rounded-full inline-flex items-center justify-center bg-white/[0.08] hover:bg-white/[0.15] border border-white/10 transition-all active:scale-95 disabled:opacity-35 disabled:cursor-not-allowed"
+      class="w-11 h-11 rounded-full inline-flex items-center justify-center bg-[var(--surface)] hover:bg-[var(--surface-hover)] border border-[var(--border)] transition-all active:scale-95 disabled:opacity-35 disabled:cursor-not-allowed"
       disabled={tracks.length === 0}
       title={t("artist.shuffle")}
       onclick={onShuffle}
@@ -120,7 +154,7 @@
 
     {#if mode === "playlist" && playlist}
       <button
-        class="w-11 h-11 rounded-full inline-flex items-center justify-center bg-white/[0.08] hover:bg-white/[0.15] border border-white/10 transition-all active:scale-95"
+        class="w-11 h-11 rounded-full inline-flex items-center justify-center bg-[var(--surface)] hover:bg-[var(--surface-hover)] border border-[var(--border)] transition-all active:scale-95"
         title={t("collection.customize")}
         onclick={() => onEdit?.(playlist)}
       >
@@ -128,7 +162,7 @@
       </button>
     {:else}
       <button
-        class="w-11 h-11 rounded-full inline-flex items-center justify-center bg-white/[0.08] hover:bg-white/[0.15] border border-white/10 transition-all active:scale-95 disabled:opacity-35 disabled:cursor-not-allowed"
+        class="w-11 h-11 rounded-full inline-flex items-center justify-center bg-[var(--surface)] hover:bg-[var(--surface-hover)] border border-[var(--border)] transition-all active:scale-95 disabled:opacity-35 disabled:cursor-not-allowed"
         disabled={tracks.length === 0}
         title={t("queue.add")}
         onclick={queueAll}
@@ -138,9 +172,41 @@
     {/if}
   </div>
 
+  {#if tracks.length > 0}
+    <button
+      type="button"
+      class="pill-btn !px-4 !py-1.5 !text-[12.5px] {allDownloaded
+        ? '!bg-[var(--accent-soft)] !border-[var(--accent-border)] !text-[var(--accent-bright)]'
+        : ''}"
+      disabled={isDownloadingAny || (!allDownloaded && player.isOffline)}
+      title={allDownloaded ? t("offline.remove_downloads") : t("offline.download")}
+      onclick={() => void handleDownloadClick()}
+    >
+      {#if isDownloadingThis && player.downloadProgress}
+        <span class="w-3.5 h-3.5 rounded-full border-2 border-current/30 border-t-current animate-spin"></span>
+        <span>
+          {t("offline.downloading", {
+            done: player.downloadProgress.done,
+            total: player.downloadProgress.total,
+          })}
+        </span>
+      {:else if allDownloaded}
+        <CheckCircle2 size={14} />
+        <span>{t("offline.downloaded")}</span>
+      {:else}
+        <Download size={14} />
+        <span>
+          {downloadedCount > 0
+            ? `${t("offline.download")} (${downloadedCount}/${tracks.length})`
+            : t("offline.download")}
+        </span>
+      {/if}
+    </button>
+  {/if}
+
   {#if mode === "playlist" && playlist}
     <button
-      class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[12px] font-semibold text-[var(--text-muted)] hover:text-red-400 hover:bg-red-500/15 transition-colors mt-1"
+      class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[12px] font-semibold text-[var(--text-muted)] hover:text-red-500 hover:bg-red-500/12 transition-colors"
       onclick={() => onDelete?.(playlist)}
     >
       <Trash2 size={13} />

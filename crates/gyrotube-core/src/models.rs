@@ -362,6 +362,10 @@ pub fn cache_dir() -> Option<PathBuf> {
         .map(|h| PathBuf::from(h).join(".cache/gyrotube"))
 }
 
+pub fn downloads_dir() -> Option<PathBuf> {
+    data_dir().map(|d| d.join("downloads"))
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct UserPlaylist {
     pub id: String,

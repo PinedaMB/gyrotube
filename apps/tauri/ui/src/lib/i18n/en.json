@@ -236,5 +236,13 @@
   "network.go_collection": "Go to local playlists",
   "network.search_disabled": "Search unavailable offline",
   "network.related_offline": "Connect to the internet to see similar music.",
-  "network.back_online": "Back online"
+  "network.back_online": "Back online",
+  "offline.download": "Download",
+  "offline.downloaded": "Downloaded",
+  "offline.downloading": "Downloading {done}/{total}…",
+  "offline.remove_downloads": "Remove downloads",
+  "offline.download_done": "Playlist available offline",
+  "offline.download_partial": "Downloaded {done} of {total} songs",
+  "offline.downloads_removed": "Offline downloads removed",
+  "offline.not_downloaded": "Not downloaded for offline playback"
 }

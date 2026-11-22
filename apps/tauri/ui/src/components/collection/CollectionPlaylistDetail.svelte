@@ -49,18 +49,42 @@
     sortBy = order[(order.indexOf(sortBy) + 1) % order.length];
   }
 
+  function playableTracks(): Track[] {
+    if (!player.isOffline) return tracks;
+    return tracks.filter((tr) => player.isTrackDownloaded(tr.id));
+  }
+
   function playAll() {
-    if (!tracks.length) return;
-    player.replaceQueueAndPlay(tracks, 0, title);
+    const list = playableTracks();
+    if (!list.length) {
+      if (player.isOffline) player.showToast(t("offline.not_downloaded"));
+      return;
+    }
+    player.replaceQueueAndPlay(list, 0, title);
   }
 
   function shufflePlay() {
-    if (!tracks.length) return;
-    const shuffled = shuffleItems(tracks);
+    const list = playableTracks();
+    if (!list.length) {
+      if (player.isOffline) player.showToast(t("offline.not_downloaded"));
+      return;
+    }
+    const shuffled = shuffleItems(list);
     player.replaceQueueAndPlay(shuffled, 0, title);
   }
 
   function playTrack(index: number) {
+    if (player.isOffline) {
+      const target = tracks[index];
+      const list = playableTracks();
+      const idx = target ? list.findIndex((tr) => tr.id === target.id) : -1;
+      if (idx < 0) {
+        player.showToast(t("offline.not_downloaded"));
+        return;
+      }
+      player.replaceQueueAndPlay(list, idx, title);
+      return;
+    }
     player.replaceQueueAndPlay(tracks, index, title);
   }
 </script>

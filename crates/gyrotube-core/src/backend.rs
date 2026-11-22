@@ -943,8 +943,183 @@ impl Backend {
         Ok(track)
     }
 
+    pub fn downloads_dir_ready() -> Result<std::path::PathBuf, String> {
+        let dir = crate::models::downloads_dir()
+            .ok_or_else(|| "Downloads directory unavailable".to_string())?;
+        std::fs::create_dir_all(&dir)
+            .map_err(|e| format!("Failed to create downloads directory: {e}"))?;
+        Ok(dir)
+    }
+
+    pub fn list_downloaded_track_ids() -> Vec<String> {
+        let Some(dir) = crate::models::downloads_dir() else {
+            return Vec::new();
+        };
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return Vec::new();
+        };
+        let mut ids = Vec::new();
+        for entry in entries.flatten() {
+            let Ok(meta) = entry.metadata() else { continue };
+            if !meta.is_file() || meta.len() == 0 {
+                continue;
+            }
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            if let Some((id, ext)) = name.split_once('.')
+                && validate_video_id(id).is_ok()
+                && (matches!(ext, "m4a" | "webm")
+                    || ext.strip_prefix("ytdlp.").is_some_and(audio_cache::audio_extension))
+                && !ids.iter().any(|existing| existing == id)
+            {
+                ids.push(id.to_string());
+            }
+        }
+        ids
+    }
+
+    pub fn remove_downloaded_tracks(track_ids: &[String]) -> Result<(), String> {
+        let Some(dir) = crate::models::downloads_dir() else {
+            return Ok(());
+        };
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            return Ok(());
+        };
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            if let Some((id, _)) = name.split_once('.')
+                && track_ids.iter().any(|target| target == id)
+            {
+                let _ = std::fs::remove_file(entry.path());
+            }
+        }
+        Ok(())
+    }
+
+    pub fn downloads_bytes() -> u64 {
+        let Some(dir) = crate::models::downloads_dir() else {
+            return 0;
+        };
+        std::fs::read_dir(dir)
+            .ok()
+            .into_iter()
+            .flatten()
+            .filter_map(Result::ok)
+            .filter_map(|e| e.metadata().ok())
+            .filter(|m| m.is_file())
+            .map(|m| m.len())
+            .sum()
+    }
+
+    pub async fn download_track_offline(&self, track: &Track) -> Result<String, String> {
+        validate_video_id(&track.id)?;
+        let dl_dir = Self::downloads_dir_ready()?;
+        if audio_cache::find(&track.id, &dl_dir).is_some() {
+            return Ok(track.id.clone());
+        }
+
+        // Fast-path: copy from warm audio cache if already downloaded during playback
+        if let Ok(streams_dir) = Self::streams_dir()
+            && let Some(cached) = audio_cache::find(&track.id, &streams_dir)
+        {
+            let src = std::path::PathBuf::from(&cached.url);
+            if src.is_file() {
+                let ext = src
+                    .extension()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("webm");
+                let tmp = dl_dir.join(format!("{}.part.{ext}", track.id));
+                let dest = dl_dir.join(format!("{}.ytdlp.{ext}", track.id));
+                tokio::fs::copy(&src, &tmp)
+                    .await
+                    .map_err(|e| format!("Failed copying cached track: {e}"))?;
+                tokio::fs::rename(&tmp, &dest)
+                    .await
+                    .map_err(|e| format!("Failed finalizing downloaded track: {e}"))?;
+                return Ok(track.id.clone());
+            }
+        }
+
+        // Resolve via the standard stream pipeline (works on both desktop and Android)
+        let info = self.resolve_track_stream(track).await?;
+        if !info.url.starts_with("http://") && !info.url.starts_with("https://") {
+            let src = std::path::PathBuf::from(&info.url);
+            let ext = src.extension().and_then(|s| s.to_str()).unwrap_or("webm");
+            let tmp = dl_dir.join(format!("{}.part.{ext}", track.id));
+            let dest = dl_dir.join(format!("{}.ytdlp.{ext}", track.id));
+            tokio::fs::copy(&src, &tmp)
+                .await
+                .map_err(|e| format!("Failed saving track: {e}"))?;
+            tokio::fs::rename(&tmp, &dest)
+                .await
+                .map_err(|e| format!("Failed finalizing track: {e}"))?;
+            return Ok(track.id.clone());
+        }
+
+        let ext = if info.url.contains(".m4a") || info.url.contains(".mp4") {
+            "m4a"
+        } else {
+            "webm"
+        };
+        let tmp = dl_dir.join(format!("{}.part.{ext}", track.id));
+        let dest = dl_dir.join(format!("{}.ytdlp.{ext}", track.id));
+
+        let client = crate::tls::http_client_builder()
+            .connect_timeout(Duration::from_secs(10))
+            .read_timeout(Duration::from_secs(60))
+            .build()
+            .map_err(|e| format!("Failed to build download client: {e}"))?;
+        let mut resp = client
+            .get(&info.url)
+            .send()
+            .await
+            .map_err(|e| format!("Offline download request failed: {}", e.without_url()))?;
+        if !resp.status().is_success() {
+            return Err(format!("Offline download returned HTTP {}", resp.status()));
+        }
+
+        use tokio::io::AsyncWriteExt;
+        let mut file = tokio::fs::File::create(&tmp)
+            .await
+            .map_err(|e| format!("Failed to create download file: {e}"))?;
+        let mut written = 0u64;
+        while let Some(chunk) = resp
+            .chunk()
+            .await
+            .map_err(|e| format!("Download interrupted: {}", e.without_url()))?
+        {
+            if !chunk.is_empty() {
+                file.write_all(&chunk)
+                    .await
+                    .map_err(|e| format!("Failed writing download: {e}"))?;
+                written += chunk.len() as u64;
+            }
+        }
+        file.flush()
+            .await
+            .map_err(|e| format!("Failed flushing download: {e}"))?;
+        drop(file);
+
+        if written == 0 {
+            let _ = tokio::fs::remove_file(&tmp).await;
+            return Err("Downloaded audio was empty".to_string());
+        }
+
+        tokio::fs::rename(&tmp, &dest)
+            .await
+            .map_err(|e| format!("Failed finalizing download: {e}"))?;
+        Ok(track.id.clone())
+    }
+
     pub async fn resolve_track_stream(&self, track: &Track) -> Result<StreamInfo, String> {
         validate_video_id(&track.id)?;
+        // Always prefer permanent offline downloads first (zero network required)
+        if let Some(dl_dir) = crate::models::downloads_dir()
+            && let Some(downloaded) = audio_cache::find(&track.id, &dl_dir)
+        {
+            return Ok(downloaded);
+        }
         if !track.is_music && self.cached_music_proof(&track.id).is_none() {
             let has_cached =
                 self.cached_stream(&track.id).is_some() || self.cached_url(&track.id).is_some();
