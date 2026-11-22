@@ -232,5 +232,9 @@
   "player.video_unavailable": "Video no disponible para esta pista",
   "network.offline_title": "Sin conexión a internet",
   "network.offline_sub": "Revisa tu conexión para reproducir música",
+  "network.offline_desc": "Conéctate a internet para explorar música. Mientras tanto, puedes acceder a tus playlists locales.",
+  "network.go_collection": "Ir a playlists locales",
+  "network.search_disabled": "Búsqueda no disponible sin conexión",
+  "network.related_offline": "Conéctate a internet para ver música similar.",
   "network.back_online": "Conexión restaurada"
 }

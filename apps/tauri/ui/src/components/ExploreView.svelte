@@ -3,10 +3,13 @@
   import ExploreGenresGrid from "./explore/ExploreGenresGrid.svelte";
   import ExploreSearchResults from "./explore/ExploreSearchResults.svelte";
   import ExploreSkeleton from "./explore/ExploreSkeleton.svelte";
+  import OfflineState from "./OfflineState.svelte";
 </script>
 
 <div class="page-clamp">
-  {#if player.searchLoading}
+  {#if player.isOffline}
+    <OfflineState />
+  {:else if player.searchLoading}
     <ExploreSkeleton />
   {:else if player.searchResults}
     <ExploreSearchResults results={player.searchResults} />

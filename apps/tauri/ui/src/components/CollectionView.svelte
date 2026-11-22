@@ -110,6 +110,7 @@
           {#each player.followedArtists as artist (artist.id)}
             <button
               type="button"
+              disabled={player.isOffline}
               class="p-2.5 rounded-2xl hover:bg-[var(--surface-hover)] flex flex-col items-center gap-2 text-center transition-colors"
               onclick={() => player.openArtist(artist.id, artist.name)}
             >

@@ -232,5 +232,9 @@
   "player.video_unavailable": "Video unavailable for this track",
   "network.offline_title": "No internet connection",
   "network.offline_sub": "Check your connection to stream music",
+  "network.offline_desc": "Connect to the internet to browse music. Meanwhile, you can access your local playlists.",
+  "network.go_collection": "Go to local playlists",
+  "network.search_disabled": "Search unavailable offline",
+  "network.related_offline": "Connect to the internet to see similar music.",
   "network.back_online": "Back online"
 }

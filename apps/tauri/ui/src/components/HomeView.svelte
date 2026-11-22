@@ -5,6 +5,7 @@
   import { formatSubscribers } from "../lib/types";
   import Carousel from "./Carousel.svelte";
   import CoverImage from "./CoverImage.svelte";
+  import OfflineState from "./OfflineState.svelte";
   import SelectDropdown from "./SelectDropdown.svelte";
   import HomeFeaturedHero from "./home/HomeFeaturedHero.svelte";
   import HomeListenAgain from "./home/HomeListenAgain.svelte";
@@ -59,7 +60,10 @@
 </script>
 
 <div class="page-clamp">
-  <div class="flex items-center justify-between gap-2 mb-4">
+  {#if player.isOffline}
+    <OfflineState />
+  {:else}
+    <div class="flex items-center justify-between gap-2 mb-4">
     <div>
       <h1 class="text-[28px] md:text-[32px] font-extrabold tracking-[-0.025em] leading-tight">{greeting}</h1>
       <p class="text-[13.5px] md:text-[14px] text-[var(--text-muted)] mt-0.5">{t("home.subtitle")}</p>
@@ -166,5 +170,6 @@
     </div>
   {/if}
 
-  <HomeStationsGrid {stations} />
+    <HomeStationsGrid {stations} />
+  {/if}
 </div>

@@ -159,7 +159,7 @@
       value: "video",
       label: t("player.mode_video"),
       icon: Film,
-      disabled: !player.videoMode && !player.canSwitchVideoMode,
+      disabled: player.isOffline || (!player.videoMode && !player.canSwitchVideoMode),
     },
   ]);
 
@@ -241,7 +241,7 @@
           {#each artistNames as name, i (`${name}:${i}`)}
             <button
               type="button"
-              disabled={resolvingArtist !== null}
+              disabled={resolvingArtist !== null || player.isOffline}
               class="group inline-flex items-center justify-center gap-1 max-w-full px-2 py-0.5 rounded-full text-[14.5px] font-semibold text-[var(--text-muted)] hover:text-[var(--accent-bright)] hover:bg-[var(--surface-hover)] active:bg-[var(--surface-hover)] transition-colors"
               title={t("ctx.go_artist")}
               onclick={() => void goToArtist(name, i)}
@@ -268,6 +268,7 @@
         {#if player.currentTrack.album_id}
           <button
             type="button"
+            disabled={player.isOffline}
             class="group inline-flex items-center justify-center gap-1.5 max-w-full px-3 py-1 rounded-full text-[12px] font-medium bg-[var(--surface)] border border-[var(--border)] text-[var(--text-muted)] hover:bg-[var(--accent-soft)] hover:border-[var(--accent-border)] hover:text-[var(--accent-bright)] transition-colors"
             title={t("player.album_prefix", { album: player.currentTrack.album })}
             onclick={() => {

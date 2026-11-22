@@ -677,7 +677,7 @@ class PlayerStore {
   }
 
   public async loadHome(forceRefresh = false): Promise<void> {
-    if (!isTauriRuntime()) return;
+    if (!isTauriRuntime() || this.isOffline) return;
     this.homeLoading = true;
     try {
       this.homeFeed = await api.getHomeFeed(forceRefresh, this.chartCountry);
@@ -715,7 +715,7 @@ class PlayerStore {
   }
 
   public async loadGenres(forceRefresh = false): Promise<void> {
-    if (!isTauriRuntime()) return;
+    if (!isTauriRuntime() || this.isOffline) return;
     this.genresLoading = true;
     try {
       this.genres = await api.getGenres(forceRefresh);
@@ -727,6 +727,7 @@ class PlayerStore {
   }
 
   public async runSearch(raw: string): Promise<void> {
+    if (this.isOffline) return;
     const q = raw.trim();
     if (!q) return;
     this.searchQuery = q;
@@ -1034,7 +1035,7 @@ class PlayerStore {
 
   public async startRadioFromCurrent(): Promise<void> {
     const current = this.currentTrack;
-    if (!current || !isTauriRuntime()) return;
+    if (!current || !isTauriRuntime() || this.isOffline) return;
     try {
       const radio = await api.getRadioTracks(current.id);
       const unique = radio.filter((t) => t.id !== current.id);

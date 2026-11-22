@@ -12,6 +12,7 @@
 <div class="justify-self-end flex items-center gap-0.5 sm:gap-1.5 shrink-0">
   <button
     type="button"
+    disabled={player.isOffline && !spinLive}
     class="icon-btn relative"
     class:active={player.spinOpen || spinLive}
     title={t("header.spin_mode")}

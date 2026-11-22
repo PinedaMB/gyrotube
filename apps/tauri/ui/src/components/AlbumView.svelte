@@ -26,6 +26,7 @@
   import { player } from "../lib/stores/player.svelte";
   import AlbumSidebarHero from "./album/AlbumSidebarHero.svelte";
   import AlbumTrackList from "./album/AlbumTrackList.svelte";
+  import OfflineState from "./OfflineState.svelte";
 
   let {
     id,
@@ -113,22 +114,28 @@
   );
 </script>
 
-<div bind:this={rootEl} class="w-full min-h-full transition-all duration-500" style={glowStyle}>
-  <div class="w-full max-w-[1280px] mx-auto px-4 sm:px-8 pt-[max(1rem,env(safe-area-inset-top))] sm:pt-6 pb-36 md:pb-28">
-    <div class="grid grid-cols-1 lg:grid-cols-[320px_minmax(0,1fr)] gap-8 lg:gap-12 items-start">
-      <AlbumSidebarHero
-        {id}
-        title={resolvedTitle}
-        {coverUrl}
-        {isPlaylist}
-        {tracks}
-      />
-
-      <AlbumTrackList
-        title={resolvedTitle}
-        {tracks}
-        {loading}
-      />
+<div bind:this={rootEl} class="w-full min-h-full transition-all duration-500" style={player.isOffline ? "" : glowStyle}>
+  {#if player.isOffline}
+    <div class="page-clamp">
+      <OfflineState />
     </div>
-  </div>
+  {:else}
+    <div class="w-full max-w-[1280px] mx-auto px-4 sm:px-8 pt-[max(1rem,env(safe-area-inset-top))] sm:pt-6 pb-36 md:pb-28">
+      <div class="grid grid-cols-1 lg:grid-cols-[320px_minmax(0,1fr)] gap-8 lg:gap-12 items-start">
+        <AlbumSidebarHero
+          {id}
+          title={resolvedTitle}
+          {coverUrl}
+          {isPlaylist}
+          {tracks}
+        />
+
+        <AlbumTrackList
+          title={resolvedTitle}
+          {tracks}
+          {loading}
+        />
+      </div>
+    </div>
+  {/if}
 </div>

@@ -47,6 +47,9 @@
         if (!player.homeFeed && !player.homeLoading) {
           void player.loadHome();
         }
+        if (player.genres.length === 0 && !player.genresLoading) {
+          void player.loadGenres();
+        }
       }
     };
     player.isOffline = !navigator.onLine;

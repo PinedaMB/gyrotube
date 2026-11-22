@@ -81,7 +81,7 @@
     class="icon-btn !w-9 !h-9 {startingRadio
       ? 'active'
       : 'text-[var(--text-muted)] hover:text-[var(--text)]'}"
-    disabled={!player.currentTrack || startingRadio}
+    disabled={!player.currentTrack || startingRadio || player.isOffline}
     title={t("player.start_radio")}
     onclick={async () => {
       openPopover = null;

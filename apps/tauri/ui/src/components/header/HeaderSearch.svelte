@@ -24,10 +24,18 @@
     }
   });
 
+  $effect(() => {
+    if (player.isOffline) {
+      popoverOpen = false;
+      selectedIdx = -1;
+    }
+  });
+
   onMount(() => {
     const onGlobalKey = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
+        if (player.isOffline) return;
         searchInput?.focus();
         searchInput?.select();
       }
@@ -128,25 +136,30 @@
   }}
 >
   <div
-    class="flex items-center gap-2.5 h-11 md:h-9 px-3.5 rounded-full bg-[var(--surface)] border border-[var(--border)] hover:border-[var(--border-strong)] focus-within:border-[var(--accent-border)] focus-within:bg-[var(--bg)] focus-within:ring-2 focus-within:ring-[var(--accent-soft)] transition-all"
+    class="flex items-center gap-2.5 h-11 md:h-9 px-3.5 rounded-full bg-[var(--surface)] border border-[var(--border)] transition-all {player.isOffline
+      ? 'opacity-55 cursor-not-allowed'
+      : 'hover:border-[var(--border-strong)] focus-within:border-[var(--accent-border)] focus-within:bg-[var(--bg)] focus-within:ring-2 focus-within:ring-[var(--accent-soft)]'}"
   >
     <Search size={15} class="text-[var(--text-muted)] shrink-0" />
     <input
       bind:this={searchInput}
       type="text"
+      disabled={player.isOffline}
       enterkeyhint="search"
       autocomplete="off"
       autocapitalize="off"
       spellcheck="false"
-      class="w-full bg-transparent outline-none text-base md:text-[13.5px] placeholder:text-[var(--text-muted)]"
+      class="w-full bg-transparent outline-none text-base md:text-[13.5px] placeholder:text-[var(--text-muted)] disabled:cursor-not-allowed"
       bind:value={query}
-      placeholder={t("header.search_placeholder")}
-      aria-label={t("header.search_placeholder")}
-      onfocus={() => (popoverOpen = true)}
+      placeholder={player.isOffline ? t("network.search_disabled") : t("header.search_placeholder")}
+      aria-label={player.isOffline ? t("network.search_disabled") : t("header.search_placeholder")}
+      onfocus={() => {
+        if (!player.isOffline) popoverOpen = true;
+      }}
       oninput={handleInput}
       onkeydown={handleKeydown}
     />
-    {#if query.length > 0}
+    {#if query.length > 0 && !player.isOffline}
       <button
         type="button"
         class="w-8 h-8 md:w-5 md:h-5 rounded-full inline-flex items-center justify-center text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-[var(--surface-hover)] shrink-0 transition-colors"

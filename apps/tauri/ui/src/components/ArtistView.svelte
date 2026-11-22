@@ -23,6 +23,7 @@
   import ArtistDiscography from "./artist/ArtistDiscography.svelte";
   import ArtistHero from "./artist/ArtistHero.svelte";
   import ArtistPopularTracks from "./artist/ArtistPopularTracks.svelte";
+  import OfflineState from "./OfflineState.svelte";
 
   let { artistId, artistName }: { artistId: string; artistName: string } = $props();
 
@@ -90,7 +91,11 @@
 </script>
 
 <div bind:this={rootEl} class="w-full">
-{#if showingAllSongs && details}
+{#if player.isOffline}
+  <div class="page-clamp">
+    <OfflineState />
+  </div>
+{:else if showingAllSongs && details}
   <ArtistAllSongsPage
     artistName={details.name}
     tracks={details.tracks}

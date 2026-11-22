@@ -6,10 +6,11 @@
   import { player } from "../../lib/stores/player.svelte";
   import { formatDuration } from "../../lib/types";
   import CoverImage from "../CoverImage.svelte";
+  import OfflineState from "../OfflineState.svelte";
 
   $effect(() => {
     const id = player.currentTrack?.id;
-    if (id) {
+    if (id && !player.isOffline) {
       untrack(() => {
         void player.loadRelatedForCurrent();
       });
@@ -18,7 +19,13 @@
 </script>
 
 <div in:fade={{ duration: 150 }} class="flex-1 flex flex-col gap-5 py-2">
-  {#if !player.currentTrack}
+  {#if player.isOffline}
+    <OfflineState
+      compact={true}
+      showCollectionCta={false}
+      message={t("network.related_offline")}
+    />
+  {:else if !player.currentTrack}
     <div class="flex-1 flex flex-col items-center justify-center text-center px-4 gap-2 text-[var(--text-muted)]">
       <Sparkles size={26} class="opacity-50" />
       <p class="text-[13.5px]">{t("related.empty")}</p>
