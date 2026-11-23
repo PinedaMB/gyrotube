@@ -46,6 +46,7 @@
   }: Props = $props();
 
   let playlistKey = $derived(mode === "favorites" ? "__favorites__" : (playlist?.id ?? "__playlist__"));
+  let markedDownloaded = $derived(player.isPlaylistMarkedDownloaded(playlistKey));
   let downloadedCount = $derived(
     tracks.reduce((acc, tr) => acc + (player.isTrackDownloaded(tr.id) ? 1 : 0), 0),
   );
@@ -55,17 +56,16 @@
 
   async function handleDownloadClick() {
     if (tracks.length === 0 || isDownloadingAny) return;
-    if (allDownloaded) {
-      await player.removeDownloadedPlaylistTracks(tracks);
+    if (!markedDownloaded && player.isOffline) return;
+    const outcome = await player.togglePlaylistDownload(playlistKey, tracks);
+    if (outcome === "removed") {
       player.showToast(t("offline.downloads_removed"));
-      return;
-    }
-    if (player.isOffline) return;
-    const res = await player.downloadPlaylistTracks(playlistKey, tracks);
-    if (res.done === res.total) {
+    } else if (outcome === "downloaded") {
       player.showToast(t("offline.download_done"));
-    } else if (res.done > 0) {
-      player.showToast(t("offline.download_partial", { done: res.done, total: res.total }));
+    } else if (outcome === "partial") {
+      player.showToast(
+        t("offline.download_partial", { done: downloadedCount, total: tracks.length }),
+      );
     }
   }
 
@@ -175,11 +175,11 @@
   {#if tracks.length > 0}
     <button
       type="button"
-      class="pill-btn !px-4 !py-1.5 !text-[12.5px] {allDownloaded
+      class="pill-btn !px-4 !py-1.5 !text-[12.5px] {markedDownloaded || allDownloaded
         ? '!bg-[var(--accent-soft)] !border-[var(--accent-border)] !text-[var(--accent-bright)]'
         : ''}"
-      disabled={isDownloadingAny || (!allDownloaded && player.isOffline)}
-      title={allDownloaded ? t("offline.remove_downloads") : t("offline.download")}
+      disabled={isDownloadingAny || (!markedDownloaded && player.isOffline)}
+      title={markedDownloaded ? t("offline.remove_downloads") : t("offline.download")}
       onclick={() => void handleDownloadClick()}
     >
       {#if isDownloadingThis && player.downloadProgress}
@@ -190,9 +190,12 @@
             total: player.downloadProgress.total,
           })}
         </span>
-      {:else if allDownloaded}
+      {:else if markedDownloaded && allDownloaded}
         <CheckCircle2 size={14} />
         <span>{t("offline.downloaded")}</span>
+      {:else if markedDownloaded}
+        <CheckCircle2 size={14} />
+        <span>{t("offline.downloaded")} ({downloadedCount}/{tracks.length})</span>
       {:else}
         <Download size={14} />
         <span>

@@ -50,6 +50,7 @@
         if (player.genres.length === 0 && !player.genresLoading) {
           void player.loadGenres();
         }
+        void player.syncDownloadedPlaylists();
       }
     };
     player.isOffline = !navigator.onLine;

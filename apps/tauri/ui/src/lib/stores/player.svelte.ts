@@ -131,12 +131,40 @@ class PlayerStore {
     remote_qr_svg: null,
   });
 
-  // Network & offline downloads
+  // Network & offline downloads (Spotify-style auto-sync per playlist)
   isOffline = $state(typeof navigator !== "undefined" ? !navigator.onLine : false);
   downloadedTrackIds = $state<Set<string>>(new Set());
+  downloadedPlaylistKeys = $state<Set<string>>(PlayerStore.readDownloadedPlaylistKeys());
+  downloadingTrackIds = $state<Set<string>>(new Set());
   offlineCoverBaseUrl = $state<string | null>(null);
   downloadingPlaylistKey = $state<string | null>(null);
   downloadProgress = $state<{ done: number; total: number } | null>(null);
+  private downloadQueue: Track[] = [];
+  private downloadWorkerRunning = false;
+
+  private static readDownloadedPlaylistKeys(): Set<string> {
+    if (typeof localStorage === "undefined") return new Set();
+    try {
+      const raw = localStorage.getItem("gyrotube.downloaded_playlists_v1");
+      if (!raw) return new Set();
+      const arr = JSON.parse(raw);
+      return Array.isArray(arr) ? new Set(arr.filter((x): x is string => typeof x === "string")) : new Set();
+    } catch {
+      return new Set();
+    }
+  }
+
+  private persistDownloadedPlaylistKeys(): void {
+    if (typeof localStorage === "undefined") return;
+    try {
+      localStorage.setItem(
+        "gyrotube.downloaded_playlists_v1",
+        JSON.stringify([...this.downloadedPlaylistKeys]),
+      );
+    } catch {
+      // ignore storage quota errors
+    }
+  }
 
   // Toasts
   toasts = $state<ToastItem[]>([]);
@@ -478,6 +506,14 @@ class PlayerStore {
     return this.downloadedTrackIds.has(trackId);
   }
 
+  public isTrackDownloading(trackId: string): boolean {
+    return this.downloadingTrackIds.has(trackId);
+  }
+
+  public isPlaylistMarkedDownloaded(playlistKey: string): boolean {
+    return this.downloadedPlaylistKeys.has(playlistKey);
+  }
+
   public offlineCoverUrl(trackId: string): string | null {
     if (!this.offlineCoverBaseUrl || !this.downloadedTrackIds.has(trackId)) return null;
     return `${this.offlineCoverBaseUrl}/${encodeURIComponent(trackId)}`;
@@ -502,9 +538,125 @@ class PlayerStore {
       ]);
       this.downloadedTrackIds = new Set(ids);
       if (coverBase) this.offlineCoverBaseUrl = coverBase;
+      if (!this.isOffline && this.downloadedPlaylistKeys.size > 0) {
+        void this.syncDownloadedPlaylists();
+      }
     } catch {
       // ignore
     }
+  }
+
+  private referencedDownloadedTrackIds(): Set<string> {
+    const refs = new Set<string>();
+    if (this.downloadedPlaylistKeys.has("__favorites__")) {
+      for (const t of this.favorites) refs.add(t.id);
+    }
+    for (const pl of this.userPlaylists) {
+      if (this.downloadedPlaylistKeys.has(pl.id)) {
+        for (const t of pl.tracks) refs.add(t.id);
+      }
+    }
+    return refs;
+  }
+
+  private async gcOrphanedDownloads(): Promise<void> {
+    if (!isTauriRuntime()) return;
+    const refs = this.referencedDownloadedTrackIds();
+    const orphans = [...this.downloadedTrackIds].filter((id) => !refs.has(id));
+    if (orphans.length === 0) return;
+    try {
+      await api.removeDownloadedTracks(orphans);
+      const next = new Set(this.downloadedTrackIds);
+      for (const id of orphans) next.delete(id);
+      this.downloadedTrackIds = next;
+    } catch {
+      // ignore cleanup failures
+    }
+  }
+
+  public enqueueOfflineDownloads(tracks: Track[]): void {
+    if (!isTauriRuntime() || this.isOffline || tracks.length === 0) return;
+    const queuedIds = new Set(this.downloadQueue.map((t) => t.id));
+    for (const tr of tracks) {
+      if (!this.downloadedTrackIds.has(tr.id) && !this.downloadingTrackIds.has(tr.id) && !queuedIds.has(tr.id)) {
+        this.downloadQueue.push(tr);
+        queuedIds.add(tr.id);
+      }
+    }
+    if (!this.downloadWorkerRunning && this.downloadQueue.length > 0) {
+      void this.runDownloadWorker();
+    }
+  }
+
+  private async runDownloadWorker(): Promise<void> {
+    if (this.downloadWorkerRunning) return;
+    this.downloadWorkerRunning = true;
+    try {
+      while (this.downloadQueue.length > 0 && !this.isOffline) {
+        const track = this.downloadQueue.shift();
+        if (!track || this.downloadedTrackIds.has(track.id)) continue;
+        const active = new Set(this.downloadingTrackIds);
+        active.add(track.id);
+        this.downloadingTrackIds = active;
+        try {
+          await api.downloadTrackOffline(track);
+          const next = new Set(this.downloadedTrackIds);
+          next.add(track.id);
+          this.downloadedTrackIds = next;
+        } catch {
+          // Continue with remaining queued tracks
+        } finally {
+          const remaining = new Set(this.downloadingTrackIds);
+          remaining.delete(track.id);
+          this.downloadingTrackIds = remaining;
+        }
+      }
+    } finally {
+      this.downloadWorkerRunning = false;
+    }
+  }
+
+  public async syncDownloadedPlaylists(): Promise<void> {
+    if (!isTauriRuntime() || this.isOffline || this.downloadedPlaylistKeys.size === 0) return;
+    const toSync: Track[] = [];
+    if (this.downloadedPlaylistKeys.has("__favorites__")) {
+      toSync.push(...this.favorites);
+    }
+    for (const pl of this.userPlaylists) {
+      if (this.downloadedPlaylistKeys.has(pl.id)) {
+        toSync.push(...pl.tracks);
+      }
+    }
+    this.enqueueOfflineDownloads(toSync);
+  }
+
+  public async togglePlaylistDownload(
+    playlistKey: string,
+    tracks: Track[],
+  ): Promise<"downloaded" | "removed" | "partial" | "noop"> {
+    if (!isTauriRuntime()) return "noop";
+
+    if (this.downloadedPlaylistKeys.has(playlistKey)) {
+      const nextKeys = new Set(this.downloadedPlaylistKeys);
+      nextKeys.delete(playlistKey);
+      this.downloadedPlaylistKeys = nextKeys;
+      this.persistDownloadedPlaylistKeys();
+      // Remove pending tracks from queue if no longer referenced
+      const refs = this.referencedDownloadedTrackIds();
+      this.downloadQueue = this.downloadQueue.filter((t) => refs.has(t.id));
+      await this.gcOrphanedDownloads();
+      return "removed";
+    }
+
+    if (this.isOffline || tracks.length === 0) return "noop";
+    const nextKeys = new Set(this.downloadedPlaylistKeys);
+    nextKeys.add(playlistKey);
+    this.downloadedPlaylistKeys = nextKeys;
+    this.persistDownloadedPlaylistKeys();
+
+    const res = await this.downloadPlaylistTracks(playlistKey, tracks);
+    if (res.done === res.total) return "downloaded";
+    return res.done > 0 ? "partial" : "noop";
   }
 
   public async downloadPlaylistTracks(
@@ -524,7 +676,10 @@ class PlayerStore {
     this.downloadProgress = { done, total };
     try {
       for (const tr of pending) {
-        if (this.isOffline) break;
+        if (this.isOffline || !this.downloadedPlaylistKeys.has(playlistKey)) break;
+        const active = new Set(this.downloadingTrackIds);
+        active.add(tr.id);
+        this.downloadingTrackIds = active;
         try {
           await api.downloadTrackOffline(tr);
           const next = new Set(this.downloadedTrackIds);
@@ -534,6 +689,10 @@ class PlayerStore {
           this.downloadProgress = { done, total };
         } catch {
           // Continue downloading remaining tracks even if one fails
+        } finally {
+          const remaining = new Set(this.downloadingTrackIds);
+          remaining.delete(tr.id);
+          this.downloadingTrackIds = remaining;
         }
       }
       return { done, total };
@@ -559,6 +718,9 @@ class PlayerStore {
 
   public async clearAllDownloads(): Promise<void> {
     if (!isTauriRuntime()) return;
+    this.downloadQueue = [];
+    this.downloadedPlaylistKeys = new Set();
+    this.persistDownloadedPlaylistKeys();
     await api.clearAllDownloads();
     this.downloadedTrackIds = new Set();
   }
@@ -1227,7 +1389,8 @@ class PlayerStore {
   }
 
   public toggleFavorite(track: Track): void {
-    if (this.isFavorite(track.id)) {
+    const removing = this.isFavorite(track.id);
+    if (removing) {
       this.favorites = this.favorites.filter((t) => t.id !== track.id);
     } else {
       const withDuration =
@@ -1237,6 +1400,13 @@ class PlayerStore {
       this.favorites = [withDuration, ...this.favorites];
     }
     if (isTauriRuntime()) void api.saveFavorites(this.favorites);
+    if (this.downloadedPlaylistKeys.has("__favorites__")) {
+      if (removing) {
+        void this.gcOrphanedDownloads();
+      } else {
+        this.enqueueOfflineDownloads([track]);
+      }
+    }
   }
 
   public replaceQueueAndPlay(tracks: Track[], index: number, source: string): void {
@@ -1703,6 +1873,13 @@ class PlayerStore {
   public deleteUserPlaylist(id: string): void {
     this.userPlaylists = this.userPlaylists.filter((p) => p.id !== id);
     if (isTauriRuntime()) void api.saveUserPlaylists(this.userPlaylists);
+    if (this.downloadedPlaylistKeys.has(id)) {
+      const next = new Set(this.downloadedPlaylistKeys);
+      next.delete(id);
+      this.downloadedPlaylistKeys = next;
+      this.persistDownloadedPlaylistKeys();
+      void this.gcOrphanedDownloads();
+    }
   }
 
   public addTrackToPlaylist(playlistId: string, track: Track): void {
@@ -1715,6 +1892,9 @@ class PlayerStore {
     });
     if (added) {
       if (isTauriRuntime()) void api.saveUserPlaylists(this.userPlaylists);
+      if (this.downloadedPlaylistKeys.has(playlistId)) {
+        this.enqueueOfflineDownloads([track]);
+      }
       this.showToast(`Added "${track.title}" to playlist`);
     }
   }
@@ -1724,6 +1904,9 @@ class PlayerStore {
       p.id === playlistId ? { ...p, tracks: p.tracks.filter((t) => t.id !== trackId) } : p,
     );
     if (isTauriRuntime()) void api.saveUserPlaylists(this.userPlaylists);
+    if (this.downloadedPlaylistKeys.has(playlistId)) {
+      void this.gcOrphanedDownloads();
+    }
   }
 
   public async persistSession(): Promise<void> {

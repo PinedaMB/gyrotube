@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Check, Ellipsis, Heart, ListPlus, Pause, Play, Plus, Trash2, X } from "lucide-svelte";
+  import { ArrowDownCircle, Check, Ellipsis, Heart, ListPlus, Pause, Play, Plus, Trash2, X } from "lucide-svelte";
   import type { Snippet } from "svelte";
   import { cubicOut } from "svelte/easing";
   import { fly } from "svelte/transition";
@@ -100,8 +100,16 @@
         >
           {track.title}
         </div>
-        <div class="text-[12.5px] md:text-[13px] text-[var(--text-muted)] truncate" title={track.artist}>
-          {track.artist}{track.album ? ` · ${track.album}` : ""}
+        <div class="flex items-center gap-1.5 text-[12.5px] md:text-[13px] text-[var(--text-muted)]" title={track.artist}>
+          {#if player.isTrackDownloading(track.id)}
+            <span
+              class="w-3 h-3 rounded-full border-[1.5px] border-[var(--accent-bright)]/35 border-t-[var(--accent-bright)] animate-spin shrink-0"
+              aria-hidden="true"
+            ></span>
+          {:else if player.isTrackDownloaded(track.id)}
+            <ArrowDownCircle size={13} class="text-[var(--accent-bright)] shrink-0" aria-hidden="true" />
+          {/if}
+          <span class="truncate">{track.artist}{track.album ? ` · ${track.album}` : ""}</span>
         </div>
       </div>
 
