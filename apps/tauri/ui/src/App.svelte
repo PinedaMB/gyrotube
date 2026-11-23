@@ -13,6 +13,7 @@
   import MiniPlayer from "./components/MiniPlayer.svelte";
   import MobileNav from "./components/MobileNav.svelte";
   import NavSidebar from "./components/NavSidebar.svelte";
+  import SearchView from "./components/SearchView.svelte";
   import SidebarPlayer from "./components/SidebarPlayer.svelte";
   import { t } from "./lib/i18n.svelte";
   import { contextMenu } from "./lib/stores/contextMenu.svelte";
@@ -199,6 +200,10 @@
         {#if player.activeView.kind === "home"}
           <div class="w-full h-full overflow-y-auto overflow-x-hidden scroll-y">
             <HomeView />
+          </div>
+        {:else if player.activeView.kind === "search"}
+          <div class="w-full h-full overflow-y-auto overflow-x-hidden scroll-y">
+            <SearchView />
           </div>
         {:else if player.activeView.kind === "collection"}
           <div class="w-full h-full overflow-y-auto overflow-x-hidden scroll-y">

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { PanelRight, PartyPopper, Settings } from "lucide-svelte";
+  import { PanelRight, PartyPopper, Search, Settings } from "lucide-svelte";
   import { t } from "../../lib/i18n.svelte";
   import { player } from "../../lib/stores/player.svelte";
   import SpinIcon from "../icons/SpinIcon.svelte";
@@ -10,6 +10,16 @@
 </script>
 
 <div class="justify-self-end flex items-center gap-0.5 sm:gap-1.5 shrink-0">
+  <button
+    type="button"
+    disabled={player.isOffline}
+    class="icon-btn md:hidden"
+    title={t("header.search_placeholder")}
+    aria-label={t("header.search_placeholder")}
+    onclick={() => player.openSearch()}
+  >
+    <Search size={19} />
+  </button>
   <button
     type="button"
     disabled={player.isOffline && !spinLive}

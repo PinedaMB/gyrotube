@@ -117,6 +117,8 @@ class PlayerStore {
   searchQuery = $state("");
   searchResults = $state<SearchResults | null>(null);
   searchLoading = $state(false);
+  private searchCache = new Map<string, SearchResults>();
+  private searchGen = 0;
 
   // SPIN status
   spinStatus = $state<SpinStatus>({
@@ -885,6 +887,15 @@ class PlayerStore {
       if (this.isMobilePlayerHistoryEnabled()) {
         this.sidebarOpen = Boolean(st?.playerOpen ?? parsed.playerOpen);
       }
+      if (nextView.kind === "search") {
+        if (nextView.query) {
+          if (this.searchQuery !== nextView.query || !this.searchResults) {
+            void this.runSearch(nextView.query, false);
+          }
+        } else if (this.searchQuery || this.searchResults) {
+          this.clearSearch(false);
+        }
+      }
     });
 
     (
@@ -1014,16 +1025,27 @@ class PlayerStore {
   }
 
   public navigateTab(tab: MainTab): void {
-    if (tab === "explore" && this.activeTab === "explore" && this.activeView.kind === "explore") {
-      this.clearSearch();
-    }
     this.commitRoute({ kind: tab }, tab);
   }
 
-  public clearSearch(): void {
+  public openSearch(query?: string): void {
+    const clean = query?.trim();
+    if (clean) {
+      void this.runSearch(clean);
+      return;
+    }
+    this.clearSearch(false);
+    this.commitRoute({ kind: "search" }, this.activeTab);
+  }
+
+  public clearSearch(syncRoute = true): void {
+    ++this.searchGen;
     this.searchQuery = "";
     this.searchResults = null;
     this.searchLoading = false;
+    if (syncRoute && this.activeView.kind === "search" && this.activeView.query) {
+      this.commitRoute({ kind: "search" }, this.activeTab);
+    }
   }
 
   public openArtist(artistId: string, artistName: string): void {
@@ -1114,22 +1136,39 @@ class PlayerStore {
     }
   }
 
-  public async runSearch(raw: string): Promise<void> {
+  public async runSearch(raw: string, pushRoute = true): Promise<void> {
     if (this.isOffline) return;
     const q = raw.trim();
     if (!q) return;
+    const gen = ++this.searchGen;
     this.searchQuery = q;
-    this.commitRoute({ kind: "explore" }, "explore");
+    if (pushRoute) {
+      this.commitRoute({ kind: "search", query: q }, this.activeTab);
+    }
     this.searchHistory = [q, ...this.searchHistory.filter((h) => h.toLowerCase() !== q.toLowerCase())].slice(0, 8);
     if (isTauriRuntime()) {
       void api.saveSearchHistory(this.searchHistory);
+      const cacheKey = q.toLowerCase();
+      const cached = this.searchCache.get(cacheKey);
+      if (cached) {
+        this.searchResults = cached;
+        this.searchLoading = false;
+        return;
+      }
       this.searchLoading = true;
       try {
-        this.searchResults = await api.searchAll(q);
+        const res = await api.searchAll(q);
+        if (this.searchGen !== gen) return;
+        if (this.searchCache.size >= 12) {
+          const oldest = this.searchCache.keys().next().value;
+          if (oldest !== undefined) this.searchCache.delete(oldest);
+        }
+        this.searchCache.set(cacheKey, res);
+        this.searchResults = res;
       } catch (err) {
-        this.showToast(String(err));
+        if (this.searchGen === gen) this.showToast(String(err));
       } finally {
-        this.searchLoading = false;
+        if (this.searchGen === gen) this.searchLoading = false;
       }
     }
   }

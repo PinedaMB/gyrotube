@@ -115,6 +115,7 @@ export type MainTab = "home" | "explore" | "collection";
 export type ActiveView =
   | { kind: "home" }
   | { kind: "explore" }
+  | { kind: "search"; query?: string }
   | { kind: "collection" }
   | { kind: "artist"; artistId: string; artistName: string }
   | { kind: "album"; id: string; title: string; coverUrl?: string | null; isPlaylist?: boolean };

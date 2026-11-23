@@ -32,11 +32,11 @@
 <div bind:this={filterBarEl} class="flex flex-wrap gap-2 mb-5">
   <button
     type="button"
-    class="px-3.5 py-1.5 rounded-full text-[13px] font-semibold bg-[var(--surface)] border border-[var(--border)] hover:bg-[var(--surface-hover)] transition-colors"
-    onclick={() => player.clearSearch()}
-    title={t("explore.back")}
+    class="hidden md:inline-flex px-3.5 py-1.5 rounded-full text-[13px] font-semibold bg-[var(--surface)] border border-[var(--border)] hover:bg-[var(--surface-hover)] transition-colors"
+    onclick={() => player.goBack()}
+    title={t("nav.back")}
   >
-    {t("explore.back")}
+    ← {t("nav.back")}
   </button>
   {#each [
     { id: "all", label: t("explore.all"), count: 0 },

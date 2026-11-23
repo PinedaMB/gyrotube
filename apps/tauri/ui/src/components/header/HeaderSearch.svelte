@@ -149,7 +149,7 @@
       autocomplete="off"
       autocapitalize="off"
       spellcheck="false"
-      class="w-full bg-transparent outline-none text-base md:text-[13.5px] placeholder:text-[var(--text-muted)] disabled:cursor-not-allowed"
+      class="w-full bg-transparent outline-none focus-visible:!outline-none text-base md:text-[13.5px] placeholder:text-[var(--text-muted)] disabled:cursor-not-allowed"
       bind:value={query}
       placeholder={player.isOffline ? t("network.search_disabled") : t("header.search_placeholder")}
       aria-label={player.isOffline ? t("network.search_disabled") : t("header.search_placeholder")}

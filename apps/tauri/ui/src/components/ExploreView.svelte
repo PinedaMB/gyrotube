@@ -8,8 +8,6 @@
   import OfflineState from "./OfflineState.svelte";
   import SelectDropdown from "./SelectDropdown.svelte";
   import ExploreGenresGrid from "./explore/ExploreGenresGrid.svelte";
-  import ExploreSearchResults from "./explore/ExploreSearchResults.svelte";
-  import ExploreSkeleton from "./explore/ExploreSkeleton.svelte";
   import HomeFeaturedHero from "./home/HomeFeaturedHero.svelte";
   import HomeSkeleton from "./home/HomeSkeleton.svelte";
   import HomeStationsGrid from "./home/HomeStationsGrid.svelte";
@@ -55,10 +53,6 @@
 <div class="page-clamp">
   {#if player.isOffline}
     <OfflineState />
-  {:else if player.searchLoading}
-    <ExploreSkeleton />
-  {:else if player.searchResults}
-    <ExploreSearchResults results={player.searchResults} />
   {:else}
     <div class="flex items-center justify-between gap-2 mb-4">
       <div>

@@ -18,6 +18,9 @@ export function viewToHash(view: ActiveView, playerOpen = false): string {
     if (view.isPlaylist) params.set("pl", "1");
     if (view.coverUrl) params.set("cover", view.coverUrl);
     path = `#/album/${encodeURIComponent(view.id)}`;
+  } else if (view.kind === "search") {
+    if (view.query) params.set("q", view.query);
+    path = "#/search";
   } else {
     path = `#/${view.kind}`;
   }
@@ -41,6 +44,14 @@ export function hashToView(rawHash: string): {
   if (head === "explore") {
     return { view: { kind: "explore" }, tab: "explore", playerOpen };
   }
+  if (head === "search") {
+    const q = params.get("q")?.trim();
+    return {
+      view: q ? { kind: "search", query: q } : { kind: "search" },
+      tab: "explore",
+      playerOpen,
+    };
+  }
   if (head === "collection") {
     return { view: { kind: "collection" }, tab: "collection", playerOpen };
   }
@@ -61,6 +72,7 @@ export function hashToView(rawHash: string): {
 
 export function isSameView(a: ActiveView, b: ActiveView): boolean {
   if (a.kind !== b.kind) return false;
+  if (a.kind === "search" && b.kind === "search") return (a.query ?? "") === (b.query ?? "");
   if (a.kind === "artist" && b.kind === "artist") return a.artistId === b.artistId;
   if (a.kind === "album" && b.kind === "album") return a.id === b.id;
   return true;
