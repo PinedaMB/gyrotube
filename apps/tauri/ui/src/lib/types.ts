@@ -166,6 +166,7 @@ export interface SpinStatus {
   remote_role: "idle" | "host" | "guest";
   remote_ticket: string | null;
   remote_qr_svg: string | null;
+  remote_guest_count: number;
 }
 
 export function formatDuration(secs?: number | null): string {

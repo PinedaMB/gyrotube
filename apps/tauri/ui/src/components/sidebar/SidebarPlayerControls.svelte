@@ -3,6 +3,7 @@
     ChevronRight,
     Disc3,
     Film,
+    LogOut,
     Music,
     Pause,
     Play,
@@ -174,6 +175,40 @@
 </script>
 
 <div in:fade={{ duration: 180 }} class="flex-1 flex flex-col items-center justify-between py-3 gap-4">
+  {#if player.spinStatus.remote_role === "guest"}
+    <div class="w-full max-w-[310px] flex items-center justify-between gap-2 px-3 py-1.5 rounded-full bg-[var(--gold-soft)] border border-[var(--gold-border)] text-[var(--gold-bright)] text-[11.5px] font-semibold">
+      <button
+        type="button"
+        class="flex items-center gap-2 min-w-0 flex-1 text-left"
+        onclick={() => (player.spinOpen = true)}
+      >
+        <span
+          class="w-2 h-2 rounded-full shrink-0 {player.spinRemoteConn.status === 'connected'
+            ? 'bg-[var(--gold-bright)] animate-pulse'
+            : 'bg-amber-400/60'}"
+        ></span>
+        <span class="truncate">
+          {#if player.spinRemoteConn.status === "connected"}
+            {t("spin.connected_to", { host: player.spinRemoteConn.hostName || "Host" })}
+          {:else if player.spinRemoteConn.status === "reconnecting"}
+            {t("spin.reconnecting")}
+          {:else}
+            {t("spin.connecting")}
+          {/if}
+        </span>
+      </button>
+      <button
+        type="button"
+        class="inline-flex items-center justify-center w-6 h-6 rounded-full hover:bg-black/15 transition-colors shrink-0"
+        title={t("spin.leave_room")}
+        aria-label={t("spin.leave_room")}
+        onclick={() => void player.disconnectSpinRemote()}
+      >
+        <LogOut size={12} />
+      </button>
+    </div>
+  {/if}
+
   <!-- Song / Video mode toggle -->
   {#if player.currentTrack}
     <SegmentedControl

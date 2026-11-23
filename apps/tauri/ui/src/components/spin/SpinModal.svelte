@@ -11,6 +11,14 @@
   type SpinTab = "local" | "remote";
   let tab = $state<SpinTab>("local");
 
+  $effect(() => {
+    if (!player.spinOpen) return;
+    if (player.spinStatus.remote_role !== "idle" && !player.spinStatus.local_active) {
+      tab = "remote";
+    }
+    void player.refreshSpinStatus();
+  });
+
   let tabOptions = $derived<SegmentedOption<SpinTab>[]>([
     { value: "local", label: t("spin.tab_local"), icon: Wifi },
     { value: "remote", label: t("spin.tab_remote"), icon: Globe },

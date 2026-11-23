@@ -151,6 +151,21 @@ class PlayerStore {
     remote_role: "idle",
     remote_ticket: null,
     remote_qr_svg: null,
+    remote_guest_count: 0,
+  });
+  spinDisplayName = $state<string>(
+    typeof localStorage !== "undefined"
+      ? (localStorage.getItem("gyrotube.spin_display_name_v1") ?? "")
+      : "",
+  );
+  spinRemoteConn = $state<{
+    status: "idle" | "connecting" | "connected" | "reconnecting";
+    hostName: string;
+    allowControls: boolean;
+  }>({
+    status: "idle",
+    hostName: "",
+    allowControls: false,
   });
 
   // Network & offline downloads (Spotify-style auto-sync per playlist)
@@ -387,11 +402,47 @@ class PlayerStore {
     }
   }
 
+  public setSpinDisplayName(name: string): void {
+    const clean = name.slice(0, 28);
+    this.spinDisplayName = clean;
+    if (typeof localStorage !== "undefined") {
+      try {
+        localStorage.setItem("gyrotube.spin_display_name_v1", clean);
+      } catch {
+        // ignore
+      }
+    }
+    if (this.spinStatus.local_active || this.spinStatus.remote_role === "host") {
+      void this.syncSpinSnapshot();
+    }
+  }
+
+  public async joinSpinRemote(code: string): Promise<void> {
+    const clean = code.trim();
+    if (!clean || !isTauriRuntime()) return;
+    this.spinStatus = await api.spinJoinRemote(clean);
+    this.spinRemoteConn = {
+      status: "connecting",
+      hostName: "",
+      allowControls: false,
+    };
+  }
+
+  public async disconnectSpinRemote(): Promise<void> {
+    if (!isTauriRuntime()) return;
+    this.spinStatus = await api.spinStopRemote();
+    this.spinRemoteConn = {
+      status: "idle",
+      hostName: "",
+      allowControls: false,
+    };
+  }
+
   public async joinSpinFromDeepLink(code: string): Promise<void> {
     const clean = code.trim();
     if (!clean || !isTauriRuntime()) return;
     try {
-      this.spinStatus = await api.spinJoinRemote(clean);
+      await this.joinSpinRemote(clean);
       this.showToast(this.isSpanish() ? "SPIN · Conectando…" : "SPIN · Connecting…");
     } catch (err) {
       this.showToast(String(err));
@@ -412,10 +463,21 @@ class PlayerStore {
       },
       onRemoteSync: (payload, error) => {
         if (error) {
+          if (this.spinStatus.remote_role === "guest") {
+            this.spinRemoteConn = {
+              ...this.spinRemoteConn,
+              status: "reconnecting",
+            };
+          }
           this.showToast(error);
           return;
         }
         if (!payload) return;
+        this.spinRemoteConn = {
+          status: "connected",
+          hostName: payload.host_name || "Host",
+          allowControls: Boolean(payload.allow_controls),
+        };
         if (!payload.track) {
           ++this.loadGen;
           this.currentIndex = null;
@@ -430,26 +492,38 @@ class PlayerStore {
         const driftMs = Math.max(0, Date.now() - payload.sent_at_ms);
         const targetPos = payload.position_secs + (payload.is_playing ? driftMs / 1000 : 0);
         const trackChanged = this.currentTrack?.id !== payload.track.id;
+        const currentTrack = { ...payload.track, is_music: false };
+        const upcoming = (payload.queue ?? []).map((item) => ({ ...item, is_music: false }));
+        const syncedQueue = [currentTrack, ...upcoming];
         if (trackChanged || (!this.engine.activeDeck.src && !this.isLoadingAudio)) {
           this.engine.stop();
-          const track = { ...payload.track, is_music: false };
-          this.queue = [track];
-          this.unshuffledQueue = [track];
+          this.queue = syncedQueue;
+          this.unshuffledQueue = syncedQueue;
           this.sourceName = `SPIN · ${payload.host_name || "Host"}`;
           void this.playIndex(0, false, targetPos, !payload.is_playing);
-        } else if (!this.isLoadingAudio) {
-          const deck = this.engine.activeDeck;
-          if (
-            deck.readyState >= 1 &&
-            !deck.seeking &&
-            Math.abs(deck.currentTime - targetPos) > (payload.is_playing ? 1.8 : 0.35)
-          ) {
-            this.seek(targetPos);
+        } else {
+          // Keep upcoming queue synced even while the current song stays the same
+          const queueIdsChanged =
+            this.queue.length !== syncedQueue.length ||
+            this.queue.some((item, idx) => item.id !== syncedQueue[idx]?.id);
+          if (queueIdsChanged) {
+            this.queue = syncedQueue;
+            this.unshuffledQueue = syncedQueue;
           }
-          if (!payload.is_playing) {
-            deck.pause();
-          } else if (deck.paused) {
-            void deck.play().catch((err) => this.showToast(String(err)));
+          if (!this.isLoadingAudio) {
+            const deck = this.engine.activeDeck;
+            if (
+              deck.readyState >= 1 &&
+              !deck.seeking &&
+              Math.abs(deck.currentTime - targetPos) > (payload.is_playing ? 1.8 : 0.35)
+            ) {
+              this.seek(targetPos);
+            }
+            if (!payload.is_playing) {
+              deck.pause();
+            } else if (deck.paused) {
+              void deck.play().catch((err) => this.showToast(String(err)));
+            }
           }
         }
       },
@@ -1525,7 +1599,37 @@ class PlayerStore {
     void this.playIndex(Math.max(0, Math.min(index, tracks.length - 1)));
   }
 
+  private sendRemoteControl(action: "play_pause" | "next" | "prev"): void {
+    if (!this.spinRemoteConn.allowControls) {
+      this.showToast(
+        this.isSpanish()
+          ? "SPIN · El anfitrión tiene los controles desactivados"
+          : "SPIN · Host controls are disabled",
+      );
+      return;
+    }
+    void api.spinRemoteControl(action).catch((err) => this.showToast(String(err)));
+  }
+
+  private sendRemoteAddTrack(track: Track): void {
+    const host = this.spinRemoteConn.hostName || "Host";
+    void api
+      .spinRemoteAddTrack(track, this.spinDisplayName)
+      .then(() => {
+        this.showToast(
+          this.isSpanish()
+            ? `SPIN · "${track.title}" enviada a ${host}`
+            : `SPIN · Sent "${track.title}" to ${host}`,
+        );
+      })
+      .catch((err) => this.showToast(String(err)));
+  }
+
   public playNext(track: Track): void {
+    if (this.spinStatus.remote_role === "guest") {
+      this.sendRemoteAddTrack(track);
+      return;
+    }
     if (this.currentIndex == null || this.queue.length === 0) {
       this.replaceQueueAndPlay([track], 0, track.title);
       return;
@@ -1544,6 +1648,10 @@ class PlayerStore {
   }
 
   public enqueueTrack(track: Track): void {
+    if (this.spinStatus.remote_role === "guest") {
+      this.sendRemoteAddTrack(track);
+      return;
+    }
     this.queue = [...this.queue, track];
     this.showToast(
       this.isSpanish() ? `Añadida a la cola: ${track.title}` : `Added to queue: ${track.title}`,
@@ -1791,6 +1899,10 @@ class PlayerStore {
   }
 
   public async togglePlay(): Promise<void> {
+    if (this.spinStatus.remote_role === "guest") {
+      this.sendRemoteControl("play_pause");
+      return;
+    }
     if (!this.currentTrack || this.currentIndex == null) return;
     if (!this.engine.activeDeck.src) {
       if (this.isLoadingAudio) return;
@@ -1809,6 +1921,10 @@ class PlayerStore {
   }
 
   public async prev(): Promise<void> {
+    if (this.spinStatus.remote_role === "guest") {
+      this.sendRemoteControl("prev");
+      return;
+    }
     if (this.positionSecs > 3) {
       this.seek(0);
       return;
@@ -1819,6 +1935,10 @@ class PlayerStore {
   }
 
   public async next(useCrossfade = false): Promise<void> {
+    if (this.spinStatus.remote_role === "guest") {
+      this.sendRemoteControl("next");
+      return;
+    }
     if (this.currentIndex == null) return;
     if (this.currentIndex + 1 < this.queue.length) {
       await this.playIndex(this.currentIndex + 1, useCrossfade);
@@ -1960,6 +2080,7 @@ class PlayerStore {
         sourceName: this.sourceName,
         currentIndex: this.currentIndex,
         queue: this.queue,
+        displayName: this.spinDisplayName || undefined,
       });
     } catch {
       // ignore

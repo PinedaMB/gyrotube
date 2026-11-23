@@ -3,8 +3,8 @@ use std::sync::Arc;
 use gyrotube_core::jam::{JamTrackInfo, generate_qr_svg, start_jam_server};
 use gyrotube_core::models::Track;
 use gyrotube_core::spin_remote::{
-    HostPublisher, RemoteRole, RemoteSyncPayload, local_display_name, normalize_room_code, now_ms,
-    start_guest_sync, ticket_qr_svg,
+    HostPublisher, MAX_REMOTE_QUEUE_ITEMS, RemoteGuestEvent, RemoteRole, RemoteSyncPayload,
+    local_display_name, normalize_room_code, now_ms, start_guest_sync, ticket_qr_svg,
 };
 use serde::Serialize;
 use tauri::State;
@@ -22,6 +22,7 @@ pub struct SpinStatusPayload {
     pub remote_role: &'static str,
     pub remote_ticket: Option<String>,
     pub remote_qr_svg: Option<String>,
+    pub remote_guest_count: usize,
 }
 
 fn build_spin_payload(spin: &SpinState) -> SpinStatusPayload {
@@ -43,6 +44,11 @@ fn build_spin_payload(spin: &SpinState) -> SpinStatusPayload {
         }
         RemoteRole::Guest(target) => ("guest", Some(target.clone()), None),
     };
+    let remote_guest_count = spin
+        .host_publisher
+        .as_ref()
+        .map(HostPublisher::guest_count)
+        .unwrap_or(0);
     SpinStatusPayload {
         local_active,
         local_url,
@@ -53,6 +59,7 @@ fn build_spin_payload(spin: &SpinState) -> SpinStatusPayload {
         remote_role,
         remote_ticket,
         remote_qr_svg,
+        remote_guest_count,
     }
 }
 
@@ -107,6 +114,9 @@ pub fn spin_set_allow_controls(
     if let Ok(mut sn) = spin.snapshot.write() {
         sn.allow_controls = allow;
     }
+    if let Some(publisher) = &spin.host_publisher {
+        publisher.set_allow_controls(allow);
+    }
     Ok(build_spin_payload(&spin))
 }
 
@@ -153,6 +163,40 @@ pub fn spin_join_remote(
 }
 
 #[tauri::command]
+pub fn spin_remote_control(
+    state: State<'_, AppCoreState>,
+    action: String,
+) -> Result<(), String> {
+    if !matches!(action.as_str(), "play_pause" | "next" | "prev") {
+        return Err("Acción SPIN inválida".into());
+    }
+    let spin = state.spin.lock().map_err(|e| e.to_string())?;
+    let Some(guest) = &spin.guest_session else {
+        return Err("No estás conectado a una sala SPIN".into());
+    };
+    if !guest.send(RemoteGuestEvent::Control(action)) {
+        return Err("La sala SPIN aún no está conectada".into());
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn spin_remote_add_track(
+    state: State<'_, AppCoreState>,
+    track: Track,
+    guest_name: Option<String>,
+) -> Result<(), String> {
+    let spin = state.spin.lock().map_err(|e| e.to_string())?;
+    let Some(guest) = &spin.guest_session else {
+        return Err("No estás conectado a una sala SPIN".into());
+    };
+    if !guest.send(RemoteGuestEvent::AddTrackNamed { track, guest_name }) {
+        return Err("La sala SPIN aún no está conectada".into());
+    }
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn spin_sync_snapshot(
     state: State<'_, AppCoreState>,
     is_playing: bool,
@@ -160,9 +204,24 @@ pub async fn spin_sync_snapshot(
     source_name: String,
     current_index: Option<usize>,
     queue: Vec<Track>,
+    display_name: Option<String>,
 ) -> Result<(), String> {
     let spin = state.spin.lock().map_err(|e| e.to_string())?;
     let current_track = current_index.and_then(|idx| queue.get(idx)).cloned();
+    let up_next: Vec<Track> = current_index
+        .map(|idx| {
+            queue
+                .iter()
+                .skip(idx + 1)
+                .take(MAX_REMOTE_QUEUE_ITEMS)
+                .cloned()
+                .collect()
+        })
+        .unwrap_or_default();
+    let host_name = display_name
+        .map(|s| s.trim().chars().take(28).collect::<String>())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(local_display_name);
     let jam_queue: Vec<JamTrackInfo> = queue
         .iter()
         .enumerate()
@@ -183,6 +242,7 @@ pub async fn spin_sync_snapshot(
         sn.position_secs = position_secs;
         sn.now_playing = now_playing;
         sn.queue = jam_queue;
+        sn.host_name = host_name.clone();
         sn.allow_controls
     } else {
         false
@@ -196,7 +256,8 @@ pub async fn spin_sync_snapshot(
             sent_at_ms: now_ms(),
             allow_controls,
             source_name,
-            host_name: local_display_name(),
+            host_name,
+            queue: up_next,
         });
     }
     Ok(())

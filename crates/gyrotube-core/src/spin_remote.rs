@@ -1,6 +1,6 @@
 use std::sync::{
     Arc, OnceLock,
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -26,8 +26,9 @@ use crate::models::Track;
 
 const ALPN: &[u8] = b"gyrotube/spin/1";
 const IO_TIMEOUT: Duration = Duration::from_secs(8);
-const MAX_FRAME: usize = 8192;
+const MAX_FRAME: usize = 65536;
 const MAX_GUESTS: usize = 16;
+pub const MAX_REMOTE_QUEUE_ITEMS: usize = 20;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum RemoteRole {
@@ -47,6 +48,8 @@ pub struct RemoteSyncPayload {
     pub source_name: String,
     #[serde(default)]
     pub host_name: String,
+    #[serde(default)]
+    pub queue: Vec<Track>,
 }
 
 impl RemoteSyncPayload {
@@ -69,6 +72,10 @@ pub struct RemoteUpdate {
 #[serde(tag = "kind", content = "data")]
 pub enum RemoteGuestEvent {
     AddTrack(Track),
+    AddTrackNamed {
+        track: Track,
+        guest_name: Option<String>,
+    },
     Control(String),
 }
 
@@ -160,11 +167,18 @@ fn state_changed(previous: Option<&RemoteSyncPayload>, next: &RemoteSyncPayload)
         } else {
             0.0
         };
+    let queue_changed = old.queue.len() != next.queue.len()
+        || old
+            .queue
+            .iter()
+            .zip(next.queue.iter())
+            .any(|(a, b)| a.id != b.id);
     old.track.as_ref().map(|t| &t.id) != next.track.as_ref().map(|t| &t.id)
         || old.is_playing != next.is_playing
         || old.allow_controls != next.allow_controls
         || old.source_name != next.source_name
         || old.host_name != next.host_name
+        || queue_changed
         || (expected - next.position_secs).abs() > 1.0
 }
 
@@ -188,9 +202,25 @@ async fn read_frame<T: DeserializeOwned>(recv: &mut RecvStream) -> Result<T> {
     Ok(serde_json::from_slice(&bytes)?)
 }
 
+struct GuestCountGuard(Arc<AtomicUsize>);
+
+impl GuestCountGuard {
+    fn enter(counter: Arc<AtomicUsize>) -> Self {
+        counter.fetch_add(1, Ordering::Relaxed);
+        Self(counter)
+    }
+}
+
+impl Drop for GuestCountGuard {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::Relaxed);
+    }
+}
+
 pub struct HostPublisher {
     pub invitation: String,
     sender: watch::Sender<Option<RemoteSyncPayload>>,
+    guest_count: Arc<AtomicUsize>,
     task: JoinHandle<()>,
     endpoint: Endpoint,
 }
@@ -214,6 +244,8 @@ impl HostPublisher {
         let invitation = encode_ticket(endpoint.addr(), &token);
         let room = invitation.clone();
         let listener = endpoint.clone();
+        let guest_count = Arc::new(AtomicUsize::new(0));
+        let guest_count_for_task = Arc::clone(&guest_count);
         let (sender, receiver) = watch::channel(None);
         let task = runtime().spawn(async move {
             let mut guests = JoinSet::new();
@@ -229,9 +261,10 @@ impl HostPublisher {
                         let state = receiver.clone();
                         let commands = commands.clone();
                         let room = room.clone();
+                        let counter = Arc::clone(&guest_count_for_task);
                         guests.spawn(async move {
                             if let Ok(Ok(connection)) = timeout(IO_TIMEOUT, incoming).await {
-                                let _ = serve_guest(&connection, token, state, commands, room).await;
+                                let _ = serve_guest(&connection, token, state, commands, room, counter).await;
                                 connection.close(0u32.into(), b"SPIN");
                             }
                         });
@@ -242,13 +275,28 @@ impl HostPublisher {
         Ok(Self {
             invitation,
             sender,
+            guest_count,
             task,
             endpoint,
         })
     }
 
-    pub fn publish(&self, payload: RemoteSyncPayload) {
+    pub fn publish(&self, mut payload: RemoteSyncPayload) {
+        payload.queue.truncate(MAX_REMOTE_QUEUE_ITEMS);
         self.sender.send_replace(Some(payload));
+    }
+
+    pub fn set_allow_controls(&self, allow: bool) {
+        self.sender.send_modify(|slot| {
+            if let Some(payload) = slot {
+                payload.allow_controls = allow;
+                payload.sent_at_ms = now_ms();
+            }
+        });
+    }
+
+    pub fn guest_count(&self) -> usize {
+        self.guest_count.load(Ordering::Relaxed)
     }
 }
 
@@ -266,6 +314,7 @@ async fn serve_guest(
     mut state: watch::Receiver<Option<RemoteSyncPayload>>,
     commands: async_channel::Sender<JamRequest>,
     room: String,
+    guest_count: Arc<AtomicUsize>,
 ) -> Result<()> {
     let (mut send, mut recv) = timeout(IO_TIMEOUT, async {
         let (send, mut recv) = connection.accept_bi().await?;
@@ -275,6 +324,9 @@ async fn serve_guest(
         Ok::<_, anyhow::Error>((send, recv))
     })
     .await??;
+
+    let _guest_guard = GuestCountGuard::enter(guest_count);
+    let state_for_cmds = state.clone();
 
     tokio::select! {
         result = async {
@@ -288,10 +340,7 @@ async fn serve_guest(
                     last = Some(snapshot.clone());
                     snapshot.position_secs = snapshot.position_at(now_ms());
                     snapshot.sent_at_ms = now_ms();
-                    if let Some(track) = &mut snapshot.track {
-                        track.cover_url = None;
-                        track.cover_large_url = None;
-                    }
+                    snapshot.queue.truncate(MAX_REMOTE_QUEUE_ITEMS);
                     write_frame(&mut send, &snapshot).await?;
                     sent = Instant::now();
                 }
@@ -306,12 +355,29 @@ async fn serve_guest(
                 let event = read_frame::<RemoteGuestEvent>(&mut recv).await?;
                 let command = match event {
                     RemoteGuestEvent::AddTrack(track) => JamCommand::AddTrack(track.id, "remoto".into()),
-                    RemoteGuestEvent::Control(action) => match action.as_str() {
-                        "play_pause" => JamCommand::TogglePlayPause,
-                        "next" => JamCommand::NextTrack,
-                        "prev" => JamCommand::PrevTrack,
-                        _ => bail!("Control SPIN inválido"),
-                    },
+                    RemoteGuestEvent::AddTrackNamed { track, guest_name } => {
+                        let name = guest_name
+                            .map(|s| s.trim().chars().take(28).collect::<String>())
+                            .filter(|s| !s.is_empty())
+                            .unwrap_or_else(|| "remoto".into());
+                        JamCommand::AddTrack(track.id, name)
+                    }
+                    RemoteGuestEvent::Control(action) => {
+                        let allowed = state_for_cmds
+                            .borrow()
+                            .as_ref()
+                            .is_some_and(|s| s.allow_controls);
+                        if !allowed {
+                            tokio::time::sleep(Duration::from_millis(150)).await;
+                            continue;
+                        }
+                        match action.as_str() {
+                            "play_pause" => JamCommand::TogglePlayPause,
+                            "next" => JamCommand::NextTrack,
+                            "prev" => JamCommand::PrevTrack,
+                            _ => bail!("Control SPIN inválido"),
+                        }
+                    }
                 };
                 commands.try_send(JamRequest { source: JamSource::Remote(room.clone()), command })?;
                 tokio::time::sleep(Duration::from_millis(150)).await;
@@ -433,6 +499,10 @@ async fn report_error(ui_tx: &async_channel::Sender<RemoteUpdate>, target: &str,
 async fn publish_lan(target: &str, event: RemoteGuestEvent) -> Result<()> {
     let (path, body) = match event {
         RemoteGuestEvent::AddTrack(track) => ("/api/queue/add", serde_json::json!({"id":track.id})),
+        RemoteGuestEvent::AddTrackNamed { track, guest_name } => (
+            "/api/queue/add",
+            serde_json::json!({"id": track.id, "guest": guest_name.unwrap_or_default()}),
+        ),
         RemoteGuestEvent::Control(action) => ("/api/control", serde_json::json!({"action":action})),
     };
     client()
@@ -486,6 +556,7 @@ async fn poll_lan(target: &str, ui_tx: &async_channel::Sender<RemoteUpdate>) {
                 allow_controls: st.allow_controls,
                 source_name: String::from("SPIN"),
                 host_name: String::new(),
+                queue: Vec::new(),
             })
         }
         .await;
@@ -579,21 +650,64 @@ mod tests {
             let connection = guest.connect(addr, ALPN).await?;
             let (mut send, mut recv) = connection.open_bi().await?;
             send.write_all(&token).await?;
+            let sample_track = Track {
+                id: "dQw4w9WgXcQ".into(),
+                title: "Song A".into(),
+                artist: "Artist A".into(),
+                artist_id: None,
+                album: None,
+                album_id: None,
+                duration_secs: Some(212),
+                view_count: None,
+                cover_url: Some("https://lh3.googleusercontent.com/cover=w256-h256".into()),
+                cover_large_url: None,
+                is_music: true,
+                is_video: false,
+            };
             let mut snapshot = RemoteSyncPayload {
-                track: None,
+                track: Some(sample_track.clone()),
                 position_secs: 21.0,
                 is_playing: false,
                 sent_at_ms: now_ms(),
-                allow_controls: true,
+                allow_controls: false,
                 source_name: "Test".into(),
-                host_name: "Test".into(),
+                host_name: "HostOne".into(),
+                queue: vec![sample_track.clone()],
             };
             host.publish(snapshot.clone());
             let received: RemoteSyncPayload = read_frame(&mut recv).await?;
             assert_eq!(received.position_secs, 21.0);
-            assert!(received.allow_controls);
+            assert!(!received.allow_controls);
+            assert_eq!(received.queue.len(), 1);
+            assert_eq!(
+                received.track.as_ref().and_then(|t| t.cover_url.as_deref()),
+                Some("https://lh3.googleusercontent.com/cover=w256-h256")
+            );
+            assert_eq!(host.guest_count(), 1);
+
+            // Controls are ignored while allow_controls is false, but AddTrackNamed succeeds.
+            write_frame(&mut send, &RemoteGuestEvent::Control("next".into())).await?;
+            write_frame(
+                &mut send,
+                &RemoteGuestEvent::AddTrackNamed {
+                    track: sample_track.clone(),
+                    guest_name: Some("Ana".into()),
+                },
+            )
+            .await?;
+            let add_req = requests.recv().await?;
+            assert!(matches!(
+                add_req.command,
+                JamCommand::AddTrack(ref id, ref who) if id == "dQw4w9WgXcQ" && who == "Ana"
+            ));
+
+            // Enabling allow_controls immediately updates guests and unlocks remote controls.
+            host.set_allow_controls(true);
+            let updated: RemoteSyncPayload = read_frame(&mut recv).await?;
+            assert!(updated.allow_controls);
 
             snapshot.position_secs = 35.0;
+            snapshot.allow_controls = true;
             host.publish(snapshot);
             let received: RemoteSyncPayload = read_frame(&mut recv).await?;
             assert_eq!(received.position_secs, 35.0);

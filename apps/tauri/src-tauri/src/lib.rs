@@ -208,6 +208,8 @@ pub fn run() {
             commands::spin_start_remote_host,
             commands::spin_stop_remote,
             commands::spin_join_remote,
+            commands::spin_remote_control,
+            commands::spin_remote_add_track,
             commands::spin_sync_snapshot,
         ])
         .run(tauri::generate_context!())

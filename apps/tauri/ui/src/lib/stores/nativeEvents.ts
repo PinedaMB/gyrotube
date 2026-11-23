@@ -7,8 +7,10 @@ export interface SpinRemoteSyncPayload {
   position_secs: number;
   is_playing: boolean;
   sent_at_ms: number;
+  allow_controls: boolean;
   source_name: string;
   host_name: string;
+  queue?: Track[];
 }
 
 export interface NativeEventHandlers {

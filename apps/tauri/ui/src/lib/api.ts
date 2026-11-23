@@ -109,12 +109,20 @@ export const api = {
   spinStartRemoteHost: (): Promise<SpinStatus> => call("spin_start_remote_host"),
   spinStopRemote: (): Promise<SpinStatus> => call("spin_stop_remote"),
   spinJoinRemote: (code: string): Promise<SpinStatus> => call("spin_join_remote", { code }),
+  spinRemoteControl: (action: "play_pause" | "next" | "prev"): Promise<void> =>
+    call("spin_remote_control", { action }),
+  spinRemoteAddTrack: (track: Track, guestName?: string): Promise<void> =>
+    call("spin_remote_add_track", {
+      track,
+      guestName: guestName?.trim() || null,
+    }),
   spinSyncSnapshot: (payload: {
     isPlaying: boolean;
     positionSecs: number;
     sourceName: string;
     currentIndex: number | null;
     queue: Track[];
+    displayName?: string;
   }): Promise<void> =>
     call("spin_sync_snapshot", {
       isPlaying: payload.isPlaying,
@@ -122,5 +130,6 @@ export const api = {
       sourceName: payload.sourceName,
       currentIndex: payload.currentIndex,
       queue: payload.queue,
+      displayName: payload.displayName?.trim() || null,
     }),
 };
