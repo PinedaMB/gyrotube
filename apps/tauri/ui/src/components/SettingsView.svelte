@@ -6,6 +6,7 @@
     FolderArchive,
     Globe,
     HardDrive,
+    Heart,
     History,
     Info,
     Monitor,
@@ -606,6 +607,20 @@
           {t("settings.about_privacy")}
         </span>
         <span class="font-semibold text-right">{t("settings.about_privacy_val")}</span>
+      </div>
+
+      <div class="px-4 py-2.5 flex items-center justify-between gap-3 bg-[var(--bg)]/25">
+        <p class="text-[12px] text-[var(--text-muted)] leading-snug inline-flex items-center gap-1.5">
+          <span>Para <span class="font-semibold text-[var(--text)]/90">Naomi Alejandra</span></span>
+          <Heart size={12} class="text-pink-400 fill-pink-400 shrink-0" />
+        </p>
+        <img
+          src="/dedication.webp"
+          alt="Naomi Alejandra"
+          class="w-10 h-10 object-contain shrink-0 opacity-90 hover:opacity-100 hover:scale-105 transition-all select-none"
+          loading="lazy"
+          decoding="async"
+        />
       </div>
     </div>
   </section>
