@@ -21,6 +21,13 @@
   let editingPlaylist = $state<UserPlaylist | null>(null);
 
   $effect(() => {
+    const target = player.pendingCollectionTarget;
+    if (!target) return;
+    screen = target;
+    player.pendingCollectionTarget = null;
+  });
+
+  $effect(() => {
     player.collectionDetailOpen = screen.kind !== "overview";
     return () => {
       player.collectionDetailOpen = false;

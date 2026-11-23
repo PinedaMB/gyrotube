@@ -142,7 +142,7 @@
   ];
 </script>
 
-<div class="page-clamp !max-w-[780px] space-y-6 !pb-28">
+<div class="page-clamp !max-w-[780px] space-y-6">
   <!-- Header -->
   <header class="flex items-center justify-between gap-3">
     <div class="flex items-center gap-3 min-w-0">

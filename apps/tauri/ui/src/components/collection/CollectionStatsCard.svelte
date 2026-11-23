@@ -74,7 +74,7 @@
 
 {#if hasStats}
   <section class="mt-7 rounded-2xl bg-[var(--surface)] border border-[var(--border)] overflow-hidden">
-    <div class="px-4 py-3.5 flex flex-wrap items-center justify-between gap-3">
+    <div class="px-4 py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-3">
       <button
         type="button"
         class="flex items-center gap-3 text-left min-w-0 flex-1"
@@ -84,18 +84,18 @@
         <span class="w-9 h-9 rounded-xl bg-[var(--accent-soft)] text-[var(--accent-bright)] inline-flex items-center justify-center shrink-0">
           <BarChart3 size={18} />
         </span>
-        <div class="min-w-0">
-          <div class="text-[14.5px] font-extrabold tracking-tight flex items-center gap-2">
-            <span>{t("stats.title")}</span>
-            <span class="text-[11.5px] font-semibold text-[var(--text-muted)] numeric">
-              · {formatListeningTime(player.listeningStats.totalSeconds, isSpanish)} · {player.listeningStats.totalPlays} {t("stats.total_plays").toLowerCase()}
+        <div class="min-w-0 flex-1">
+          <div class="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+            <span class="text-[15px] font-extrabold tracking-tight whitespace-nowrap">{t("stats.title")}</span>
+            <span class="text-[11.5px] font-semibold text-[var(--text-muted)] numeric whitespace-nowrap">
+              {formatListeningTime(player.listeningStats.totalSeconds, isSpanish)} · {player.listeningStats.totalPlays} {t("stats.total_plays").toLowerCase()}
             </span>
           </div>
-          <p class="text-[11.5px] text-[var(--text-muted)] truncate">{t("stats.subtitle")}</p>
+          <p class="text-[11.5px] text-[var(--text-muted)] leading-snug mt-0.5">{t("stats.subtitle")}</p>
         </div>
       </button>
 
-      <div class="flex items-center gap-2">
+      <div class="flex items-center justify-end gap-2 shrink-0 pl-12 sm:pl-0">
         <button
           type="button"
           class="px-2.5 py-1 rounded-full text-[11.5px] font-semibold bg-[var(--bg)]/60 hover:bg-[var(--surface-hover)] border border-[var(--border)] transition-colors"

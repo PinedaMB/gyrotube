@@ -44,8 +44,8 @@
           tabindex="0"
           class="group flex items-center gap-2.5 sm:gap-3 pr-2.5 rounded-xl overflow-hidden border border-[var(--border)] hover:border-[var(--border-strong)] bg-[var(--card-bg)] cursor-pointer transition-all duration-150 hover:-translate-y-0.5"
           style="box-shadow: var(--card-shadow);"
-          onclick={() => player.navigateTab("collection")}
-          onkeydown={(e) => e.key === "Enter" && player.navigateTab("collection")}
+          onclick={() => player.openLocalPlaylist("favorites")}
+          onkeydown={(e) => e.key === "Enter" && player.openLocalPlaylist("favorites")}
         >
           <span
             class="w-13 h-13 sm:w-14 sm:h-14 shrink-0 inline-flex items-center justify-center text-white"
@@ -86,8 +86,8 @@
           tabindex="0"
           class="group flex items-center gap-2.5 sm:gap-3 pr-2.5 rounded-xl overflow-hidden border border-[var(--border)] hover:border-[var(--border-strong)] bg-[var(--card-bg)] cursor-pointer transition-all duration-150 hover:-translate-y-0.5"
           style="box-shadow: var(--card-shadow);"
-          onclick={() => player.navigateTab("collection")}
-          onkeydown={(e) => e.key === "Enter" && player.navigateTab("collection")}
+          onclick={() => player.openLocalPlaylist(pl.id)}
+          onkeydown={(e) => e.key === "Enter" && player.openLocalPlaylist(pl.id)}
         >
           <span
             class="w-13 h-13 sm:w-14 sm:h-14 shrink-0 inline-flex items-center justify-center text-white overflow-hidden"

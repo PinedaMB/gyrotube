@@ -66,6 +66,7 @@ class PlayerStore {
   activeTab = $state<MainTab>("home");
   activeView = $state<ActiveView>({ kind: "home" });
   collectionDetailOpen = $state(false);
+  pendingCollectionTarget = $state<{ kind: "favorites" } | { kind: "playlist"; id: string } | null>(null);
   sidebarOpen = $state(readInitialSidebarOpen());
   navCollapsed = $state(readNavCollapsed());
   sidebarTab = $state<"player" | "lyrics" | "queue" | "related">("player");
@@ -1144,6 +1145,12 @@ class PlayerStore {
       return;
     }
     this.navigateTab(this.activeTab === "home" ? "home" : "explore");
+  }
+
+  public openLocalPlaylist(target: "favorites" | string): void {
+    this.pendingCollectionTarget =
+      target === "favorites" ? { kind: "favorites" } : { kind: "playlist", id: target };
+    this.navigateTab("collection");
   }
 
   public navigateTab(tab: MainTab): void {
