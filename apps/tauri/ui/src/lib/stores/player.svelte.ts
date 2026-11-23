@@ -29,9 +29,13 @@ import {
 import {
   applyThemeToDocument,
   readChartCountry,
+  readInitialSidebarOpen,
+  readNavCollapsed,
   readThemeMode,
   SessionPersister,
   writeChartCountry,
+  writeNavCollapsed,
+  writeSidebarCollapsed,
 } from "./sessionPersistence";
 import type {
   ActiveView,
@@ -61,8 +65,8 @@ class PlayerStore {
   activeTab = $state<MainTab>("home");
   activeView = $state<ActiveView>({ kind: "home" });
   collectionDetailOpen = $state(false);
-  sidebarOpen = $state(true);
-  navCollapsed = $state(false);
+  sidebarOpen = $state(readInitialSidebarOpen());
+  navCollapsed = $state(readNavCollapsed());
   sidebarTab = $state<"player" | "lyrics" | "queue" | "related">("player");
   chartCountry = $state<string | null>(readChartCountry());
   relatedFeed = $state<RelatedFeed | null>(null);
@@ -303,6 +307,7 @@ class PlayerStore {
 
       const s = initial.session;
       this.sidebarOpen = !s.sidebar_collapsed;
+      writeSidebarCollapsed(s.sidebar_collapsed);
       this.queue = s.queue;
       this.unshuffledQueue = s.unshuffled_queue;
       this.currentIndex = s.current_index;
@@ -934,6 +939,11 @@ class PlayerStore {
     ).__GYROTUBE_DISMISS_OVERLAY__ = () => this.dismissTopOverlay();
   }
 
+  public toggleNavCollapsed(): void {
+    this.navCollapsed = !this.navCollapsed;
+    writeNavCollapsed(this.navCollapsed);
+  }
+
   public openPlayerSheet(): void {
     if (this.sidebarOpen) return;
     this.sidebarOpen = true;
@@ -948,6 +958,7 @@ class PlayerStore {
       };
       window.history.pushState(state, "", viewToHash(plainView, true));
     } else {
+      writeSidebarCollapsed(false);
       void this.persistSession();
     }
   }
@@ -972,6 +983,7 @@ class PlayerStore {
       return;
     }
     this.sidebarOpen = false;
+    writeSidebarCollapsed(true);
     void this.persistSession();
   }
 
@@ -1318,6 +1330,18 @@ class PlayerStore {
     const cacheKey = `${cur.id}:${enabled ? "v" : "s"}`;
     const counterpart = this.counterpartTrack ?? this.counterpartCache.get(cacheKey) ?? null;
     if (!counterpart || counterpart.id === cur.id) {
+      // Video without an official studio counterpart: allow switching to Song mode
+      // (audio-only with cover art, matching YouTube Music) without interrupting playback.
+      if (!enabled && cur.is_video) {
+        ++this.videoGen;
+        this.videoMode = false;
+        this.videoStream = null;
+        this.videoLoading = false;
+        this.videoError = null;
+        if (this.lyrics.type === "None") {
+          void this.loadLyricsForCurrent();
+        }
+      }
       return;
     }
 

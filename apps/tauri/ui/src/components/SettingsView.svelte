@@ -167,7 +167,7 @@
       class="rounded-2xl bg-[var(--surface)] border border-[var(--border)] divide-y divide-[var(--border)] overflow-hidden"
       style="box-shadow: var(--card-shadow);"
     >
-      <div class="p-4 flex flex-wrap items-center justify-between gap-3 transition-colors hover:bg-[var(--surface-hover)]/35">
+      <div class="p-3.5 sm:p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-colors hover:bg-[var(--surface-hover)]/35">
         <div class="flex items-center gap-3 min-w-0">
           <span class="w-9 h-9 rounded-xl bg-[var(--bg)]/60 border border-[var(--border)] inline-flex items-center justify-center text-[var(--accent-bright)] shrink-0">
             <SunMoon size={16} />
@@ -177,15 +177,17 @@
             <div class="text-[12px] text-[var(--text-muted)]">{t("settings.theme_sub")}</div>
           </div>
         </div>
-        <SegmentedControl
-          options={themeOptions}
-          value={player.themeMode}
-          ariaLabel={t("settings.theme")}
-          onchange={(mode) => player.setThemeMode(mode)}
-        />
+        <div class="flex sm:justify-end">
+          <SegmentedControl
+            options={themeOptions}
+            value={player.themeMode}
+            ariaLabel={t("settings.theme")}
+            onchange={(mode) => player.setThemeMode(mode)}
+          />
+        </div>
       </div>
 
-      <div class="p-4 flex flex-wrap items-center justify-between gap-3 transition-colors hover:bg-[var(--surface-hover)]/35">
+      <div class="p-3.5 sm:p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-colors hover:bg-[var(--surface-hover)]/35">
         <div class="flex items-center gap-3 min-w-0">
           <span class="w-9 h-9 rounded-xl bg-[var(--bg)]/60 border border-[var(--border)] inline-flex items-center justify-center text-[var(--accent-bright)] shrink-0">
             <Globe size={16} />
@@ -195,12 +197,14 @@
             <div class="text-[12px] text-[var(--text-muted)]">{t("settings.language_sub")}</div>
           </div>
         </div>
-        <SegmentedControl
-          options={languageOptions}
-          value={player.language}
-          ariaLabel={t("settings.language")}
-          onchange={(lang) => player.setLanguage(lang)}
-        />
+        <div class="flex sm:justify-end">
+          <SegmentedControl
+            options={languageOptions}
+            value={player.language}
+            ariaLabel={t("settings.language")}
+            onchange={(lang) => player.setLanguage(lang)}
+          />
+        </div>
       </div>
     </div>
   </section>
@@ -503,7 +507,7 @@
         </button>
       </div>
 
-      <div class="p-4 flex flex-wrap items-center justify-between gap-3 transition-colors hover:bg-[var(--surface-hover)]/35">
+      <div class="p-3.5 sm:p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-colors hover:bg-[var(--surface-hover)]/35">
         <div class="flex items-center gap-3 min-w-0 flex-1">
           <span class="w-9 h-9 rounded-xl bg-[var(--bg)]/60 border border-[var(--border)] inline-flex items-center justify-center text-[var(--accent-bright)] shrink-0">
             <FolderArchive size={16} />
@@ -513,12 +517,12 @@
             <div class="text-[12px] text-[var(--text-muted)]">{t("settings.backup_sub")}</div>
           </div>
         </div>
-        <div class="flex items-center gap-2 shrink-0">
-          <button type="button" class="pill-btn" onclick={exportLibrary}>
+        <div class="flex items-center gap-2 w-full sm:w-auto shrink-0">
+          <button type="button" class="pill-btn flex-1 sm:flex-none justify-center" onclick={exportLibrary}>
             <Download size={13} />
             {t("settings.export")}
           </button>
-          <button type="button" class="pill-btn" onclick={() => fileInputEl?.click()}>
+          <button type="button" class="pill-btn flex-1 sm:flex-none justify-center" onclick={() => fileInputEl?.click()}>
             <Upload size={13} />
             {t("settings.import")}
           </button>

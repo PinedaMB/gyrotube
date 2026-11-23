@@ -13,9 +13,6 @@
   let canNext = $state(false);
 
   function genreColor(g: Genre): string {
-    if (g.color_hex && g.color_hex.startsWith("#") && g.color_hex.length >= 7) {
-      return g.color_hex;
-    }
     return colorForGenre(g.name);
   }
 
@@ -113,11 +110,11 @@
           {@const c = genreColor(g)}
           <button
             type="button"
-            class="group h-12 rounded-lg overflow-hidden bg-[var(--card-bg)] hover:bg-[var(--surface-hover)] border border-[var(--border)] hover:border-[var(--border-strong)] flex items-center text-left transition-colors"
+            class="group h-12 rounded-[9px] overflow-hidden bg-[var(--card-bg)] hover:bg-[var(--surface-hover)] border border-[var(--border)] hover:border-[var(--border-strong)] flex items-center text-left transition-all duration-150 hover:-translate-y-0.5 active:scale-[0.99]"
             style="box-shadow: var(--card-shadow);"
             onclick={() => void player.runSearch(g.name)}
           >
-            <span class="w-[5px] self-stretch shrink-0" style="background: {c};"></span>
+            <span class="w-[6px] self-stretch shrink-0" style="background: {c};"></span>
             <span class="flex-1 px-3.5 text-[13.5px] font-semibold truncate">{g.name}</span>
           </button>
         {/each}
@@ -127,17 +124,17 @@
         bind:this={scrollerEl}
         onscroll={syncScrollButtons}
         style={scrollerMaskStyle}
-        class="genre-scroller grid grid-flow-col grid-rows-4 auto-cols-[minmax(164px,196px)] sm:auto-cols-[minmax(180px,212px)] gap-2.5 overflow-x-auto pb-1 scroll-smooth snap-x snap-proximity"
+        class="genre-scroller grid grid-flow-col grid-rows-4 auto-cols-[minmax(164px,196px)] sm:auto-cols-[minmax(180px,212px)] gap-2.5 overflow-x-auto py-1 scroll-smooth snap-x snap-proximity"
       >
         {#each genres as g (g.id)}
           {@const c = genreColor(g)}
           <button
             type="button"
-            class="group h-12 rounded-lg overflow-hidden bg-[var(--card-bg)] hover:bg-[var(--surface-hover)] border border-[var(--border)] hover:border-[var(--border-strong)] flex items-center text-left transition-colors snap-start"
+            class="group h-12 rounded-[9px] overflow-hidden bg-[var(--card-bg)] hover:bg-[var(--surface-hover)] border border-[var(--border)] hover:border-[var(--border-strong)] flex items-center text-left transition-all duration-150 hover:-translate-y-0.5 active:scale-[0.99] snap-start"
             style="box-shadow: var(--card-shadow);"
             onclick={() => void player.runSearch(g.name)}
           >
-            <span class="w-[5px] self-stretch shrink-0" style="background: {c};"></span>
+            <span class="w-[6px] self-stretch shrink-0" style="background: {c};"></span>
             <span class="flex-1 px-3.5 text-[13.5px] font-semibold truncate">{g.name}</span>
           </button>
         {/each}

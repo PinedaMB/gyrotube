@@ -2,6 +2,8 @@
   import { Compass, Home, Library } from "lucide-svelte";
   import { t } from "../lib/i18n.svelte";
   import { player } from "../lib/stores/player.svelte";
+
+  let isSettings = $derived(player.activeView.kind === "settings");
 </script>
 
 <nav
@@ -10,7 +12,7 @@
   aria-label="Mobile navigation"
 >
   <button
-    class="flex flex-col items-center justify-center gap-0.5 text-[11px] font-semibold {player.activeTab === 'home'
+    class="flex flex-col items-center justify-center gap-0.5 text-[11px] font-semibold {!isSettings && player.activeTab === 'home'
       ? 'text-[var(--accent-bright)]'
       : 'text-[var(--text-muted)]'}"
     onclick={() => player.navigateTab("home")}
@@ -19,7 +21,7 @@
     <span>{t("nav.home")}</span>
   </button>
   <button
-    class="flex flex-col items-center justify-center gap-0.5 text-[11px] font-semibold {player.activeTab === 'explore'
+    class="flex flex-col items-center justify-center gap-0.5 text-[11px] font-semibold {!isSettings && player.activeTab === 'explore'
       ? 'text-[var(--accent-bright)]'
       : 'text-[var(--text-muted)]'}"
     onclick={() => player.navigateTab("explore")}
@@ -28,7 +30,7 @@
     <span>{t("nav.explore")}</span>
   </button>
   <button
-    class="flex flex-col items-center justify-center gap-0.5 text-[11px] font-semibold {player.activeTab === 'collection'
+    class="flex flex-col items-center justify-center gap-0.5 text-[11px] font-semibold {!isSettings && player.activeTab === 'collection'
       ? 'text-[var(--accent-bright)]'
       : 'text-[var(--text-muted)]'}"
     onclick={() => player.navigateTab("collection")}

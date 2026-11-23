@@ -3,6 +3,46 @@ import type { SessionState, ThemeMode } from "../types";
 
 const CHART_COUNTRY_KEY = "gyrotube.chartCountry";
 const THEME_MODE_KEY = "gyrotube.themeMode";
+const NAV_COLLAPSED_KEY = "gyrotube.navCollapsed";
+const SIDEBAR_COLLAPSED_KEY = "gyrotube.sidebarCollapsed";
+
+export function readNavCollapsed(): boolean {
+  if (typeof localStorage === "undefined") return false;
+  try {
+    return localStorage.getItem(NAV_COLLAPSED_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+export function writeNavCollapsed(collapsed: boolean): void {
+  if (typeof localStorage === "undefined") return;
+  try {
+    localStorage.setItem(NAV_COLLAPSED_KEY, collapsed ? "1" : "0");
+  } catch {
+    // ignore storage errors
+  }
+}
+
+export function readInitialSidebarOpen(): boolean {
+  if (typeof window !== "undefined" && window.innerWidth < 1024) return false;
+  if (typeof localStorage === "undefined") return true;
+  try {
+    return localStorage.getItem(SIDEBAR_COLLAPSED_KEY) !== "1";
+  } catch {
+    return true;
+  }
+}
+
+export function writeSidebarCollapsed(collapsed: boolean): void {
+  if (typeof window !== "undefined" && window.innerWidth < 1024) return;
+  if (typeof localStorage === "undefined") return;
+  try {
+    localStorage.setItem(SIDEBAR_COLLAPSED_KEY, collapsed ? "1" : "0");
+  } catch {
+    // ignore storage errors
+  }
+}
 
 export function readThemeMode(): ThemeMode {
   if (typeof localStorage === "undefined") return "system";

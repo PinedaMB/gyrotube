@@ -11,7 +11,7 @@
       ? 'text-[var(--text)]'
       : 'text-[var(--text-muted)]'}"
     title={t("header.toggle_sidebar")}
-    onclick={() => (player.navCollapsed = !player.navCollapsed)}
+    onclick={() => player.toggleNavCollapsed()}
   >
     <PanelLeft size={18} />
   </button>

@@ -11,9 +11,6 @@
   import ExploreSkeleton from "./explore/ExploreSkeleton.svelte";
 
   function genreColor(g: Genre): string {
-    if (g.color_hex && g.color_hex.startsWith("#") && g.color_hex.length >= 7) {
-      return g.color_hex;
-    }
     return colorForGenre(g.name);
   }
 
@@ -278,11 +275,11 @@
                 {@const c = genreColor(g)}
                 <button
                   type="button"
-                  class="h-11 rounded-lg overflow-hidden bg-[var(--card-bg)] hover:bg-[var(--surface-hover)] border border-[var(--border)] hover:border-[var(--border-strong)] flex items-center text-left transition-colors"
+                  class="h-11 rounded-[9px] overflow-hidden bg-[var(--card-bg)] hover:bg-[var(--surface-hover)] border border-[var(--border)] hover:border-[var(--border-strong)] flex items-center text-left transition-all duration-150 active:scale-[0.98]"
                   style="box-shadow: var(--card-shadow);"
                   onclick={() => submit(g.name)}
                 >
-                  <span class="w-[4px] self-stretch shrink-0" style="background: {c};"></span>
+                  <span class="w-[6px] self-stretch shrink-0" style="background: {c};"></span>
                   <span class="flex-1 px-3 text-[13px] font-semibold truncate">{g.name}</span>
                 </button>
               {/each}

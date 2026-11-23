@@ -153,13 +153,15 @@
       value: "song",
       label: t("player.mode_song"),
       icon: Music,
-      disabled: player.videoMode && !player.canSwitchVideoMode,
+      disabled: false,
     },
     {
       value: "video",
       label: t("player.mode_video"),
       icon: Film,
-      disabled: player.isOffline || (!player.videoMode && !player.canSwitchVideoMode),
+      disabled:
+        player.isOffline ||
+        (!player.videoMode && !player.currentTrack?.is_video && !player.canSwitchVideoMode),
     },
   ]);
 
