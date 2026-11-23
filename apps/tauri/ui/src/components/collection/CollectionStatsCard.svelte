@@ -1,10 +1,12 @@
 <script lang="ts">
-  import { BarChart3, Clock, Play, RotateCcw, Sparkles, User } from "lucide-svelte";
+  import { BarChart3, Clock, Play, RotateCcw, Sparkles } from "lucide-svelte";
+  import { api, isTauriRuntime } from "../../lib/api";
   import { resolveLocale, t } from "../../lib/i18n.svelte";
   import {
     formatListeningTime,
     topPlayedArtists,
     topPlayedTracks,
+    type ArtistPlayStat,
   } from "../../lib/listeningStats";
   import { player } from "../../lib/stores/player.svelte";
   import CoverImage from "../CoverImage.svelte";
@@ -14,6 +16,60 @@
   let topArtists = $derived(topPlayedArtists(player.listeningStats, 5));
   let hasStats = $derived(player.listeningStats.totalPlays > 0);
   let expanded = $state(false);
+  let resolvedArtistAvatars = $state<Record<string, string>>({});
+  const fetchedArtistKeys = new Set<string>();
+
+  function artistFallbackCover(artist: ArtistPlayStat): string | null {
+    const lower = artist.name.trim().toLowerCase();
+    const followed = player.followedArtists.find(
+      (a) => (artist.id && a.id === artist.id) || a.name.trim().toLowerCase() === lower,
+    );
+    if (followed?.avatar_url) return followed.avatar_url;
+    if (resolvedArtistAvatars[lower]) return resolvedArtistAvatars[lower];
+    if (artist.avatarUrl) return artist.avatarUrl;
+    const matchTrack = Object.values(player.listeningStats.tracks).find((entry) =>
+      entry.track.artist.toLowerCase().includes(lower),
+    );
+    return matchTrack ? player.trackCoverUrl(matchTrack.track) : null;
+  }
+
+  $effect(() => {
+    if (!expanded || player.isOffline || !isTauriRuntime()) return;
+    for (const artist of topArtists) {
+      const key = artist.name.trim().toLowerCase();
+      if (fetchedArtistKeys.has(key)) continue;
+      // Skip network if we already have a real followed avatar
+      const followed = player.followedArtists.find(
+        (a) => (artist.id && a.id === artist.id) || a.name.trim().toLowerCase() === key,
+      );
+      if (followed?.avatar_url) {
+        fetchedArtistKeys.add(key);
+        continue;
+      }
+      fetchedArtistKeys.add(key);
+      void (async () => {
+        try {
+          if (artist.id) {
+            const details = await api.getArtist(artist.id, artist.name);
+            if (details.header_url) {
+              resolvedArtistAvatars = { ...resolvedArtistAvatars, [key]: details.header_url };
+              player.updateArtistStatAvatar(artist.name, artist.id, details.header_url);
+              return;
+            }
+          }
+          const res = await api.searchAll(artist.name);
+          const match =
+            res.artists.find((a) => a.name.trim().toLowerCase() === key) ?? res.artists[0];
+          if (match?.avatar_url) {
+            resolvedArtistAvatars = { ...resolvedArtistAvatars, [key]: match.avatar_url };
+            player.updateArtistStatAvatar(artist.name, match.id, match.avatar_url);
+          }
+        } catch {
+          // Non-fatal; fallback cover remains visible
+        }
+      })();
+    }
+  });
 </script>
 
 {#if hasStats}
@@ -141,9 +197,12 @@
                     <span class="w-4 text-center text-[11.5px] font-bold text-[var(--text-muted)] numeric">
                       {idx + 1}
                     </span>
-                    <span class="w-8 h-8 rounded-full bg-[var(--accent-soft)] text-[var(--accent-bright)] inline-flex items-center justify-center shrink-0">
-                      <User size={14} />
-                    </span>
+                    <CoverImage
+                      class="w-9 h-9 !rounded-full shrink-0 border border-[var(--border)]"
+                      src={artistFallbackCover(artist)}
+                      alt={artist.name}
+                      fallbackIcon="👤"
+                    />
                     <span class="text-[13px] font-bold truncate flex-1">{artist.name}</span>
                     <span class="text-[11px] font-semibold text-[var(--text-muted)] numeric shrink-0">
                       {t("stats.plays_count", { count: artist.plays })}

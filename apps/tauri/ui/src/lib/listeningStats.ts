@@ -9,6 +9,7 @@ export interface ArtistPlayStat {
   name: string;
   id: string | null;
   plays: number;
+  avatarUrl?: string | null;
 }
 
 export interface ListeningStats {
@@ -83,6 +84,7 @@ export function recordTrackPlay(stats: ListeningStats, track: Track): ListeningS
         name: existingArtist?.name ?? primaryArtist,
         id: existingArtist?.id ?? track.artist_id ?? null,
         plays: (existingArtist?.plays ?? 0) + 1,
+        avatarUrl: existingArtist?.avatarUrl ?? track.cover_url ?? null,
       },
     },
   };

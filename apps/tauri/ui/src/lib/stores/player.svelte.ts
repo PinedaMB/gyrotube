@@ -2125,6 +2125,25 @@ class PlayerStore {
     }
   }
 
+  public updateArtistStatAvatar(artistName: string, artistId: string | null, avatarUrl: string): void {
+    const key = artistName.trim().toLowerCase();
+    const existing = this.listeningStats.artists[key];
+    if (!existing) return;
+    if (existing.avatarUrl === avatarUrl && (existing.id || !artistId)) return;
+    this.listeningStats = {
+      ...this.listeningStats,
+      artists: {
+        ...this.listeningStats.artists,
+        [key]: {
+          ...existing,
+          id: existing.id ?? artistId,
+          avatarUrl,
+        },
+      },
+    };
+    saveListeningStats(this.listeningStats);
+  }
+
   public resetListeningStats(): void {
     this.listeningStats = emptyStats();
     saveListeningStats(this.listeningStats);
