@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.github.gyrotube.GyroTube</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <name>GyroTube</name>
+  <summary>Fast, modern YouTube Music client with lyrics, crossfade, and SPIN Mode</summary>
+  <developer id="com.github.gyrotube">
+    <name>GyroTube</name>
+  </developer>
+  <url type="homepage">https://github.com/gyrotube/gyrotube</url>
+  <description>
+    <p>
+      GyroTube is a cross-platform music streaming client built with Rust, Tauri v2, and Svelte 5,
+      featuring synced lyrics, dual-deck crossfade, local playlists, offline downloads, and
+      collaborative SPIN sessions.
+    </p>
+  </description>
+  <launchable type="desktop-id">GyroTube.desktop</launchable>
+  <categories>
+    <category>AudioVideo</category>
+    <category>Audio</category>
+    <category>Music</category>
+  </categories>
+  <releases>
+    <release version="1.0.0" date="2026-11-23"/>
+  </releases>
+  <content_rating type="oars-1.1"/>
+</component>

@@ -29,6 +29,7 @@
     "active": true,
     "targets": "all",
     "category": "Music",
+    "license": "MIT",
     "shortDescription": "Fast, modern YouTube Music client with lyrics, crossfade, and SPIN Mode",
     "longDescription": "GyroTube is a cross-platform music streaming client built with Rust, Tauri v2, and Svelte 5, featuring synced lyrics, dual-deck crossfade, local playlists, and collaborative SPIN sessions.",
     "icon": [
@@ -40,7 +41,15 @@
     ],
     "linux": {
       "deb": {
-        "depends": ["libwebkit2gtk-4.1-0", "libayatana-appindicator3-1"]
+        "depends": ["libwebkit2gtk-4.1-0", "libayatana-appindicator3-1"],
+        "files": {
+          "/usr/share/metainfo/com.github.gyrotube.GyroTube.metainfo.xml": "linux/com.github.gyrotube.GyroTube.metainfo.xml"
+        }
+      },
+      "rpm": {
+        "files": {
+          "/usr/share/metainfo/com.github.gyrotube.GyroTube.metainfo.xml": "linux/com.github.gyrotube.GyroTube.metainfo.xml"
+        }
       },
       "appimage": {
         "bundleMediaFramework": false

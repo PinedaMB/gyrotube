@@ -296,16 +296,20 @@ impl AudioStreamer {
             .or_else(|| parse_clen_from_url(&remote.url))
             .or(expected_total_bytes);
 
-        if cfg!(target_os = "android") {
-            let total = total_bytes.filter(|&total| total > 0)
+        if is_partial {
+            let total = total_bytes
+                .filter(|&total| total > 0)
                 .ok_or_else(|| "Audio source did not report its total size".to_string())?;
-            if parse_clen_from_url(&remote.url).or(expected_total_bytes).is_some_and(|size| size != total) {
+            if parse_clen_from_url(&remote.url)
+                .or(expected_total_bytes)
+                .is_some_and(|size| size != total)
+            {
                 return Err("Audio source reported a different file size".into());
             }
-            if is_partial && response_byte_range(resp.headers()) != Some((0, first_end.min(total - 1))) {
+            if response_byte_range(resp.headers()) != Some((0, first_end.min(total - 1))) {
                 return Err("Audio source did not deliver the requested initial range".into());
             }
-            if is_partial && total > INITIAL_HTTP_BLOCK_BYTES {
+            if total > INITIAL_HTTP_BLOCK_BYTES {
                 verify_audio_tail(&self.client, &remote, total).await?;
             }
         }
@@ -477,6 +481,9 @@ impl AudioStreamer {
                                     continue;
                                 }
                             }
+                            eprintln!(
+                                "[audio] id={video_id_owned} bloque fallido en {written} bytes: {e}"
+                            );
                             fatal_err = Some(e);
                             break;
                         }
@@ -1313,8 +1320,9 @@ mod tests {
                         return;
                     }
 
-                    if start > 0 {
-                        // Delay subsequent blocks so the test can verify Block 0 plays before full download completes
+                    if start > 0 && end > start {
+                        // Delay subsequent multi-byte blocks (not 1-byte tail probes) so the test
+                        // can verify Block 0 plays before full download completes.
                         tokio::time::sleep(Duration::from_millis(250)).await;
                     }
 
@@ -1427,6 +1435,13 @@ mod tests {
         let client = reqwest::Client::new();
         assert!(fetch_range_block_url(&client, &remote.url, &remote, 0, INITIAL_HTTP_BLOCK_BYTES - 1).await.is_ok());
         assert!(verify_audio_tail(&client, &remote, total).await.unwrap_err().contains("403"));
+        let temp = tempfile::tempdir().unwrap();
+        let streamer = AudioStreamer::start_new().await.unwrap();
+        let err = streamer
+            .start_chunked_http_stream("cutoffTest1", remote.clone(), "webm", None, temp.path())
+            .await
+            .unwrap_err();
+        assert!(err.contains("403"), "expected 403 rejection, got: {err}");
         remote.url = format!("http://127.0.0.1:{complete}/audio.webm");
         verify_audio_tail(&client, &remote, total).await.unwrap();
     }
