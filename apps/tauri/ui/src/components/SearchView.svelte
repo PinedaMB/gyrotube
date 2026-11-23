@@ -1,21 +1,29 @@
 <script lang="ts">
-  import { ArrowLeft, ArrowUpLeft, Clock, Search, X } from "lucide-svelte";
+  import { ArrowLeft, ArrowUpLeft, Clock, Play, Search, X } from "lucide-svelte";
   import { onMount } from "svelte";
   import { api, isTauriRuntime } from "../lib/api";
   import { colorForGenre } from "../lib/genrePalette";
   import { t } from "../lib/i18n.svelte";
   import { player } from "../lib/stores/player.svelte";
-  import type { Genre } from "../lib/types";
+  import type { Genre, SearchSuggestions } from "../lib/types";
+  import CoverImage from "./CoverImage.svelte";
   import OfflineState from "./OfflineState.svelte";
   import ExploreSearchResults from "./explore/ExploreSearchResults.svelte";
   import ExploreSkeleton from "./explore/ExploreSkeleton.svelte";
+
+  const EMPTY_SUGGESTIONS: SearchSuggestions = { terms: [], tracks: [], artists: [], albums: [] };
 
   function genreColor(g: Genre): string {
     return colorForGenre(g.name);
   }
 
   let query = $state(player.searchQuery);
-  let suggestions = $state<string[]>([]);
+  let suggestions = $state<SearchSuggestions>(EMPTY_SUGGESTIONS);
+  let hasRichEntities = $derived(
+    suggestions.artists.length > 0 ||
+      suggestions.tracks.length > 0 ||
+      suggestions.albums.length > 0,
+  );
   let editing = $state(!player.searchQuery);
   let inputEl = $state<HTMLInputElement | null>(null);
   let debounceTimer: number | undefined;
@@ -51,7 +59,7 @@
     window.clearTimeout(debounceTimer);
     const trimmed = query.trim();
     if (!trimmed) {
-      suggestions = [];
+      suggestions = EMPTY_SUGGESTIONS;
       player.clearSearch(false);
       return;
     }
@@ -73,7 +81,7 @@
     if (!clean || player.isOffline) return;
     query = clean;
     editing = false;
-    suggestions = [];
+    suggestions = EMPTY_SUGGESTIONS;
     inputEl?.blur();
     if (player.tryOpenYtmLink(clean)) return;
     void player.runSearch(clean);
@@ -81,7 +89,7 @@
 
   function clearInput() {
     query = "";
-    suggestions = [];
+    suggestions = EMPTY_SUGGESTIONS;
     editing = true;
     player.clearSearch(false);
     inputEl?.focus();
@@ -163,8 +171,8 @@
           {t("header.suggestions")}
         </h2>
         <div class="flex flex-col -mx-1.5">
-          {#if suggestions.length > 0}
-            {#each suggestions as term (term)}
+          {#if suggestions.terms.length > 0}
+            {#each suggestions.terms as term (term)}
               {@const [prefix, rest] = splitHighlight(term)}
               <div class="flex items-center gap-0.5 rounded-xl hover:bg-[var(--surface-hover)] transition-colors">
                 <button
@@ -196,7 +204,7 @@
                 </button>
               </div>
             {/each}
-          {:else}
+          {:else if !hasRichEntities}
             <button
               type="button"
               class="flex items-center gap-3 px-2.5 py-2.5 rounded-xl text-left text-[14.5px] hover:bg-[var(--surface-hover)] transition-colors"
@@ -205,6 +213,79 @@
               <Search size={16} class="text-[var(--text-muted)] shrink-0" aria-hidden="true" />
               <span class="truncate font-medium text-[var(--text)]">{query.trim()}</span>
             </button>
+          {/if}
+
+          {#if hasRichEntities}
+            {#if suggestions.terms.length > 0}
+              <div class="my-2 mx-2.5 border-t border-[var(--border)]"></div>
+            {/if}
+
+            {#each suggestions.artists as artist (artist.id)}
+              <button
+                type="button"
+                class="flex items-center gap-3 px-2.5 py-2 rounded-xl hover:bg-[var(--surface-hover)] text-left transition-colors"
+                onclick={() => {
+                  inputEl?.blur();
+                  player.openArtist(artist.id, artist.name);
+                }}
+              >
+                <CoverImage
+                  class="w-10 h-10 !rounded-full shrink-0 border border-[var(--border)]"
+                  src={artist.avatar_url}
+                  alt={artist.name}
+                  fallbackIcon="👤"
+                />
+                <div class="min-w-0 flex-1">
+                  <div class="text-[14px] font-bold truncate">{artist.name}</div>
+                  <div class="text-[12px] text-[var(--text-muted)]">{t("explore.artist_pill")}</div>
+                </div>
+              </button>
+            {/each}
+
+            {#each suggestions.tracks as track (track.id)}
+              <button
+                type="button"
+                class="flex items-center gap-3 px-2.5 py-2 rounded-xl hover:bg-[var(--surface-hover)] text-left transition-colors"
+                onclick={() => {
+                  inputEl?.blur();
+                  player.replaceQueueAndPlay([track], 0, track.title);
+                }}
+              >
+                <CoverImage
+                  class="track-cover !w-10 !h-10 !rounded-[8px] shrink-0"
+                  src={track.cover_url}
+                  alt=""
+                />
+                <div class="min-w-0 flex-1">
+                  <div class="text-[14px] font-bold truncate">{track.title}</div>
+                  <div class="text-[12px] text-[var(--text-muted)] truncate">{track.artist}</div>
+                </div>
+                <Play size={15} fill="currentColor" class="text-[var(--accent-bright)] shrink-0 mr-1" />
+              </button>
+            {/each}
+
+            {#each suggestions.albums as album (album.id)}
+              <button
+                type="button"
+                class="flex items-center gap-3 px-2.5 py-2 rounded-xl hover:bg-[var(--surface-hover)] text-left transition-colors"
+                onclick={() => {
+                  inputEl?.blur();
+                  player.openAlbum(album.id, album.title, album.cover_url);
+                }}
+              >
+                <CoverImage
+                  class="track-cover !w-10 !h-10 !rounded-[8px] shrink-0"
+                  src={album.cover_url}
+                  alt=""
+                />
+                <div class="min-w-0 flex-1">
+                  <div class="text-[14px] font-bold truncate">{album.title}</div>
+                  <div class="text-[12px] text-[var(--text-muted)] truncate">
+                    {t("album.badge_album")}{album.artist ? ` · ${album.artist}` : ""}
+                  </div>
+                </div>
+              </button>
+            {/each}
           {/if}
         </div>
       </section>

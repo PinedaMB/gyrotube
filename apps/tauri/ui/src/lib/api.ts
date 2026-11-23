@@ -54,7 +54,7 @@ export const api = {
   getGenrePlaylists: (genreId: string): Promise<[string, Playlist[]]> =>
     call("get_genre_playlists", { genreId }),
   searchAll: (query: string): Promise<SearchResults> => call("search_all", { query }),
-  getSearchSuggestions: (query: string): Promise<string[]> =>
+  getSearchSuggestions: (query: string): Promise<import("./types").SearchSuggestions> =>
     call("get_search_suggestions", { query }),
   getArtist: (artistId: string, fallbackName: string): Promise<ArtistDetails> =>
     call("get_artist", { artistId, fallbackName }),

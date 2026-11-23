@@ -71,14 +71,18 @@
       className.includes("track-cover") ||
       className.includes("tile-cover") ||
       className.includes("up-next-cover") ||
-      className.includes("w-10")
+      /\b!?w-(?:8|9|10|11|12|13|14|16)\b/.test(className)
     ) {
       return 120;
     }
     if (
       className.includes("media-cover") ||
       className.includes("artist-avatar") ||
-      className.includes("top-avatar") ||
+      className.includes("top-avatar")
+    ) {
+      return 256;
+    }
+    if (
       className.includes("hero-cover") ||
       className.includes("album-cover")
     ) {
@@ -90,8 +94,15 @@
   function resizeUrl(url: string | null | undefined): string | null {
     if (!url) return null;
     const px = inferTargetPx();
-    if (url.includes("googleusercontent.com") && /=w\d+-h\d+/.test(url)) {
-      return url.replace(/=w\d+-h\d+[^&?]*/, `=w${px}-h${px}-l90-rj`);
+    const isGoogleImg =
+      url.includes("googleusercontent.com") || url.includes("ggpht.com");
+    if (isGoogleImg) {
+      if (/=w\d+-h\d+/.test(url)) {
+        return url.replace(/=w\d+-h\d+[^&?]*/, `=w${px}-h${px}-l90-rj`);
+      }
+      if (/=s\d+/.test(url)) {
+        return url.replace(/=s\d+/, `=s${px}`);
+      }
     }
     if (url.includes("i.ytimg.com") && px <= 120) {
       return url.replace(/\/(maxresdefault|sddefault|hqdefault)\./, "/mqdefault.");

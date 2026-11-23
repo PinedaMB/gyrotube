@@ -5,8 +5,8 @@ use std::time::{Duration, Instant};
 use serde_json::{Value, json};
 
 use crate::models::{
-    Album, Artist, LyricsData, Playlist, RelatedFeed, StreamInfo, SyncedLyricLine, Track,
-    clean_track_title, pick_cover_thumbs,
+    Album, Artist, LyricsData, Playlist, RelatedFeed, SearchSuggestions, StreamInfo, SyncedLyricLine,
+    Track, clean_track_title, pick_cover_thumbs,
 };
 
 const YTM_CLIENT_NAME: &str = "WEB_REMIX";
@@ -638,10 +638,14 @@ impl InnerTubeClient {
     }
 
     pub async fn search_suggestions(&self, query: &str) -> Result<Vec<String>, String> {
+        Ok(self.search_suggestions_rich(query).await?.terms)
+    }
+
+    pub async fn search_suggestions_rich(&self, query: &str) -> Result<SearchSuggestions, String> {
         let resp = self
             .ytm_post("music/get_search_suggestions", json!({ "input": query }), None)
             .await?;
-        Ok(parse_search_suggestions_json(&resp))
+        Ok(parse_rich_search_suggestions_json(&resp))
     }
 
     pub async fn fetch_music_details(&self, video_id: &str) -> Result<MusicTrackDetails, String> {
@@ -1714,29 +1718,133 @@ fn find_description_shelf(val: &Value, out: &mut Option<String>) {
     }
 }
 
+fn parse_responsive_album_item(item: &Value) -> Option<Album> {
+    let bid = item["navigationEndpoint"]["browseEndpoint"]["browseId"].as_str()?;
+    if !bid.starts_with("MPREb_") && !bid.starts_with("OLAK") {
+        return None;
+    }
+    let flex = item["flexColumns"].as_array()?;
+    let title = runs_text(&flex.first()?["musicResponsiveListItemFlexColumnRenderer"]["text"]);
+    if title.is_empty() {
+        return None;
+    }
+    let mut artist_parts = Vec::new();
+    let mut year = None;
+    if let Some(runs) = flex
+        .get(1)
+        .and_then(|c| c["musicResponsiveListItemFlexColumnRenderer"]["text"]["runs"].as_array())
+    {
+        for run in runs {
+            let text = run["text"].as_str().unwrap_or("").trim();
+            if text.is_empty() || text == "•" || text == "," || text == "&" {
+                continue;
+            }
+            let lower = text.to_lowercase();
+            if matches!(lower.as_str(), "album" | "álbum" | "single" | "sencillo" | "ep") {
+                continue;
+            }
+            if text.len() == 4
+                && let Ok(y) = text.parse::<u16>()
+                && (1900..=2100).contains(&y)
+            {
+                year = Some(y);
+                continue;
+            }
+            artist_parts.push(text.to_string());
+        }
+    }
+    let covers = extract_thumbs(&item["thumbnail"]);
+    Some(Album {
+        id: bid.to_string(),
+        title,
+        artist: artist_parts.join(", "),
+        year,
+        cover_url: pick_cover_thumbs(&covers, 240),
+    })
+}
+
 pub fn parse_search_suggestions_json(resp: &Value) -> Vec<String> {
-    let mut out = Vec::new();
-    collect_suggestions(resp, &mut out);
+    parse_rich_search_suggestions_json(resp).terms
+}
+
+pub fn parse_rich_search_suggestions_json(resp: &Value) -> SearchSuggestions {
+    let mut out = SearchSuggestions::default();
+    let mut seen_terms = HashSet::new();
+    let mut seen_tracks = HashSet::new();
+    let mut seen_artists = HashSet::new();
+    let mut seen_albums = HashSet::new();
+    collect_rich_suggestions(
+        resp,
+        &mut out,
+        &mut seen_terms,
+        &mut seen_tracks,
+        &mut seen_artists,
+        &mut seen_albums,
+    );
     out
 }
 
-fn collect_suggestions(val: &Value, out: &mut Vec<String>) {
+fn collect_rich_suggestions(
+    val: &Value,
+    out: &mut SearchSuggestions,
+    seen_terms: &mut HashSet<String>,
+    seen_tracks: &mut HashSet<String>,
+    seen_artists: &mut HashSet<String>,
+    seen_albums: &mut HashSet<String>,
+) {
     match val {
         Value::Object(map) => {
             if let Some(r) = map.get("searchSuggestionRenderer") {
                 let text = runs_text(&r["suggestion"]);
-                if !text.is_empty() {
-                    out.push(text);
+                if !text.is_empty()
+                    && out.terms.len() < 6
+                    && seen_terms.insert(text.to_lowercase())
+                {
+                    out.terms.push(text);
+                }
+                return;
+            }
+            if let Some(r) = map.get("musicResponsiveListItemRenderer") {
+                if let Some(item) = parse_responsive_list_item(r) {
+                    if !item.unavailable
+                        && out.tracks.len() < 4
+                        && seen_tracks.insert(item.track.id.clone())
+                    {
+                        out.tracks.push(item.track);
+                    }
+                } else if let Some(artist) = parse_responsive_artist_item(r) {
+                    if out.artists.len() < 3 && seen_artists.insert(artist.id.clone()) {
+                        out.artists.push(artist);
+                    }
+                } else if let Some(album) = parse_responsive_album_item(r)
+                    && out.albums.len() < 3
+                    && seen_albums.insert(album.id.clone())
+                {
+                    out.albums.push(album);
                 }
                 return;
             }
             for v in map.values() {
-                collect_suggestions(v, out);
+                collect_rich_suggestions(
+                    v,
+                    out,
+                    seen_terms,
+                    seen_tracks,
+                    seen_artists,
+                    seen_albums,
+                );
             }
         }
         Value::Array(arr) => {
             for v in arr {
-                collect_suggestions(v, out);
+                collect_rich_suggestions(
+                    v,
+                    out,
+                    seen_terms,
+                    seen_tracks,
+                    seen_artists,
+                    seen_albums,
+                );
             }
         }
         _ => {}

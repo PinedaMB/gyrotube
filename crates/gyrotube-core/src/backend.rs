@@ -435,10 +435,41 @@ impl Backend {
     }
 
     pub async fn search_suggestions(&self, query_str: &str) -> Result<Vec<String>, String> {
+        Ok(self.search_suggestions_rich(query_str).await?.terms)
+    }
+
+    pub async fn search_suggestions_rich(
+        &self,
+        query_str: &str,
+    ) -> Result<crate::models::SearchSuggestions, String> {
+        if let Ok(mut rich) = self.innertube.search_suggestions_rich(query_str).await {
+            if !rich.terms.is_empty()
+                || !rich.tracks.is_empty()
+                || !rich.artists.is_empty()
+                || !rich.albums.is_empty()
+            {
+                return Ok(rich);
+            }
+            if let Ok(ytm) = self.primary().await
+                && let Ok(suggestions) = ytm.get_search_suggestions(query_str).await
+            {
+                rich.terms = suggestions
+                    .into_iter()
+                    .map(|s| {
+                        s.runs
+                            .into_iter()
+                            .map(|r| r.take_text())
+                            .collect::<String>()
+                    })
+                    .filter(|s| !s.is_empty())
+                    .collect();
+                return Ok(rich);
+            }
+        }
         if let Ok(ytm) = self.primary().await
             && let Ok(suggestions) = ytm.get_search_suggestions(query_str).await
         {
-            let list: Vec<String> = suggestions
+            let terms = suggestions
                 .into_iter()
                 .map(|s| {
                     s.runs
@@ -448,14 +479,12 @@ impl Backend {
                 })
                 .filter(|s| !s.is_empty())
                 .collect();
-            if !list.is_empty() {
-                return Ok(list);
-            }
+            return Ok(crate::models::SearchSuggestions {
+                terms,
+                ..Default::default()
+            });
         }
-        self.innertube
-            .search_suggestions(query_str)
-            .await
-            .map_err(|e| format!("Error obteniendo sugerencias: {e}"))
+        Err(String::from("Error obteniendo sugerencias"))
     }
 
     pub async fn search_all(&self, query_str: &str) -> Result<SearchResults, String> {

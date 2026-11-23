@@ -77,6 +77,13 @@ export interface SearchResults {
   tracks: Track[];
 }
 
+export interface SearchSuggestions {
+  terms: string[];
+  tracks: Track[];
+  artists: Artist[];
+  albums: Album[];
+}
+
 export interface StreamInfo {
   url: string;
   quality_label: string;

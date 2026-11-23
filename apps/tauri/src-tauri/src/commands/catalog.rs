@@ -55,8 +55,8 @@ pub async fn search_all(
 pub async fn get_search_suggestions(
     state: State<'_, AppCoreState>,
     query: String,
-) -> Result<Vec<String>, String> {
-    state.backend.search_suggestions(&query).await
+) -> Result<gyrotube_core::models::SearchSuggestions, String> {
+    state.backend.search_suggestions_rich(&query).await
 }
 
 #[tauri::command]

@@ -90,6 +90,14 @@ pub struct SearchResults {
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct SearchSuggestions {
+    pub terms: Vec<String>,
+    pub tracks: Vec<Track>,
+    pub artists: Vec<Artist>,
+    pub albums: Vec<Album>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct RelatedFeed {
     pub tracks: Vec<Track>,
     pub albums: Vec<Album>,
