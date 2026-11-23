@@ -16,7 +16,7 @@
     if (player.favorites.length > 0) {
       out.push({ kind: "favorites", tracks: player.favorites });
     }
-    for (const pl of player.userPlaylists) {
+    for (const pl of player.sortedUserPlaylists) {
       if (out.length >= 6) break;
       out.push({ kind: "playlist", playlist: pl });
     }

@@ -2,7 +2,48 @@
   import { Play, Trash2 } from "lucide-svelte";
   import { t } from "../../lib/i18n.svelte";
   import { player } from "../../lib/stores/player.svelte";
+  import type { Track } from "../../lib/types";
   import TrackRow from "../TrackRow.svelte";
+
+  type HistoryBucketKey = "today" | "yesterday" | "week" | "older";
+
+  let groupedRecent = $derived.by(() => {
+    const now = new Date();
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const startOfYesterday = startOfToday - 24 * 60 * 60 * 1000;
+    const startOfWeek = startOfToday - 7 * 24 * 60 * 60 * 1000;
+
+    const buckets: Record<HistoryBucketKey, { track: Track; index: number }[]> = {
+      today: [],
+      yesterday: [],
+      week: [],
+      older: [],
+    };
+
+    player.recentTracks.forEach((track, index) => {
+      const ts = player.recentPlayedAt[track.id];
+      if (!ts || ts >= startOfToday) {
+        buckets.today.push({ track, index });
+      } else if (ts >= startOfYesterday) {
+        buckets.yesterday.push({ track, index });
+      } else if (ts >= startOfWeek) {
+        buckets.week.push({ track, index });
+      } else {
+        buckets.older.push({ track, index });
+      }
+    });
+
+    const order: { key: HistoryBucketKey; label: string }[] = [
+      { key: "today", label: t("collection.history_today") },
+      { key: "yesterday", label: t("collection.history_yesterday") },
+      { key: "week", label: t("collection.history_week") },
+      { key: "older", label: t("collection.history_older") },
+    ];
+
+    return order
+      .map((entry) => ({ ...entry, items: buckets[entry.key] }))
+      .filter((group) => group.items.length > 0);
+  });
 
   function playAllRecent() {
     const list = player.isOffline
@@ -54,30 +95,41 @@
       <p class="text-[var(--text-muted)] text-[13.5px]">{t("collection.empty_recent")}</p>
     </div>
   {:else}
-    <div class="track-list">
-      {#each player.recentTracks as track, i (track.id)}
-        {@const unavailableOffline = player.isOffline && !player.isTrackDownloaded(track.id)}
-        <div class={unavailableOffline ? "opacity-45" : ""}>
-          <TrackRow
-            {track}
-            onPlay={() => {
-              if (unavailableOffline) {
-                player.showToast(t("offline.not_downloaded"));
-                return;
-              }
-              if (player.isOffline) {
-                const downloaded = player.recentTracks.filter((tr) => player.isTrackDownloaded(tr.id));
-                const idx = downloaded.findIndex((tr) => tr.id === track.id);
-                if (idx >= 0) {
-                  player.replaceQueueAndPlay(downloaded, idx, t("collection.recently_played"));
-                }
-                return;
-              }
-              player.replaceQueueAndPlay(player.recentTracks, i, t("collection.recently_played"));
-            }}
-            onRemove={() => player.removeRecentTrack(track.id)}
-            removeLabel={t("collection.remove_recent")}
-          />
+    <div class="space-y-4">
+      {#each groupedRecent as group (group.key)}
+        <div class="space-y-1.5">
+          {#if groupedRecent.length > 1 || group.key !== "today"}
+            <h3 class="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)] px-1">
+              {group.label}
+            </h3>
+          {/if}
+          <div class="track-list">
+            {#each group.items as { track, index } (track.id)}
+              {@const unavailableOffline = player.isOffline && !player.isTrackDownloaded(track.id)}
+              <div class={unavailableOffline ? "opacity-45" : ""}>
+                <TrackRow
+                  {track}
+                  onPlay={() => {
+                    if (unavailableOffline) {
+                      player.showToast(t("offline.not_downloaded"));
+                      return;
+                    }
+                    if (player.isOffline) {
+                      const downloaded = player.recentTracks.filter((tr) => player.isTrackDownloaded(tr.id));
+                      const idx = downloaded.findIndex((tr) => tr.id === track.id);
+                      if (idx >= 0) {
+                        player.replaceQueueAndPlay(downloaded, idx, t("collection.recently_played"));
+                      }
+                      return;
+                    }
+                    player.replaceQueueAndPlay(player.recentTracks, index, t("collection.recently_played"));
+                  }}
+                  onRemove={() => player.removeRecentTrack(track.id)}
+                  removeLabel={t("collection.remove_recent")}
+                />
+              </div>
+            {/each}
+          </div>
         </div>
       {/each}
     </div>

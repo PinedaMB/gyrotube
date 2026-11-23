@@ -2,6 +2,8 @@
   import {
     Compass,
     Disc3,
+    Eye,
+    EyeOff,
     Heart,
     Home,
     Library,
@@ -211,6 +213,24 @@
   {/if}
 
   <div class="my-1 border-t border-[var(--border)]"></div>
+
+  <button
+    type="button"
+    role="menuitem"
+    class="ctx-item"
+    onclick={() => {
+      contextMenu.close();
+      player.toggleHideTrack(track);
+    }}
+  >
+    {#if player.isTrackHidden(track.id)}
+      <Eye size={15} />
+      <span>{t("ctx.unhide_track")}</span>
+    {:else}
+      <EyeOff size={15} />
+      <span>{t("ctx.hide_track")}</span>
+    {/if}
+  </button>
 
   <button
     type="button"

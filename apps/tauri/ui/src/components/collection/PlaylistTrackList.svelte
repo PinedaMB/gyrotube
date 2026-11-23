@@ -1,6 +1,18 @@
 <script lang="ts">
   import TrackRow from "../TrackRow.svelte";
-  import { ArrowDownCircle, ArrowUpDown, Compass, GripVertical, Heart, Music, Search, X } from "lucide-svelte";
+  import {
+    ArrowDownCircle,
+    ArrowUpDown,
+    Compass,
+    GripVertical,
+    Heart,
+    Music,
+    Plus,
+    Search,
+    Sparkles,
+    X,
+  } from "lucide-svelte";
+  import { api, isTauriRuntime } from "../../lib/api";
   import { t } from "../../lib/i18n.svelte";
   import { device } from "../../lib/stores/device.svelte";
   import { player } from "../../lib/stores/player.svelte";
@@ -30,6 +42,62 @@
 
   let filterText = $state("");
   let onlyDownloaded = $state(false);
+  let enhanced = $state(false);
+  let enhancing = $state(false);
+  let enhancedTracks = $state<Track[]>([]);
+  let lastEnhancedPlaylistId = $state<string | null>(null);
+
+  $effect(() => {
+    const pid = playlist?.id ?? null;
+    if (pid !== lastEnhancedPlaylistId) {
+      lastEnhancedPlaylistId = pid;
+      enhanced = false;
+      enhancedTracks = [];
+    }
+  });
+
+  // Remove already-added tracks from enhanced suggestions automatically
+  let visibleEnhanced = $derived.by(() => {
+    if (!enhanced) return [];
+    const existing = new Set(tracks.map((tr) => tr.id));
+    return enhancedTracks.filter((tr) => !existing.has(tr.id) && !player.isTrackHidden(tr.id));
+  });
+
+  async function toggleEnhance() {
+    if (enhanced) {
+      enhanced = false;
+      enhancedTracks = [];
+      return;
+    }
+    if (!isTauriRuntime() || player.isOffline || tracks.length === 0 || enhancing) return;
+    enhancing = true;
+    try {
+      const seeds = tracks.length > 2 ? [tracks[0], tracks[Math.floor(tracks.length / 2)]] : [tracks[0]];
+      const results = await Promise.all(
+        seeds.map((s) => api.getRadioTracks(s.id).catch(() => [] as Track[])),
+      );
+      const existing = new Set(tracks.map((tr) => tr.id));
+      const seen = new Set<string>();
+      const picked: Track[] = [];
+      for (const list of results) {
+        for (const tr of list) {
+          if (existing.has(tr.id) || seen.has(tr.id) || player.isTrackHidden(tr.id)) continue;
+          seen.add(tr.id);
+          picked.push(tr);
+          if (picked.length >= 6) break;
+        }
+        if (picked.length >= 6) break;
+      }
+      if (picked.length === 0) {
+        player.showToast(t("filter.no_matches"));
+        return;
+      }
+      enhancedTracks = picked;
+      enhanced = true;
+    } finally {
+      enhancing = false;
+    }
+  }
 
   let hasAnyDownloaded = $derived(tracks.some((tr) => player.isTrackDownloaded(tr.id)));
   let canReorder = $derived(
@@ -185,7 +253,26 @@
         </div>
       {/if}
 
-      <div class="flex items-center gap-1.5 ml-auto">
+      <div class="flex flex-wrap items-center gap-1.5 ml-auto">
+        {#if mode === "playlist" && playlist && !player.isOffline && tracks.length > 0}
+          <button
+            type="button"
+            aria-pressed={enhanced}
+            disabled={enhancing}
+            class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[12px] font-semibold border transition-colors disabled:opacity-50 {enhanced
+              ? 'bg-[var(--accent-soft)] text-[var(--accent-bright)] border-[var(--accent-border)]'
+              : 'bg-[var(--surface)] hover:bg-[var(--surface-hover)] border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text)]'}"
+            onclick={() => void toggleEnhance()}
+          >
+            <Sparkles size={13} class={enhancing ? "animate-spin" : ""} />
+            {enhancing
+              ? t("collection.enhance_loading")
+              : enhanced
+                ? t("collection.enhance_active")
+                : t("collection.enhance")}
+          </button>
+        {/if}
+
         {#if hasAnyDownloaded}
           <button
             type="button"
@@ -294,6 +381,39 @@
             </div>
           {/each}
         </div>
+
+        {#if visibleEnhanced.length > 0 && playlist}
+          <div class="mt-5 pt-4 border-t border-[var(--border)] space-y-2">
+            <div class="flex items-center justify-between px-1">
+              <span class="inline-flex items-center gap-1.5 text-[11.5px] font-bold uppercase tracking-[0.08em] text-[var(--accent-bright)]">
+                <Sparkles size={12} />
+                {t("collection.enhance_active")} · {visibleEnhanced.length}
+              </span>
+            </div>
+            <div class="track-list">
+              {#each visibleEnhanced as sug (sug.id)}
+                <div class="flex items-center gap-1.5 rounded-xl bg-[var(--accent-soft)]/35 border border-[var(--accent-border)]/30 pr-2">
+                  <div class="flex-1 min-w-0">
+                    <TrackRow
+                      track={sug}
+                      onPlay={() =>
+                        player.replaceQueueAndPlay([sug, ...tracks], 0, playlist?.name ?? "Playlist")}
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11.5px] font-bold bg-[var(--accent)] hover:bg-[var(--accent-bright)] text-white shrink-0 transition-all active:scale-95"
+                    title={t("collection.enhance_add")}
+                    onclick={() => playlist && player.addTrackToPlaylist(playlist.id, sug)}
+                  >
+                    <Plus size={12} />
+                    {t("queue.add").split(" ")[0]}
+                  </button>
+                </div>
+              {/each}
+            </div>
+          </div>
+        {/if}
       </div>
     {/if}
   {/if}

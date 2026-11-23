@@ -129,19 +129,13 @@
       {/if}
     </button>
 
-    {#each player.userPlaylists as pl (pl.id)}
+    {#each player.sortedUserPlaylists as pl (pl.id)}
       <button
         class="w-full flex items-center gap-2.5 rounded-xl px-2.5 py-2 text-left transition-colors hover:bg-[var(--surface)] {collapsed
           ? 'justify-center px-0'
           : ''}"
         title={pl.name}
-        onclick={() => {
-          if (pl.tracks.length > 0) {
-            player.replaceQueueAndPlay(pl.tracks, 0, pl.name);
-          } else {
-            player.navigateTab("collection");
-          }
-        }}
+        onclick={() => player.openLocalPlaylist(pl.id)}
       >
         <span
           class="w-7 h-7 rounded-lg inline-flex items-center justify-center text-white shrink-0 overflow-hidden"

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { ArrowDownCircle, Check, Ellipsis, Heart, ListPlus, Pause, Play, Plus, Trash2, X } from "lucide-svelte";
+  import { ArrowDownCircle, Check, Ellipsis, EyeOff, Heart, ListPlus, Pause, Play, Plus, Trash2, X } from "lucide-svelte";
   import type { Snippet } from "svelte";
   import { cubicOut } from "svelte/easing";
   import { fly } from "svelte/transition";
@@ -24,6 +24,7 @@
   let playing = $derived(current && player.isPlaying);
   let playbackLabel = $derived(t(playing ? "player.playing" : "player.paused"));
   let favorite = $derived(player.isFavorite(track.id));
+  let hidden = $derived(player.isTrackHidden(track.id));
   let displayDuration = $derived(
     track.duration_secs ?? (current && player.durationSecs > 0 ? Math.round(player.durationSecs) : null),
   );
@@ -34,7 +35,9 @@
 <div class="relative">
   <div
     role="group"
-    class="group relative flex min-w-0 items-center gap-2 rounded-xl px-2 py-1.5 transition-colors {playing
+    class="group relative flex min-w-0 items-center gap-2 rounded-xl px-2 py-1.5 transition-colors {hidden
+      ? 'opacity-45'
+      : ''} {playing
       ? 'bg-[var(--accent-soft)]'
       : current
         ? 'bg-[var(--surface-hover)]'
@@ -93,12 +96,15 @@
 
       <div class="min-w-0 flex-1">
         <div
-          class="text-[14px] md:text-[15px] font-semibold truncate {current
+          class="text-[14px] md:text-[15px] font-semibold truncate flex items-center gap-1.5 {current
             ? 'text-[var(--accent-bright)] font-bold'
-            : ''}"
+            : ''} {hidden ? 'line-through' : ''}"
           title={track.title}
         >
-          {track.title}
+          {#if hidden}
+            <EyeOff size={13} class="text-[var(--text-muted)] shrink-0" aria-hidden="true" />
+          {/if}
+          <span class="truncate">{track.title}</span>
         </div>
         <div class="flex items-center gap-1.5 text-[12.5px] md:text-[13px] text-[var(--text-muted)]" title={track.artist}>
           {#if player.isTrackDownloading(track.id)}

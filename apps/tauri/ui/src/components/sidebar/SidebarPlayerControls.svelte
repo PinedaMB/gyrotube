@@ -35,14 +35,30 @@
   let seekDraft = $state(0);
   let resolvingArtist = $state<string | null>(null);
 
+  const ARTIST_NOISE = new Set([
+    "song",
+    "canción",
+    "cancion",
+    "video",
+    "vídeo",
+    "album",
+    "álbum",
+    "single",
+    "sencillo",
+    "ep",
+    "episode",
+    "episodio",
+    "podcast",
+  ]);
+
   let artistNames = $derived.by(() => {
     const raw = player.currentTrack?.artist?.trim();
     if (!raw) return [];
     const parts = raw
-      .split(/\s*(?:,|feat\.?|ft\.?|featuring)\s+/i)
+      .split(/\s*(?:,|•|·|&|\bfeat\.?|\bft\.?|\bfeaturing)\s+/i)
       .map((s) => s.trim())
-      .filter(Boolean);
-    return parts.length > 0 ? parts : [raw];
+      .filter((s) => s.length > 0 && !ARTIST_NOISE.has(s.toLowerCase()));
+    return parts;
   });
 
   async function goToArtist(name: string, index: number) {
@@ -279,26 +295,26 @@
             {artistNames.join(", ")}
           </p>
         {:else}
-          <div class="flex flex-wrap items-center justify-center gap-x-0.5 gap-y-0.5 max-w-full">
+          <div class="flex flex-wrap items-center justify-center gap-x-1 gap-y-0.5 max-w-full px-2">
             {#each artistNames as name, i (`${name}:${i}`)}
               <button
                 type="button"
                 disabled={resolvingArtist !== null}
-                class="group inline-flex items-center justify-center gap-1 max-w-full px-2 py-0.5 rounded-full text-[14.5px] font-semibold text-[var(--text-muted)] hover:text-[var(--accent-bright)] hover:bg-[var(--surface-hover)] active:bg-[var(--surface-hover)] transition-colors"
+                class="group inline-flex items-center justify-center max-w-full px-2 py-0.5 rounded-lg text-[14px] sm:text-[14.5px] font-semibold text-[var(--text-muted)] hover:text-[var(--accent-bright)] hover:bg-[var(--surface-hover)] active:bg-[var(--surface-hover)] transition-colors"
                 title={t("ctx.go_artist")}
                 onclick={() => void goToArtist(name, i)}
               >
                 {#if resolvingArtist === name}
-                  <span class="w-3 h-3 rounded-full border-2 border-current/30 border-t-current animate-spin shrink-0"></span>
+                  <span class="w-3 h-3 mr-1 rounded-full border-2 border-current/30 border-t-current animate-spin shrink-0"></span>
                 {/if}
                 <span class="truncate">{name}</span>
                 {#if artistNames.length === 1}
                   <ChevronRight
                     size={13}
-                    class="shrink-0 opacity-0 -ml-0.5 group-hover:opacity-80 group-hover:ml-0 transition-all"
+                    class="shrink-0 w-0 opacity-0 group-hover:w-3.5 group-hover:ml-0.5 group-hover:opacity-80 transition-all overflow-hidden"
                   />
                 {/if}
-              </button>{#if i < artistNames.length - 1}<span class="text-[14px] font-semibold text-[var(--text-muted)]/60 -ml-1 mr-0.5 select-none">,</span>{/if}
+              </button>{#if i < artistNames.length - 1}<span class="text-[13px] font-bold text-[var(--text-muted)]/40 select-none" aria-hidden="true">·</span>{/if}
             {/each}
           </div>
         {/if}

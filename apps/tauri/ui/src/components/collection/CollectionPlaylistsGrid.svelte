@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { CheckCircle2, Heart, Pencil, Play } from "lucide-svelte";
+  import { CheckCircle2, Heart, Pencil, Pin, Play } from "lucide-svelte";
   import { t } from "../../lib/i18n.svelte";
   import { player } from "../../lib/stores/player.svelte";
   import type { Track, UserPlaylist } from "../../lib/types";
@@ -76,9 +76,10 @@
       </button>
     </div>
 
-    <!-- User playlists -->
-    {#each player.userPlaylists as pl (pl.id)}
+    <!-- User playlists (pinned first) -->
+    {#each player.sortedUserPlaylists as pl (pl.id)}
       {@const accent = pl.color_hex || "#10b981"}
+      {@const pinned = player.isPlaylistPinned(pl.id)}
       <div
         class="group flex items-center gap-3.5 p-3.5 rounded-2xl border border-[var(--border)] hover:border-[var(--border-strong)] cursor-pointer transition-all duration-150 hover:-translate-y-0.5"
         style="background: linear-gradient(135deg, {accent}22, var(--card-bg) 72%); box-shadow: var(--card-shadow);"
@@ -99,6 +100,9 @@
         </span>
         <div class="min-w-0 flex-1">
           <div class="flex items-center gap-1.5">
+            {#if pinned}
+              <Pin size={12} class="text-[var(--accent-bright)] shrink-0 rotate-45" />
+            {/if}
             <strong class="text-[14.5px] font-bold truncate">{pl.name}</strong>
             {#if allDownloaded(pl.tracks)}
               <span title={t("offline.downloaded")} class="text-[var(--accent-bright)] shrink-0">
@@ -113,6 +117,18 @@
           </span>
         </div>
         <div class="flex items-center gap-1 shrink-0">
+          <button
+            class="icon-btn !w-8 !h-8 transition-opacity {pinned
+              ? 'text-[var(--accent-bright)] opacity-100'
+              : 'opacity-0 group-hover:opacity-100'}"
+            title={pinned ? t("collection.unpin") : t("collection.pin")}
+            onclick={(e) => {
+              e.stopPropagation();
+              player.togglePinPlaylist(pl.id);
+            }}
+          >
+            <Pin size={13} class={pinned ? "fill-current" : ""} />
+          </button>
           <button
             class="icon-btn !w-8 !h-8 opacity-0 group-hover:opacity-100 transition-opacity"
             title={t("collection.modal_edit")}

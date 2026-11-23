@@ -116,6 +116,9 @@ class PlayerStore {
   userPlaylists = $state<UserPlaylist[]>([]);
   searchHistory = $state<string[]>([]);
   recentSearches = $state<RecentSearchEntry[]>(PlayerStore.readRecentSearches());
+  pinnedPlaylistIds = $state<string[]>(PlayerStore.readPinnedPlaylistIds());
+  recentPlayedAt = $state<Record<string, number>>(PlayerStore.readRecentPlayedAt());
+  hiddenTrackIds = $state<Set<string>>(PlayerStore.readHiddenTrackIds());
   followedArtists = $state<Artist[]>([]);
 
   // Video mode (hybrid synced <video muted> alongside master audio deck)
@@ -198,6 +201,71 @@ class PlayerStore {
     if (typeof localStorage === "undefined") return;
     try {
       localStorage.setItem("gyrotube.recent_searches_v1", JSON.stringify(this.recentSearches));
+    } catch {
+      // ignore
+    }
+  }
+
+  private static readPinnedPlaylistIds(): string[] {
+    if (typeof localStorage === "undefined") return [];
+    try {
+      const raw = localStorage.getItem("gyrotube.pinned_playlists_v1");
+      if (!raw) return [];
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed)
+        ? parsed.filter((x): x is string => typeof x === "string").slice(0, 4)
+        : [];
+    } catch {
+      return [];
+    }
+  }
+
+  private persistPinnedPlaylistIds(): void {
+    if (typeof localStorage === "undefined") return;
+    try {
+      localStorage.setItem("gyrotube.pinned_playlists_v1", JSON.stringify(this.pinnedPlaylistIds));
+    } catch {
+      // ignore
+    }
+  }
+
+  private static readRecentPlayedAt(): Record<string, number> {
+    if (typeof localStorage === "undefined") return {};
+    try {
+      const raw = localStorage.getItem("gyrotube.recent_played_at_v1");
+      if (!raw) return {};
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === "object" ? (parsed as Record<string, number>) : {};
+    } catch {
+      return {};
+    }
+  }
+
+  private persistRecentPlayedAt(): void {
+    if (typeof localStorage === "undefined") return;
+    try {
+      localStorage.setItem("gyrotube.recent_played_at_v1", JSON.stringify(this.recentPlayedAt));
+    } catch {
+      // ignore
+    }
+  }
+
+  private static readHiddenTrackIds(): Set<string> {
+    if (typeof localStorage === "undefined") return new Set();
+    try {
+      const raw = localStorage.getItem("gyrotube.hidden_tracks_v1");
+      if (!raw) return new Set();
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? new Set(parsed.filter((x): x is string => typeof x === "string")) : new Set();
+    } catch {
+      return new Set();
+    }
+  }
+
+  private persistHiddenTrackIds(): void {
+    if (typeof localStorage === "undefined") return;
+    try {
+      localStorage.setItem("gyrotube.hidden_tracks_v1", JSON.stringify([...this.hiddenTrackIds]));
     } catch {
       // ignore
     }
@@ -1378,13 +1446,73 @@ class PlayerStore {
     this.removeRecentSearch(`q:${term.toLowerCase()}`);
   }
 
+  public get sortedUserPlaylists(): UserPlaylist[] {
+    if (this.pinnedPlaylistIds.length === 0) return this.userPlaylists;
+    const pinnedSet = new Set(this.pinnedPlaylistIds);
+    const pinned = this.pinnedPlaylistIds
+      .map((id) => this.userPlaylists.find((p) => p.id === id))
+      .filter((p): p is UserPlaylist => p != null);
+    const rest = this.userPlaylists.filter((p) => !pinnedSet.has(p.id));
+    return [...pinned, ...rest];
+  }
+
+  public isPlaylistPinned(id: string): boolean {
+    return this.pinnedPlaylistIds.includes(id);
+  }
+
+  public togglePinPlaylist(id: string): void {
+    if (this.pinnedPlaylistIds.includes(id)) {
+      this.pinnedPlaylistIds = this.pinnedPlaylistIds.filter((x) => x !== id);
+      this.persistPinnedPlaylistIds();
+      return;
+    }
+    if (this.pinnedPlaylistIds.length >= 4) {
+      this.showToast(this.isSpanish() ? "Máximo 4 elementos fijados" : "Maximum 4 pinned items");
+      return;
+    }
+    this.pinnedPlaylistIds = [id, ...this.pinnedPlaylistIds];
+    this.persistPinnedPlaylistIds();
+  }
+
+  public isTrackHidden(trackId: string): boolean {
+    return this.hiddenTrackIds.has(trackId);
+  }
+
+  public toggleHideTrack(track: Track): void {
+    const next = new Set(this.hiddenTrackIds);
+    if (next.has(track.id)) {
+      next.delete(track.id);
+      this.hiddenTrackIds = next;
+      this.persistHiddenTrackIds();
+      this.showToast(
+        this.isSpanish() ? `Visible de nuevo: ${track.title}` : `Unhidden: ${track.title}`,
+      );
+    } else {
+      next.add(track.id);
+      this.hiddenTrackIds = next;
+      this.persistHiddenTrackIds();
+      this.showToast(this.isSpanish() ? `Oculta: ${track.title}` : `Hidden: ${track.title}`);
+      if (this.currentTrack?.id === track.id && this.queue.length > 1) {
+        void this.next(false);
+      }
+    }
+  }
+
   public removeRecentTrack(trackId: string): void {
     this.recentTracks = this.recentTracks.filter((t) => t.id !== trackId);
+    if (trackId in this.recentPlayedAt) {
+      const next = { ...this.recentPlayedAt };
+      delete next[trackId];
+      this.recentPlayedAt = next;
+      this.persistRecentPlayedAt();
+    }
     if (isTauriRuntime()) void api.saveRecentTracks(this.recentTracks);
   }
 
   public clearRecentTracks(): void {
     this.recentTracks = [];
+    this.recentPlayedAt = {};
+    this.persistRecentPlayedAt();
     if (isTauriRuntime()) void api.saveRecentTracks([]);
   }
 
@@ -1849,8 +1977,10 @@ class PlayerStore {
     }
     this.probeCounterpartForCurrent(track);
 
-    // Record recent
+    // Record recent + timestamp for date-grouped history
     this.recentTracks = [track, ...this.recentTracks.filter((t) => t.id !== track.id)].slice(0, 30);
+    this.recentPlayedAt = { ...this.recentPlayedAt, [track.id]: Date.now() };
+    this.persistRecentPlayedAt();
     if (isTauriRuntime()) void api.saveRecentTracks(this.recentTracks);
 
     // Extract ambient cover color
@@ -2005,10 +2135,15 @@ class PlayerStore {
       return;
     }
     if (this.currentIndex == null) return;
-    if (this.currentIndex + 1 < this.queue.length) {
-      await this.playIndex(this.currentIndex + 1, useCrossfade);
+    let nextIdx = this.currentIndex + 1;
+    while (nextIdx < this.queue.length && this.hiddenTrackIds.has(this.queue[nextIdx].id)) {
+      nextIdx++;
+    }
+    if (nextIdx < this.queue.length) {
+      await this.playIndex(nextIdx, useCrossfade);
     } else if (this.repeat && this.queue.length > 0) {
-      await this.playIndex(0, useCrossfade);
+      const firstVisible = this.queue.findIndex((t) => !this.hiddenTrackIds.has(t.id));
+      await this.playIndex(firstVisible >= 0 ? firstVisible : 0, useCrossfade);
     } else if (this.autoplayRelated && this.suggestedTracks.length > 0) {
       const nextTrack = this.suggestedTracks[0];
       this.suggestedTracks = this.suggestedTracks.slice(1);
@@ -2202,6 +2337,10 @@ class PlayerStore {
 
   public deleteUserPlaylist(id: string): void {
     this.userPlaylists = this.userPlaylists.filter((p) => p.id !== id);
+    if (this.pinnedPlaylistIds.includes(id)) {
+      this.pinnedPlaylistIds = this.pinnedPlaylistIds.filter((x) => x !== id);
+      this.persistPinnedPlaylistIds();
+    }
     if (isTauriRuntime()) void api.saveUserPlaylists(this.userPlaylists);
     if (this.downloadedPlaylistKeys.has(id)) {
       const next = new Set(this.downloadedPlaylistKeys);
@@ -2214,12 +2353,24 @@ class PlayerStore {
 
   public addTrackToPlaylist(playlistId: string, track: Track): void {
     let added = false;
+    let duplicateName: string | null = null;
     this.userPlaylists = this.userPlaylists.map((p) => {
       if (p.id !== playlistId) return p;
-      if (p.tracks.some((t) => t.id === track.id)) return p;
+      if (p.tracks.some((t) => t.id === track.id)) {
+        duplicateName = p.name;
+        return p;
+      }
       added = true;
       return { ...p, tracks: [...p.tracks, track] };
     });
+    if (duplicateName) {
+      this.showToast(
+        this.isSpanish()
+          ? `«${track.title}» ya está en ${duplicateName}`
+          : `“${track.title}” is already in ${duplicateName}`,
+      );
+      return;
+    }
     if (added) {
       if (isTauriRuntime()) void api.saveUserPlaylists(this.userPlaylists);
       if (this.downloadedPlaylistKeys.has(playlistId)) {

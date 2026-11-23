@@ -1032,6 +1032,24 @@ fn parse_responsive_list_item(item: &Value) -> Option<CatalogItem> {
                 }
             }
             let lower = text.to_lowercase();
+            let is_media_badge = matches!(
+                lower.as_str(),
+                "song"
+                    | "canción"
+                    | "cancion"
+                    | "video"
+                    | "vídeo"
+                    | "album"
+                    | "álbum"
+                    | "single"
+                    | "sencillo"
+                    | "ep"
+                    | "episode"
+                    | "episodio"
+                    | "podcast"
+                    | "playlist"
+                    | "lista"
+            );
             if lower.contains("play") || lower.contains("view") || lower.contains("reproduccion") {
                 if view_count.is_none() {
                     view_count = parse_compact_count(text);
@@ -1042,11 +1060,7 @@ fn parse_responsive_list_item(item: &Value) -> Option<CatalogItem> {
             {
                 duration_secs = Some(secs);
             } else if artists.is_empty()
-                && !lower.contains("song")
-                && !lower.contains("video")
-                && !lower.contains("album")
-                && !lower.contains("single")
-                && !lower.contains("ep")
+                && !is_media_badge
                 && !text.chars().all(|c| c.is_ascii_digit())
             {
                 artists.push(text.to_string());
