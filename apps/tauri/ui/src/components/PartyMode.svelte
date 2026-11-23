@@ -55,13 +55,53 @@
     autoScrollPaused = false;
   }
 
+  const SECTION_HEADER_RE = /^\[[^\]]{1,40}\]$/;
+
+  let waitingForFirstLyric = $derived.by(() => {
+    if (player.lyrics.type !== "Synced" || player.lyrics.lines.length === 0) return false;
+    const first = player.lyrics.lines[0];
+    return (
+      player.activeLyricIndex == null &&
+      first.time_secs >= 3 &&
+      player.positionSecs < first.time_secs
+    );
+  });
+
+  let plainStanzas = $derived.by(() => {
+    if (player.lyrics.type !== "Plain") return [];
+    return player.lyrics.text
+      .trim()
+      .split(/\r?\n\s*\r?\n+/)
+      .map((block) =>
+        block
+          .split(/\r?\n/)
+          .map((l) => l.trim())
+          .filter((l) => l.length > 0)
+          .map((text) => {
+            const isHeader = SECTION_HEADER_RE.test(text);
+            return {
+              text: isHeader ? text.slice(1, -1).trim() : text,
+              isHeader,
+            };
+          }),
+      )
+      .filter((stanza) => stanza.length > 0);
+  });
+
   function lineOpacity(idx: number): number {
-    if (player.activeLyricIndex == null) return 0.72;
-    if (idx === player.activeLyricIndex) return 1.0;
-    const diff = Math.abs(idx - player.activeLyricIndex);
-    if (diff === 1) return 0.54;
-    if (diff === 2) return 0.36;
-    return 0.24;
+    const active = player.activeLyricIndex;
+    if (active == null) {
+      if (idx === 0) return 0.85;
+      if (idx === 1) return 0.58;
+      return 0.34;
+    }
+    if (idx === active) return 1.0;
+    const delta = idx - active;
+    if (delta === 1) return 0.58;
+    if (delta === 2) return 0.38;
+    if (delta > 2) return 0.24;
+    if (delta === -1) return 0.34;
+    return 0.2;
   }
 
   function handleProgressClick(e: MouseEvent) {
@@ -315,11 +355,19 @@
         <div class="relative flex-1 min-h-0 flex flex-col">
           <div
             role="region"
-            aria-label="Lyrics"
-            class="party-lyrics-scroll flex-1 min-h-0 overflow-y-auto overflow-x-hidden pt-10 pb-24 lg:pt-16 lg:pb-36 pr-2 lg:pr-8 flex flex-col gap-5 lg:gap-6"
+            aria-label={t("lyrics.title")}
+            class="party-lyrics-scroll flex-1 min-h-0 overflow-y-auto overflow-x-hidden pt-10 pb-24 lg:pt-16 lg:pb-36 px-1 pr-4 lg:pr-10 flex flex-col gap-5 lg:gap-6"
             onwheel={markUserScroll}
             ontouchmove={markUserScroll}
           >
+            {#if waitingForFirstLyric}
+              <div class="flex items-center gap-2 pb-2" aria-hidden="true">
+                <span class="party-intro-dot"></span>
+                <span class="party-intro-dot" style="animation-delay: 180ms;"></span>
+                <span class="party-intro-dot" style="animation-delay: 360ms;"></span>
+              </div>
+            {/if}
+
             {#each player.lyrics.lines as line, i}
               {@const active = player.activeLyricIndex === i}
               {@const prevLine = i > 0 ? player.lyrics.lines[i - 1] : null}
@@ -327,7 +375,7 @@
               <button
                 type="button"
                 bind:this={lineRefs[i]}
-                class="party-line text-left origin-left {active ? 'active-line' : ''} {stanzaBreak ? 'mt-4 lg:mt-5' : ''}"
+                class="party-line text-left origin-left rounded-2xl {active ? 'active-line' : ''} {stanzaBreak ? 'mt-4 lg:mt-5' : ''}"
                 style="opacity: {lineOpacity(i)};"
                 onclick={() => {
                   autoScrollPaused = false;
@@ -352,8 +400,26 @@
           {/if}
         </div>
       {:else if player.lyrics.type === "Plain"}
-        <div class="party-lyrics-scroll flex-1 min-h-0 overflow-y-auto py-8 lg:py-12 pr-2 lg:pr-6">
-          <pre class="whitespace-pre-wrap text-[19px] sm:text-[22px] lg:text-[24px] font-bold leading-[1.55] tracking-[-0.02em] text-[var(--text)]/85" style="font-family: var(--lyrics-font);">{player.lyrics.text}</pre>
+        <div
+          role="region"
+          aria-label={t("lyrics.title")}
+          class="party-lyrics-scroll flex-1 min-h-0 overflow-y-auto overflow-x-hidden pt-8 pb-28 lg:pt-12 lg:pb-36 px-1 pr-3 lg:pr-8 space-y-6 lg:space-y-7"
+        >
+          {#each plainStanzas as stanza, sIdx (sIdx)}
+            <div class="flex flex-col gap-2">
+              {#each stanza as item, lIdx (`${sIdx}:${lIdx}`)}
+                {#if item.isHeader}
+                  <div class="text-[11.5px] lg:text-[12.5px] font-extrabold uppercase tracking-[0.12em] text-[var(--accent-bright)]/85 pt-1 pb-0.5 select-none">
+                    {item.text}
+                  </div>
+                {:else}
+                  <p class="party-static-line">
+                    {item.text}
+                  </p>
+                {/if}
+              {/each}
+            </div>
+          {/each}
         </div>
       {:else}
         <div class="flex-1 flex flex-col items-center justify-center text-center gap-3 text-[var(--text-muted)]">
@@ -480,20 +546,52 @@
     line-height: 1.38;
     letter-spacing: -0.02em;
     color: var(--text);
-    padding: 4px 0;
+    padding: 5px 10px;
     will-change: transform, opacity;
     transition:
-      opacity 260ms cubic-bezier(0.22, 1, 0.36, 1),
-      transform 260ms cubic-bezier(0.22, 1, 0.36, 1),
+      opacity 280ms cubic-bezier(0.22, 1, 0.36, 1),
+      transform 280ms cubic-bezier(0.22, 1, 0.36, 1),
+      background-color 180ms ease,
       color 260ms ease;
   }
 
   .party-line:hover {
-    opacity: 0.9 !important;
+    opacity: 0.94 !important;
+    background: color-mix(in srgb, var(--surface-hover) 50%, transparent);
   }
 
   .party-line.active-line {
-    transform: scale(1.045);
+    transform: scale(1.035);
     color: var(--text);
+  }
+
+  .party-static-line {
+    font-family: var(--lyrics-font);
+    font-size: clamp(19px, 4.4vw, 25px);
+    font-weight: 700;
+    line-height: 1.48;
+    letter-spacing: -0.02em;
+    color: color-mix(in srgb, var(--text) 88%, transparent);
+    margin: 0;
+  }
+
+  .party-intro-dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 9999px;
+    background: var(--accent-bright);
+    opacity: 0.35;
+    animation: partyIntroPulse 1.2s ease-in-out infinite;
+  }
+
+  @keyframes partyIntroPulse {
+    0%, 100% {
+      opacity: 0.25;
+      transform: scale(0.85);
+    }
+    50% {
+      opacity: 1;
+      transform: scale(1.15);
+    }
   }
 </style>

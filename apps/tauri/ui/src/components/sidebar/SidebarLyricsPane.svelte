@@ -17,28 +17,69 @@
   let selectedIndices = $state<number[]>([]);
   let cardModalOpen = $state(false);
 
-  let plainLines = $derived.by(() => {
-    if (player.lyrics.type !== "Plain") return [];
-    return player.lyrics.text
-      .split(/\r?\n/)
-      .map((l) => l.trim())
-      .filter((l) => l.length > 0);
+  const SECTION_HEADER_RE = /^\[[^\]]{1,40}\]$/;
+
+  interface PlainStanzaLine {
+    text: string;
+    isHeader: boolean;
+    selectableIdx: number | null;
+  }
+
+  let plainParsed = $derived.by(() => {
+    if (player.lyrics.type !== "Plain") {
+      return { stanzas: [] as PlainStanzaLine[][], selectable: [] as string[] };
+    }
+    const selectable: string[] = [];
+    const rawBlocks = player.lyrics.text
+      .trim()
+      .split(/\r?\n\s*\r?\n+/)
+      .map((block) =>
+        block
+          .split(/\r?\n/)
+          .map((l) => l.trim())
+          .filter((l) => l.length > 0),
+      )
+      .filter((lines) => lines.length > 0);
+
+    const stanzas: PlainStanzaLine[][] = rawBlocks.map((block) =>
+      block.map((text) => {
+        const isHeader = SECTION_HEADER_RE.test(text);
+        if (isHeader) {
+          return { text: text.slice(1, -1).trim(), isHeader: true, selectableIdx: null };
+        }
+        const selectableIdx = selectable.length;
+        selectable.push(text);
+        return { text, isHeader: false, selectableIdx };
+      }),
+    );
+
+    return { stanzas, selectable };
   });
 
   let hasLyrics = $derived(
     (player.lyrics.type === "Synced" && player.lyrics.lines.length > 0) ||
-      (player.lyrics.type === "Plain" && plainLines.length > 0),
+      (player.lyrics.type === "Plain" && plainParsed.selectable.length > 0),
   );
+
+  let waitingForFirstLyric = $derived.by(() => {
+    if (player.lyrics.type !== "Synced" || player.lyrics.lines.length === 0) return false;
+    const first = player.lyrics.lines[0];
+    return (
+      player.activeLyricIndex == null &&
+      first.time_secs >= 3 &&
+      player.positionSecs < first.time_secs
+    );
+  });
 
   let selectedLineTexts = $derived.by(() => {
     const sorted = [...selectedIndices].sort((a, b) => a - b);
     if (player.lyrics.type === "Synced") {
       return sorted
-        .map((idx) => player.lyrics.type === "Synced" ? player.lyrics.lines[idx]?.text ?? "" : "")
+        .map((idx) => (player.lyrics.type === "Synced" ? player.lyrics.lines[idx]?.text ?? "" : ""))
         .filter(Boolean);
     }
     if (player.lyrics.type === "Plain") {
-      return sorted.map((idx) => plainLines[idx] ?? "").filter(Boolean);
+      return sorted.map((idx) => plainParsed.selectable[idx] ?? "").filter(Boolean);
     }
     return [];
   });
@@ -78,7 +119,9 @@
     selecting = true;
     autoScrollPaused = true;
     const total =
-      player.lyrics.type === "Synced" ? player.lyrics.lines.length : plainLines.length;
+      player.lyrics.type === "Synced"
+        ? player.lyrics.lines.length
+        : plainParsed.selectable.length;
     const base =
       player.lyrics.type === "Synced" && player.activeLyricIndex != null
         ? player.activeLyricIndex
@@ -110,12 +153,21 @@
     if (selecting) {
       return selectedIndices.includes(idx) ? 1.0 : 0.42;
     }
-    if (player.activeLyricIndex == null) return 0.7;
-    if (idx === player.activeLyricIndex) return 1.0;
-    const diff = Math.abs(idx - player.activeLyricIndex);
-    if (diff === 1) return 0.48;
-    if (diff === 2) return 0.3;
-    return 0.18;
+    const active = player.activeLyricIndex;
+    if (active == null) {
+      // Before first line starts, keep the opening lines gently readable
+      if (idx === 0) return 0.82;
+      if (idx === 1) return 0.56;
+      return 0.34;
+    }
+    if (idx === active) return 1.0;
+    const delta = idx - active;
+    // Upcoming lines stay clearer so you can read ahead; already-sung lines recede softly
+    if (delta === 1) return 0.58;
+    if (delta === 2) return 0.38;
+    if (delta > 2) return 0.24;
+    if (delta === -1) return 0.34;
+    return 0.2;
   }
 </script>
 
@@ -126,7 +178,8 @@
       {#if player.currentTrack}
         <CoverImage
           class="track-cover !w-9 !h-9 !rounded-[8px] shrink-0"
-          src={player.currentTrack.cover_url}
+          src={player.trackCoverUrl(player.currentTrack, false)}
+          fallbackSrc={player.offlineCoverUrl(player.currentTrack.id)}
           alt=""
         />
       {/if}
@@ -167,7 +220,7 @@
           {t("lyrics.synced")}
         </span>
       {:else if player.lyrics.type === "Plain"}
-        <span class="shrink-0 px-2.5 py-0.5 rounded-full text-[10.5px] font-semibold bg-[var(--surface)] text-[var(--text-muted)]">
+        <span class="shrink-0 px-2.5 py-0.5 rounded-full text-[10.5px] font-semibold bg-[var(--surface)] border border-[var(--border)] text-[var(--text-muted)]">
           {t("lyrics.static")}
         </span>
       {/if}
@@ -175,13 +228,13 @@
   </div>
 
   {#if selecting}
-    <p class="text-[11.5px] font-medium text-[var(--accent-bright)] px-0.5">
+    <p class="text-[11.5px] font-semibold text-[var(--accent-bright)] px-1">
       {t("lyrics.select_hint", { max: MAX_SELECTED_LINES })}
     </p>
   {/if}
 
   {#if player.lyricsLoading && player.currentTrack}
-    <div class="flex-1 flex flex-col gap-3.5 pt-8 px-1 animate-pulse" aria-busy="true">
+    <div class="flex-1 flex flex-col gap-3.5 pt-8 px-1.5 animate-pulse" aria-busy="true">
       {#each [72, 58, 84, 66, 48, 78, 62, 52] as w}
         <div class="h-4 rounded-md bg-[var(--skeleton)]" style="width: {w}%;"></div>
       {/each}
@@ -190,11 +243,19 @@
     <div class="relative flex-1 min-h-0 flex flex-col">
       <div
         role="region"
-        aria-label="Lyrics"
-        class="lyrics-fade flex-1 min-h-0 overflow-y-auto overflow-x-hidden pt-8 pb-28 flex flex-col gap-3"
+        aria-label={t("lyrics.title")}
+        class="lyrics-fade flex-1 min-h-0 overflow-y-auto overflow-x-hidden pt-8 pb-32 px-1 pr-3 flex flex-col gap-2.5"
         onwheel={markUserScroll}
         ontouchmove={markUserScroll}
       >
+        {#if waitingForFirstLyric && !selecting}
+          <div class="flex items-center gap-1.5 px-2 pb-2" aria-hidden="true">
+            <span class="intro-dot"></span>
+            <span class="intro-dot" style="animation-delay: 180ms;"></span>
+            <span class="intro-dot" style="animation-delay: 360ms;"></span>
+          </div>
+        {/if}
+
         {#each player.lyrics.lines as line, i}
           {@const active = !selecting && player.activeLyricIndex === i}
           {@const picked = selecting && selectedIndices.includes(i)}
@@ -203,9 +264,9 @@
           <button
             type="button"
             bind:this={lyricRefs[i]}
-            class="sb-lyric-line text-left origin-left flex items-start gap-2 rounded-xl {active
+            class="sb-lyric-line text-left origin-left flex items-start gap-2.5 rounded-xl {active
               ? 'active-line'
-              : ''} {picked ? 'selected-line' : ''} {stanzaBreak ? 'mt-3' : ''}"
+              : ''} {picked ? 'selected-line' : ''} {stanzaBreak ? 'mt-4' : ''}"
             style="opacity: {lyricOpacity(i)};"
             onclick={() => {
               if (selecting) {
@@ -218,7 +279,7 @@
           >
             {#if selecting}
               <span
-                class="mt-1 w-4 h-4 rounded-full border inline-flex items-center justify-center shrink-0 transition-colors {picked
+                class="mt-1.5 w-4 h-4 rounded-full border inline-flex items-center justify-center shrink-0 transition-colors {picked
                   ? 'bg-[var(--accent)] border-[var(--accent)] text-white'
                   : 'border-[var(--border-strong)]'}"
               >
@@ -273,32 +334,51 @@
     </div>
   {:else if player.lyrics.type === "Plain"}
     <div class="relative flex-1 min-h-0 flex flex-col">
-      {#if selecting}
-        <div class="lyrics-fade flex-1 min-h-0 overflow-y-auto pt-4 pb-24 flex flex-col gap-2">
-          {#each plainLines as line, i}
-            {@const picked = selectedIndices.includes(i)}
-            <button
-              type="button"
-              class="sb-lyric-line text-left flex items-start gap-2 rounded-xl {picked
-                ? 'selected-line'
-                : ''}"
-              style="opacity: {picked ? 1 : 0.45};"
-              onclick={() => toggleLineSelection(i)}
-            >
-              <span
-                class="mt-1 w-4 h-4 rounded-full border inline-flex items-center justify-center shrink-0 transition-colors {picked
-                  ? 'bg-[var(--accent)] border-[var(--accent)] text-white'
-                  : 'border-[var(--border-strong)]'}"
-              >
-                {#if picked}
-                  <Check size={10} strokeWidth={3} />
-                {/if}
-              </span>
-              <span class="flex-1">{line}</span>
-            </button>
-          {/each}
-        </div>
+      <div
+        role="region"
+        aria-label={t("lyrics.title")}
+        class="lyrics-fade flex-1 min-h-0 overflow-y-auto overflow-x-hidden pt-6 pb-28 px-1.5 space-y-5"
+      >
+        {#each plainParsed.stanzas as stanza, sIdx (sIdx)}
+          <div class="flex flex-col gap-1.5">
+            {#each stanza as item, lIdx (`${sIdx}:${lIdx}`)}
+              {#if item.isHeader}
+                <div class="text-[10.5px] font-extrabold uppercase tracking-[0.11em] text-[var(--accent-bright)]/80 pt-1 pb-0.5 px-1.5 select-none">
+                  {item.text}
+                </div>
+              {:else if selecting && item.selectableIdx != null}
+                {@const sIndex = item.selectableIdx}
+                {@const picked = selectedIndices.includes(sIndex)}
+                <button
+                  type="button"
+                  class="sb-lyric-line sb-static-line text-left flex items-start gap-2.5 rounded-xl {picked
+                    ? 'selected-line'
+                    : ''}"
+                  style="opacity: {picked ? 1 : 0.44};"
+                  onclick={() => toggleLineSelection(sIndex)}
+                >
+                  <span
+                    class="mt-1.5 w-4 h-4 rounded-full border inline-flex items-center justify-center shrink-0 transition-colors {picked
+                      ? 'bg-[var(--accent)] border-[var(--accent)] text-white'
+                      : 'border-[var(--border-strong)]'}"
+                  >
+                    {#if picked}
+                      <Check size={10} strokeWidth={3} />
+                    {/if}
+                  </span>
+                  <span class="flex-1">{item.text}</span>
+                </button>
+              {:else}
+                <p class="sb-static-line px-1.5">
+                  {item.text}
+                </p>
+              {/if}
+            {/each}
+          </div>
+        {/each}
+      </div>
 
+      {#if selecting}
         <div
           transition:scale={{ start: 0.94, duration: 150, easing: cubicOut }}
           class="absolute bottom-3 inset-x-0 flex items-center justify-between gap-2 px-3 py-2 rounded-2xl bg-[var(--bg-elevated)]/95 backdrop-blur-md border border-[var(--border-strong)] shadow-[0_12px_32px_rgba(0,0,0,0.45)]"
@@ -325,10 +405,6 @@
             </button>
           </div>
         </div>
-      {:else}
-        <div class="lyrics-fade flex-1 min-h-0 overflow-y-auto py-6">
-          <pre class="whitespace-pre-wrap text-[15px] font-semibold leading-relaxed text-[var(--text)]/85" style="font-family: var(--lyrics-font);">{player.lyrics.text}</pre>
-        </div>
       {/if}
     </div>
   {:else}
@@ -350,8 +426,8 @@
 <style>
   .lyrics-fade {
     scrollbar-width: none;
-    mask-image: linear-gradient(to bottom, transparent 0%, black 9%, black 88%, transparent 100%);
-    -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 9%, black 88%, transparent 100%);
+    mask-image: linear-gradient(to bottom, transparent 0%, black 7%, black 88%, transparent 100%);
+    -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 7%, black 88%, transparent 100%);
   }
 
   .lyrics-fade::-webkit-scrollbar {
@@ -360,31 +436,63 @@
 
   .sb-lyric-line {
     font-family: var(--lyrics-font);
-    font-size: 16.5px;
+    font-size: 17px;
     font-weight: 700;
-    line-height: 1.4;
+    line-height: 1.44;
     letter-spacing: -0.015em;
     color: var(--text);
-    padding: 3px 6px;
+    padding: 4px 8px;
     will-change: transform, opacity;
     transition:
-      opacity 260ms cubic-bezier(0.22, 1, 0.36, 1),
-      transform 260ms cubic-bezier(0.22, 1, 0.36, 1),
+      opacity 280ms cubic-bezier(0.22, 1, 0.36, 1),
+      transform 280ms cubic-bezier(0.22, 1, 0.36, 1),
       background-color 180ms ease,
       color 260ms ease;
   }
 
   .sb-lyric-line:hover {
-    opacity: 0.9 !important;
+    opacity: 0.94 !important;
+    background: color-mix(in srgb, var(--surface-hover) 60%, transparent);
   }
 
   .sb-lyric-line.active-line {
-    transform: scale(1.045);
+    transform: scale(1.03);
     color: var(--text);
   }
 
   .sb-lyric-line.selected-line {
     background: var(--accent-soft);
+    box-shadow: inset 3px 0 0 var(--accent-bright);
     color: var(--text);
+  }
+
+  .sb-static-line {
+    font-family: var(--lyrics-font);
+    font-size: 16.5px;
+    font-weight: 700;
+    line-height: 1.5;
+    letter-spacing: -0.015em;
+    color: color-mix(in srgb, var(--text) 88%, transparent);
+    margin: 0;
+  }
+
+  .intro-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 9999px;
+    background: var(--accent-bright);
+    opacity: 0.35;
+    animation: introPulse 1.2s ease-in-out infinite;
+  }
+
+  @keyframes introPulse {
+    0%, 100% {
+      opacity: 0.25;
+      transform: scale(0.85);
+    }
+    50% {
+      opacity: 1;
+      transform: scale(1.15);
+    }
   }
 </style>
