@@ -13,6 +13,32 @@ const YTM_CLIENT_NAME_HDR: &str = "67";
 const YTM_CLIENT_VERSION: &str = "1.20250310.01.00";
 const YTM_USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36";
 const VISITOR_DATA_TTL: Duration = Duration::from_secs(6 * 60 * 60);
+const DETAILS_CACHE_TTL: Duration = Duration::from_secs(5 * 60);
+const DETAILS_CACHE_MAX: usize = 64;
+
+pub const DEFAULT_PLAYER_PROFILES: &[&str] = &[
+    "ANDROID_VR",
+    "VISIONOS",
+    "ANDROID_VR_LEGACY",
+    "TV_EMBEDDED",
+    "IOS",
+];
+
+fn active_hl() -> &'static str {
+    match crate::i18n::current_lang() {
+        crate::i18n::Lang::Es => "es",
+        crate::i18n::Lang::En => "en",
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct DirectVideoCandidate {
+    pub url: String,
+    pub user_agent: String,
+    pub mime_type: &'static str,
+    pub width: u32,
+    pub height: u32,
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TrackKind {
@@ -72,6 +98,8 @@ pub struct PlaylistBrowsePage {
 pub struct InnerTubeClient {
     http: reqwest::Client,
     visitor_cache: Arc<RwLock<Option<(Instant, String)>>>,
+    preferred_profile: Arc<RwLock<Option<&'static str>>>,
+    details_cache: Arc<RwLock<HashMap<String, (Instant, MusicTrackDetails)>>>,
 }
 
 impl InnerTubeClient {
@@ -79,6 +107,32 @@ impl InnerTubeClient {
         Self {
             http,
             visitor_cache: Arc::new(RwLock::new(None)),
+            preferred_profile: Arc::new(RwLock::new(None)),
+            details_cache: Arc::new(RwLock::new(HashMap::new())),
+        }
+    }
+
+    pub fn ordered_profiles(&self) -> Vec<&'static str> {
+        let preferred = self.preferred_profile.read().ok().and_then(|g| *g);
+        let mut out = Vec::with_capacity(DEFAULT_PLAYER_PROFILES.len());
+        if let Some(p) = preferred
+            && DEFAULT_PLAYER_PROFILES.contains(&p)
+        {
+            out.push(p);
+        }
+        for &p in DEFAULT_PLAYER_PROFILES {
+            if !out.contains(&p) {
+                out.push(p);
+            }
+        }
+        out
+    }
+
+    pub fn record_working_profile(&self, profile: &'static str) {
+        if DEFAULT_PLAYER_PROFILES.contains(&profile)
+            && let Ok(mut guard) = self.preferred_profile.write()
+        {
+            *guard = Some(profile);
         }
     }
 
@@ -134,7 +188,7 @@ impl InnerTubeClient {
         let mut client_ctx = json!({
             "clientName": YTM_CLIENT_NAME,
             "clientVersion": YTM_CLIENT_VERSION,
-            "hl": "en",
+            "hl": active_hl(),
             "gl": gl
         });
         if let Some(ref vd) = visitor
@@ -170,14 +224,13 @@ impl InnerTubeClient {
             .map_err(|e| e.without_url().to_string())
     }
 
-    pub async fn extract_direct_stream(
+    async fn post_player(
         &self,
         video_id: &str,
         profile: &str,
         visitor_data: Option<&str>,
         timeout: Duration,
-        require_itag: Option<u64>,
-    ) -> Result<(StreamInfo, &'static str, Option<u64>), String> {
+    ) -> Result<(Value, &'static str), String> {
         let (user_agent, client_name_hdr, client_version_hdr, mut payload) = match profile {
             "ANDROID_VR" => (
                 "com.google.android.apps.youtube.vr.oculus/1.65.10 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip",
@@ -307,6 +360,21 @@ impl InnerTubeClient {
             .await
             .map_err(|err| err.without_url().to_string())?;
 
+        Ok((response, user_agent))
+    }
+
+    pub async fn extract_direct_stream(
+        &self,
+        video_id: &str,
+        profile: &str,
+        visitor_data: Option<&str>,
+        timeout: Duration,
+        require_itag: Option<u64>,
+    ) -> Result<(StreamInfo, &'static str, Option<u64>), String> {
+        let (response, user_agent) = self
+            .post_player(video_id, profile, visitor_data, timeout)
+            .await?;
+
         let adaptive = response["streamingData"]["adaptiveFormats"].as_array();
         let muxed = response["streamingData"]["formats"].as_array();
         if adaptive.is_none() && muxed.is_none() {
@@ -381,6 +449,101 @@ impl InnerTubeClient {
             ));
         }
         Err("El reproductor no ofreció una URL directa de audio compatible".into())
+    }
+
+    pub async fn extract_direct_video_stream(
+        &self,
+        video_id: &str,
+        max_height: u32,
+        visitor_data: Option<&str>,
+    ) -> Result<DirectVideoCandidate, String> {
+        for profile in self.ordered_profiles() {
+            let Ok((json, user_agent)) = self
+                .post_player(video_id, profile, visitor_data, Duration::from_secs(6))
+                .await
+            else {
+                continue;
+            };
+            let adaptive = json["streamingData"]["adaptiveFormats"].as_array();
+            let muxed = json["streamingData"]["formats"].as_array();
+            let all_formats: Vec<&Value> = adaptive
+                .into_iter()
+                .flatten()
+                .chain(muxed.into_iter().flatten())
+                .collect();
+
+            let mut best_webm: Option<(u32, u64, String, u32, u32)> = None;
+            let mut best_mp4: Option<(u32, u64, String, u32, u32)> = None;
+            for f in all_formats {
+                let Some(mime) = f["mimeType"].as_str() else { continue };
+                let is_webm_vp9 = mime.starts_with("video/webm")
+                    && (mime.contains("vp9") || mime.contains("vp09") || mime.contains("vp8"));
+                let is_mp4_h264 = mime.starts_with("video/mp4") && mime.contains("avc1");
+                if !is_webm_vp9 && !is_mp4_h264 {
+                    continue;
+                }
+                let Some(url_str) = f["url"].as_str() else { continue };
+                let Some(parsed) = reqwest::Url::parse(url_str).ok() else { continue };
+                if parsed.scheme() != "https"
+                    || !parsed
+                        .host_str()
+                        .is_some_and(|h| h.ends_with(".googlevideo.com"))
+                {
+                    continue;
+                }
+                let height = f["height"].as_u64().unwrap_or(0) as u32;
+                let width = f["width"].as_u64().unwrap_or(0) as u32;
+                if height == 0 || height > max_height {
+                    continue;
+                }
+                let bitrate = f["bitrate"].as_u64().unwrap_or(0);
+                let slot = if is_webm_vp9 {
+                    &mut best_webm
+                } else {
+                    &mut best_mp4
+                };
+                let replace = match slot {
+                    None => true,
+                    Some((bh, bb, _, _, _)) => height > *bh || (height == *bh && bitrate > *bb),
+                };
+                if replace {
+                    *slot = Some((height, bitrate, parsed.into(), width, height));
+                }
+            }
+
+            #[cfg(target_os = "linux")]
+            let chosen = best_webm
+                .map(|v| (v, "video/webm"))
+                .or_else(|| best_mp4.map(|v| (v, "video/mp4")));
+            #[cfg(not(target_os = "linux"))]
+            let chosen = best_mp4
+                .map(|v| (v, "video/mp4"))
+                .or_else(|| best_webm.map(|v| (v, "video/webm")));
+
+            if let Some(((_height, _, raw_url, width, height), mime_type)) = chosen {
+                let probe_ok = self
+                    .http
+                    .get(&raw_url)
+                    .timeout(Duration::from_secs(4))
+                    .header("User-Agent", user_agent)
+                    .header("Range", "bytes=0-0")
+                    .send()
+                    .await
+                    .is_ok_and(|r| r.status().is_success() || r.status().as_u16() == 206);
+                if !probe_ok {
+                    continue;
+                }
+                self.record_working_profile(profile);
+                return Ok(DirectVideoCandidate {
+                    url: raw_url,
+                    user_agent: user_agent.to_string(),
+                    mime_type,
+                    width,
+                    height,
+                });
+            }
+        }
+        Err("Video no disponible para esta pista".into())
     }
 
     pub async fn fetch_charts(&self, country: Option<&str>) -> Result<ChartsResult, String> {
@@ -480,13 +643,32 @@ impl InnerTubeClient {
     }
 
     pub async fn fetch_music_details(&self, video_id: &str) -> Result<MusicTrackDetails, String> {
+        if let Ok(guard) = self.details_cache.read()
+            && let Some((ts, cached)) = guard.get(video_id)
+            && ts.elapsed() < DETAILS_CACHE_TTL
+        {
+            return Ok(cached.clone());
+        }
         let body = json!({
             "videoId": video_id,
             "isAudioOnly": true,
             "enablePersistentPlaylistPanel": true
         });
         let resp = self.ytm_post("next", body, None).await?;
-        parse_music_details_json(video_id, &resp)
+        let details = parse_music_details_json(video_id, &resp)?;
+        if let Ok(mut guard) = self.details_cache.write() {
+            guard.retain(|_, (ts, _)| ts.elapsed() < DETAILS_CACHE_TTL);
+            if guard.len() >= DETAILS_CACHE_MAX
+                && let Some(oldest_key) = guard
+                    .iter()
+                    .min_by_key(|(_, (ts, _))| *ts)
+                    .map(|(k, _)| k.clone())
+            {
+                guard.remove(&oldest_key);
+            }
+            guard.insert(video_id.to_string(), (Instant::now(), details.clone()));
+        }
+        Ok(details)
     }
 
     pub async fn fetch_related(&self, related_browse_id: &str) -> Result<RelatedFeed, String> {
@@ -1769,5 +1951,131 @@ mod tests {
             parse_lyrics_browse_json(&sample).as_deref(),
             Some("Line 1\nLine 2")
         );
+    }
+
+    #[test]
+    fn preferred_profile_moves_to_front_and_deduplicates() {
+        let client = InnerTubeClient::new(reqwest::Client::new());
+        assert_eq!(client.ordered_profiles()[0], "ANDROID_VR");
+
+        client.record_working_profile("VISIONOS");
+        let ordered = client.ordered_profiles();
+        assert_eq!(ordered[0], "VISIONOS");
+        assert_eq!(ordered.len(), DEFAULT_PLAYER_PROFILES.len());
+        let unique: HashSet<_> = ordered.iter().copied().collect();
+        assert_eq!(unique.len(), ordered.len());
+    }
+
+    #[tokio::test]
+    async fn details_cache_avoids_duplicate_lookups() {
+        let dead_http = crate::tls::http_client_builder()
+            .timeout(Duration::from_millis(1))
+            .build()
+            .unwrap();
+        let client = InnerTubeClient::new(dead_http);
+        let sample = MusicTrackDetails {
+            item: CatalogItem {
+                track: Track {
+                    is_music: true,
+                    is_video: false,
+                    id: "cached12345".into(),
+                    title: "Cached Song".into(),
+                    artist: "Artist".into(),
+                    artist_id: None,
+                    album: None,
+                    album_id: None,
+                    duration_secs: Some(200),
+                    view_count: None,
+                    cover_url: None,
+                    cover_large_url: None,
+                },
+                kind: TrackKind::Track,
+                unavailable: false,
+            },
+            covers: vec![],
+            lyrics_browse_id: Some("MPLYt_cached".into()),
+            related_browse_id: Some("MPTRt_cached".into()),
+        };
+        client
+            .details_cache
+            .write()
+            .unwrap()
+            .insert("cached12345".into(), (Instant::now(), sample));
+
+        let hit = client.fetch_music_details("cached12345").await.unwrap();
+        assert_eq!(hit.item.track.title, "Cached Song");
+        assert_eq!(hit.related_browse_id.as_deref(), Some("MPTRt_cached"));
+    }
+}
+
+#[cfg(test)]
+mod live_tests {
+    use super::*;
+
+    fn live_client() -> InnerTubeClient {
+        crate::tls::ensure_crypto_provider();
+        let http = crate::tls::http_client_builder()
+            .connect_timeout(Duration::from_secs(5))
+            .timeout(Duration::from_secs(10))
+            .build()
+            .unwrap();
+        InnerTubeClient::new(http)
+    }
+
+    #[tokio::test]
+    #[ignore = "Live InnerTube smoke test (requires internet)"]
+    async fn smoke_all_innertube_endpoints() {
+        let client = live_client();
+        let vd = client.visitor_data(true).await;
+        println!("visitor_data: {:?}", vd.as_deref().map(|s| &s[..s.len().min(16)]));
+        assert!(vd.is_some());
+
+        let charts = client.fetch_charts(None).await.expect("charts");
+        println!(
+            "charts: trending={} top={} artists={} countries={}",
+            charts.trending.len(),
+            charts.top.len(),
+            charts.artists.len(),
+            charts.available_countries.len()
+        );
+        assert!(!charts.trending.is_empty());
+
+        let albums = client.fetch_new_albums().await.expect("new_albums");
+        println!("new_albums: {}", albums.len());
+        assert!(!albums.is_empty());
+
+        let sample_id = &charts.trending[0].id;
+        let details = client.fetch_music_details(sample_id).await.expect("music_details");
+        println!(
+            "details: {} (lyrics={:?}, related={:?})",
+            details.item.track.title, details.lyrics_browse_id, details.related_browse_id
+        );
+
+        let radio = client.fetch_radio_track(sample_id).await.expect("radio");
+        println!("radio: {} tracks", radio.len());
+        assert!(!radio.is_empty());
+
+        if let Some(ref rel_id) = details.related_browse_id {
+            let related = client.fetch_related(rel_id).await.expect("related");
+            println!(
+                "related: tracks={} albums={} playlists={} artists={}",
+                related.tracks.len(),
+                related.albums.len(),
+                related.playlists.len(),
+                related.artists.len()
+            );
+        }
+
+        let mut any_stream_ok = false;
+        for profile in client.ordered_profiles() {
+            let res = client
+                .extract_direct_stream(sample_id, profile, vd.as_deref(), Duration::from_secs(6), None)
+                .await;
+            println!("stream[{profile}]: {:?}", res.as_ref().map(|(s, ext, _)| (&s.quality_label, ext)));
+            if res.is_ok() {
+                any_stream_ok = true;
+            }
+        }
+        assert!(any_stream_ok, "At least one InnerTube stream profile must succeed");
     }
 }

@@ -23,6 +23,7 @@ use crate::models::{
 const MUSIC_PROOF_TTL: Duration = Duration::from_secs(15 * 60);
 const STREAM_CACHE_TTL: Duration = Duration::from_secs(15 * 60);
 const HOME_CACHE_TTL: Duration = Duration::from_secs(15 * 60);
+const HOME_CACHE_MAX_COUNTRIES: usize = 8;
 
 static RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
 
@@ -73,7 +74,7 @@ pub struct Backend {
     ytm: Arc<tokio::sync::OnceCell<YtMusic<NoAuthToken>>>,
     innertube: InnerTubeClient,
     http: reqwest::Client,
-    home_cache: Arc<RwLock<Option<(Instant, HomeFeed)>>>,
+    home_cache: Arc<RwLock<HashMap<Option<String>, (Instant, HomeFeed)>>>,
     genres_cache: Arc<RwLock<Option<(Instant, Vec<Genre>)>>>,
     stream_cache: Arc<RwLock<HashMap<String, (Instant, StreamInfo)>>>,
     music_proofs: Arc<RwLock<HashMap<String, (Instant, Track)>>>,
@@ -89,13 +90,15 @@ impl Backend {
             .timeout(Duration::from_secs(10))
             .build()
             .expect("HTTP client");
+        let mut initial_home = HashMap::new();
+        if let Some((ts, feed)) = cache_dir().and_then(|dir| load_home_cache(&dir.join("home.json"))) {
+            initial_home.insert(feed.country.clone(), (ts, feed));
+        }
         Self {
             ytm: Arc::new(tokio::sync::OnceCell::new()),
             innertube: InnerTubeClient::new(http.clone()),
             http,
-            home_cache: Arc::new(RwLock::new(
-                cache_dir().and_then(|dir| load_home_cache(&dir.join("home.json"))),
-            )),
+            home_cache: Arc::new(RwLock::new(initial_home)),
             genres_cache: Arc::new(RwLock::new(None)),
             stream_cache: Arc::new(RwLock::new(HashMap::new())),
             music_proofs: Arc::default(),
@@ -136,9 +139,8 @@ impl Backend {
 
         if !force_refresh
             && let Ok(guard) = self.home_cache.read()
-            && let Some((ts, feed)) = guard.as_ref()
+            && let Some((ts, feed)) = guard.get(&normalized_country)
             && ts.elapsed() < HOME_CACHE_TTL
-            && feed.country == normalized_country
         {
             return Ok(feed.clone());
         }
@@ -198,7 +200,17 @@ impl Backend {
         };
         if !feed.trending.is_empty() || !feed.top.is_empty() || !feed.new_albums.is_empty() {
             if let Ok(mut guard) = self.home_cache.write() {
-                *guard = Some((Instant::now(), feed.clone()));
+                guard.retain(|_, (ts, _)| ts.elapsed() < HOME_CACHE_TTL);
+                if guard.len() >= HOME_CACHE_MAX_COUNTRIES
+                    && !guard.contains_key(&feed.country)
+                    && let Some(oldest) = guard
+                        .iter()
+                        .min_by_key(|(_, (ts, _))| *ts)
+                        .map(|(k, _)| k.clone())
+                {
+                    guard.remove(&oldest);
+                }
+                guard.insert(feed.country.clone(), (Instant::now(), feed.clone()));
             }
             if let Some(path) = cache_dir().map(|dir| dir.join("home.json"))
                 && let Ok(json) = serde_json::to_vec(&feed)
@@ -1137,165 +1149,23 @@ impl Backend {
         }
 
         let visitor_data = self.innertube.visitor_data(true).await;
-        let profiles = [
-            (
-                "com.google.android.apps.youtube.vr.oculus/1.65.10 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip",
-                "28",
-                "1.65.10",
-                serde_json::json!({
-                    "context": { "client": {
-                        "clientName": "ANDROID_VR",
-                        "clientVersion": "1.65.10",
-                        "deviceMake": "Oculus",
-                        "deviceModel": "Quest 3",
-                        "androidSdkVersion": 32,
-                        "osName": "Android",
-                        "osVersion": "12L",
-                        "hl": "en",
-                        "gl": "US"
-                    } },
-                    "videoId": video_id,
-                    "contentCheckOk": true,
-                    "racyCheckOk": true,
-                }),
-            ),
-            (
-                "Mozilla/5.0 (ChromiumStylePlatform) Cobalt/Version",
-                "85",
-                "2.0",
-                serde_json::json!({
-                    "context": {
-                        "client": {
-                            "clientName": "TVHTML5_SIMPLY_EMBEDDED_PLAYER",
-                            "clientVersion": "2.0",
-                            "hl": "en",
-                            "gl": "US"
-                        },
-                        "thirdParty": { "embedUrl": "https://www.youtube.com" }
-                    },
-                    "videoId": video_id,
-                    "contentCheckOk": true,
-                    "racyCheckOk": true,
-                }),
-            ),
-            (
-                "Mozilla/5.0 (Macintosh; Intel Mac OS X 15_7_3) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15",
-                "101",
-                "1.02",
-                serde_json::json!({
-                    "context": { "client": {
-                        "clientName": "VISIONOS",
-                        "clientVersion": "1.02",
-                        "deviceMake": "Apple",
-                        "deviceModel": "RealityDevice17,1",
-                        "osName": "visionOS",
-                        "osVersion": "26.5.23O471"
-                    } },
-                    "videoId": video_id,
-                }),
-            ),
-        ];
-
-        for (user_agent, client_name_hdr, client_version_hdr, mut payload) in profiles {
-            if let Some(ref vd) = visitor_data
-                && let Some(client_obj) = payload["context"]["client"].as_object_mut()
-            {
-                client_obj.insert("visitorData".to_string(), serde_json::Value::String(vd.clone()));
-            }
-            let mut req = self
-                .http
-                .post("https://www.youtube.com/youtubei/v1/player?prettyPrint=false")
-                .timeout(Duration::from_secs(6))
-                .header("User-Agent", user_agent)
-                .header("X-YouTube-Client-Name", client_name_hdr)
-                .header("X-YouTube-Client-Version", client_version_hdr);
-            if let Some(ref vd) = visitor_data {
-                req = req.header("X-Goog-Visitor-Id", vd);
-            }
-            let Ok(resp) = req.json(&payload).send().await else {
-                continue;
-            };
-            let Ok(resp) = resp.error_for_status() else {
-                continue;
-            };
-            let Ok(json) = resp.json::<serde_json::Value>().await else {
-                continue;
-            };
-            let adaptive = json["streamingData"]["adaptiveFormats"].as_array();
-            let muxed = json["streamingData"]["formats"].as_array();
-            let all_formats: Vec<&serde_json::Value> = adaptive
-                .into_iter()
-                .flatten()
-                .chain(muxed.into_iter().flatten())
-                .collect();
-
-            // On Linux (Fedora/WebKitGTK), prefer WebM VP9 (open-source, always decoded in GStreamer)
-            // with H.264 MP4 fallback; on Android/macOS/Windows prefer H.264 MP4 with WebM VP9 fallback.
-            let mut best_webm: Option<(u32, u64, String, u32, u32)> = None;
-            let mut best_mp4: Option<(u32, u64, String, u32, u32)> = None;
-            for f in all_formats {
-                let Some(mime) = f["mimeType"].as_str() else { continue };
-                let is_webm_vp9 = mime.starts_with("video/webm") && (mime.contains("vp9") || mime.contains("vp09") || mime.contains("vp8"));
-                let is_mp4_h264 = mime.starts_with("video/mp4") && mime.contains("avc1");
-                if !is_webm_vp9 && !is_mp4_h264 {
-                    continue;
-                }
-                let Some(url_str) = f["url"].as_str() else { continue };
-                let Some(parsed) = reqwest::Url::parse(url_str).ok() else { continue };
-                if parsed.scheme() != "https"
-                    || !parsed.host_str().is_some_and(|h| h.ends_with(".googlevideo.com"))
-                {
-                    continue;
-                }
-                let height = f["height"].as_u64().unwrap_or(0) as u32;
-                let width = f["width"].as_u64().unwrap_or(0) as u32;
-                if height == 0 || height > max_height {
-                    continue;
-                }
-                let bitrate = f["bitrate"].as_u64().unwrap_or(0);
-                let slot = if is_webm_vp9 { &mut best_webm } else { &mut best_mp4 };
-                let replace = match slot {
-                    None => true,
-                    Some((bh, bb, _, _, _)) => height > *bh || (height == *bh && bitrate > *bb),
-                };
-                if replace {
-                    *slot = Some((height, bitrate, parsed.into(), width, height));
-                }
-            }
-            #[cfg(target_os = "linux")]
-            let chosen = best_webm
-                .map(|v| (v, "video/webm"))
-                .or_else(|| best_mp4.map(|v| (v, "video/mp4")));
-            #[cfg(not(target_os = "linux"))]
-            let chosen = best_mp4
-                .map(|v| (v, "video/mp4"))
-                .or_else(|| best_webm.map(|v| (v, "video/webm")));
-
-            if let Some(((height, _, raw_url, width, h), mime_type)) = chosen {
-                // Probe 1 byte before returning so 403 profiles fall through to the next client
-                let probe_ok = self
-                    .http
-                    .get(&raw_url)
-                    .timeout(Duration::from_secs(4))
-                    .header("User-Agent", user_agent)
-                    .header("Range", "bytes=0-0")
-                    .send()
-                    .await
-                    .is_ok_and(|r| r.status().is_success() || r.status().as_u16() == 206);
-                if !probe_ok {
-                    continue;
-                }
-                let streamer = crate::audio_streamer::AudioStreamer::global().await?;
-                let proxied = streamer.serve_remote_proxy(video_id, &raw_url, user_agent, mime_type);
-                return Ok(VideoStreamInfo {
-                    url: proxied,
-                    quality_label: format!("{height}p"),
-                    width,
-                    height: h,
-                });
-            }
-        }
-        Err(String::from("No hay stream de video compatible disponible para esta pista"))
+        let candidate = self
+            .innertube
+            .extract_direct_video_stream(video_id, max_height, visitor_data.as_deref())
+            .await?;
+        let streamer = crate::audio_streamer::AudioStreamer::global().await?;
+        let proxied = streamer.serve_remote_proxy(
+            video_id,
+            &candidate.url,
+            &candidate.user_agent,
+            candidate.mime_type,
+        );
+        Ok(VideoStreamInfo {
+            url: proxied,
+            quality_label: format!("{}p", candidate.height),
+            width: candidate.width,
+            height: candidate.height,
+        })
     }
 
     pub async fn find_counterpart_track(
@@ -1328,27 +1198,6 @@ impl Backend {
         Ok(parse_watch_counterpart_json(&json, track, want_video))
     }
 
-    #[cfg(not(target_os = "android"))]
-    async fn extract_fast_ios_stream(
-        &self,
-        video_id: &str,
-    ) -> Result<(StreamInfo, &'static str, Option<u64>), String> {
-        let started = Instant::now();
-        let visitor_data = self.innertube.visitor_data(false).await;
-        let res = self
-            .innertube
-            .extract_direct_stream(
-                video_id,
-                "IOS",
-                visitor_data.as_deref(),
-                Duration::from_millis(2500),
-                Some(251),
-            )
-            .await?;
-        log_audio_timing(video_id, "extraccion-ios-rapida", started);
-        Ok(res)
-    }
-
     async fn resolve_audio_stream(&self, video_id: &str) -> Result<StreamInfo, String> {
         validate_video_id(video_id)?;
         let cached = || self.cached_stream(video_id).or_else(|| self.cached_url(video_id));
@@ -1364,59 +1213,55 @@ impl Backend {
         let streams_dir = Self::streams_dir()?;
         let streamer = crate::audio_streamer::AudioStreamer::global().await?;
 
+        let visitor_data = self.innertube.visitor_data(false).await;
+        let timeout = if cfg!(target_os = "android") {
+            Duration::from_secs(6)
+        } else {
+            Duration::from_secs(4)
+        };
+        for source in self.innertube.ordered_profiles() {
+            let started = Instant::now();
+            let extracted = self
+                .innertube
+                .extract_direct_stream(
+                    video_id,
+                    source,
+                    visitor_data.as_deref(),
+                    timeout,
+                    None,
+                )
+                .await;
+            let (remote, ext, size_hint) = match extracted {
+                Ok(stream) => stream,
+                Err(err) => {
+                    eprintln!("[audio] id={video_id} fuente={source} extracción: {err}");
+                    continue;
+                }
+            };
+            match streamer
+                .start_chunked_http_stream(video_id, remote, ext, size_hint, &streams_dir)
+                .await
+            {
+                Ok(local_stream) => {
+                    self.innertube.record_working_profile(source);
+                    log_audio_timing(video_id, source, started);
+                    if let Ok(mut cache) = self.stream_cache.write() {
+                        cache.retain(|_, (ts, s)| stream_url_is_fresh(*ts, s));
+                        cache.insert(video_id.to_owned(), (Instant::now(), local_stream.clone()));
+                    }
+                    return Ok(local_stream);
+                }
+                Err(err) => eprintln!("[audio] id={video_id} fuente={source} descarga: {err}"),
+            }
+        }
+
         #[cfg(target_os = "android")]
         {
-            let visitor_data = self.innertube.visitor_data(false).await;
-            let attempts = ["ANDROID_VR", "ANDROID_VR_LEGACY", "TV_EMBEDDED", "VISIONOS", "IOS"];
-            for source in attempts {
-                let extracted = self
-                    .innertube
-                    .extract_direct_stream(
-                        video_id,
-                        source,
-                        visitor_data.as_deref(),
-                        Duration::from_secs(6),
-                        None,
-                    )
-                    .await;
-                let (remote, ext, size_hint) = match extracted {
-                    Ok(stream) => stream,
-                    Err(err) => {
-                        eprintln!("[audio-android] id={video_id} fuente={source} extracción: {err}");
-                        continue;
-                    }
-                };
-                match streamer.start_chunked_http_stream(video_id, remote, ext, size_hint, &streams_dir).await {
-                    Ok(local_stream) => {
-                        eprintln!("[audio-android] id={video_id} fuente={source} OK -> {}", local_stream.url);
-                        if let Ok(mut cache) = self.stream_cache.write() {
-                            cache.retain(|_, (ts, s)| stream_url_is_fresh(*ts, s));
-                            cache.insert(video_id.to_owned(), (Instant::now(), local_stream.clone()));
-                        }
-                        return Ok(local_stream);
-                    }
-                    Err(err) => eprintln!("[audio-android] id={video_id} fuente={source} descarga: {err}"),
-                }
-            }
             Err("No se pudo resolver el flujo de audio (Android).".to_string())
         }
 
         #[cfg(not(target_os = "android"))]
         {
-        // Fast-path: extract stream via pure-Rust iOS client (~140-250ms, no Python/Node startup)
-        // to serve the initial audio blocks immediately while AudioStreamer transparently refreshes
-        // the URL via visionos in the background before the 1 MB iOS limit.
-        if let Ok((fast_remote, ext, size_hint)) = self.extract_fast_ios_stream(video_id).await
-            && let Ok(local_stream) = streamer
-                .start_chunked_http_stream(video_id, fast_remote, ext, size_hint, &streams_dir)
-                .await
-        {
-            if let Ok(mut cache) = self.stream_cache.write() {
-                cache.retain(|_, (ts, s)| stream_url_is_fresh(*ts, s));
-                cache.insert(video_id.to_string(), (Instant::now(), local_stream.clone()));
-            }
-            return Ok(local_stream);
-        }
 
         // Fallback: extract stream URL via yt-dlp excluding tv_samsung (which triggers 6s ad / 403)
         // and skipping HLS/DASH manifest downloads.
@@ -2688,6 +2533,28 @@ mod tests {
         if old.item.kind == TrackKind::Video {
             assert_ne!(old.item.track.id, audio.id);
         }
+    }
+
+    #[tokio::test]
+    async fn home_cache_stores_multiple_countries_independently() {
+        let backend = Backend::new();
+        let make_feed = |cc: Option<&str>| HomeFeed {
+            trending: vec![],
+            top: vec![],
+            new_albums: vec![],
+            top_artists: vec![],
+            country: cc.map(str::to_string),
+            available_countries: vec!["MX".into(), "US".into()],
+        };
+        {
+            let mut guard = backend.home_cache.write().unwrap();
+            guard.insert(None, (Instant::now(), make_feed(None)));
+            guard.insert(Some("MX".into()), (Instant::now(), make_feed(Some("MX"))));
+        }
+        let global = backend.fetch_home_feed_for_country(None, false).await.unwrap();
+        let mx = backend.fetch_home_feed_for_country(Some("mx"), false).await.unwrap();
+        assert_eq!(global.country, None);
+        assert_eq!(mx.country.as_deref(), Some("MX"));
     }
 
     #[test]
