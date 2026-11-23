@@ -77,6 +77,7 @@
     query = clean;
     popoverOpen = false;
     searchInput?.blur();
+    if (player.tryOpenYtmLink(clean)) return;
     void player.runSearch(clean);
   }
 

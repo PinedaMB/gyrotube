@@ -1,10 +1,17 @@
 <script lang="ts">
-  import { GripVertical, ListMusic } from "lucide-svelte";
+  import { BookmarkPlus, GripVertical, ListMusic } from "lucide-svelte";
   import { fade } from "svelte/transition";
   import { t } from "../../lib/i18n.svelte";
   import { device } from "../../lib/stores/device.svelte";
   import { player } from "../../lib/stores/player.svelte";
   import TrackRow from "../TrackRow.svelte";
+
+  function saveQueueAsPlaylist() {
+    if (player.queue.length === 0) return;
+    const baseName = player.sourceName?.trim() || `${t("queue.title")} · ${new Date().toLocaleDateString()}`;
+    player.createUserPlaylist(baseName, "", null, "list-music", [...player.queue]);
+    player.showToast(t("queue.saved_as_playlist"));
+  }
 
   let dragFrom = $state<number | null>(null);
   let dragOverIdx = $state<number | null>(null);
@@ -74,14 +81,28 @@
     <h3 class="text-[14px] font-bold">
       {t("queue.title")} <span class="text-[var(--text-muted)] font-medium">· {player.queue.length}</span>
     </h3>
-    {#if player.queue.length > 1}
-      <button
-        class="px-2.5 py-1 rounded-full text-[11.5px] font-semibold bg-[var(--surface)] hover:bg-red-500/20 hover:text-red-400 transition-colors"
-        onclick={() => player.clearQueue()}
-      >
-        {t("queue.clear")}
-      </button>
-    {/if}
+    <div class="flex items-center gap-1.5">
+      {#if player.queue.length > 0}
+        <button
+          type="button"
+          class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11.5px] font-semibold bg-[var(--surface)] hover:bg-[var(--surface-hover)] text-[var(--text-muted)] hover:text-[var(--text)] transition-colors"
+          title={t("queue.save_as_playlist")}
+          onclick={saveQueueAsPlaylist}
+        >
+          <BookmarkPlus size={13} />
+          <span class="hidden sm:inline">{t("queue.save_as_playlist")}</span>
+        </button>
+      {/if}
+      {#if player.queue.length > 1}
+        <button
+          type="button"
+          class="px-2.5 py-1 rounded-full text-[11.5px] font-semibold bg-[var(--surface)] hover:bg-red-500/20 hover:text-red-400 transition-colors"
+          onclick={() => player.clearQueue()}
+        >
+          {t("queue.clear")}
+        </button>
+      {/if}
+    </div>
   </div>
 
   {#if player.queue.length === 0}

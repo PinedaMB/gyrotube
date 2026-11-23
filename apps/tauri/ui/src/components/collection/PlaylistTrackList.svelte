@@ -1,7 +1,8 @@
 <script lang="ts">
   import TrackRow from "../TrackRow.svelte";
-  import { ArrowUpDown, Compass, Heart, Music } from "lucide-svelte";
+  import { ArrowDownCircle, ArrowUpDown, Compass, GripVertical, Heart, Music, Search, X } from "lucide-svelte";
   import { t } from "../../lib/i18n.svelte";
+  import { device } from "../../lib/stores/device.svelte";
   import { player } from "../../lib/stores/player.svelte";
   import type { Track, UserPlaylist } from "../../lib/types";
 
@@ -26,6 +27,95 @@
     onCycleSort,
     onPlayTrack,
   }: Props = $props();
+
+  let filterText = $state("");
+  let onlyDownloaded = $state(false);
+
+  let hasAnyDownloaded = $derived(tracks.some((tr) => player.isTrackDownloaded(tr.id)));
+  let canReorder = $derived(
+    mode === "playlist" &&
+      playlist != null &&
+      sortBy === "custom" &&
+      filterText.trim() === "" &&
+      !onlyDownloaded &&
+      tracks.length > 1,
+  );
+
+  let filteredEntries = $derived.by(() => {
+    const q = filterText.trim().toLowerCase();
+    const out: { track: Track; originalIndex: number }[] = [];
+    for (let i = 0; i < tracks.length; i++) {
+      const tr = tracks[i];
+      if (onlyDownloaded && !player.isTrackDownloaded(tr.id)) continue;
+      if (
+        q &&
+        !tr.title.toLowerCase().includes(q) &&
+        !tr.artist.toLowerCase().includes(q) &&
+        !(tr.album && tr.album.toLowerCase().includes(q))
+      ) {
+        continue;
+      }
+      out.push({ track: tr, originalIndex: i });
+    }
+    return out;
+  });
+
+  // Drag-and-drop reordering for custom-sorted local playlists
+  let dragFrom = $state<number | null>(null);
+  let dragOverIdx = $state<number | null>(null);
+  let pointerDragFrom = $state<number | null>(null);
+  let pointerDragOver = $state<number | null>(null);
+  let pointerStartY = 0;
+  let pointerOffsetY = $state(0);
+  let rowEls = $state<Record<number, HTMLDivElement>>({});
+
+  function findRowIndexAtY(clientY: number): number | null {
+    const count = tracks.length;
+    if (count === 0) return null;
+    for (let idx = 0; idx < count; idx++) {
+      const el = rowEls[idx];
+      if (!el) continue;
+      const rect = el.getBoundingClientRect();
+      if (clientY < rect.top + rect.height / 2) return idx;
+    }
+    return count - 1;
+  }
+
+  function startPointerDrag(e: PointerEvent, index: number) {
+    if (!canReorder) return;
+    e.preventDefault();
+    e.stopPropagation();
+    try {
+      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    } catch {
+      // ignore
+    }
+    pointerDragFrom = index;
+    pointerDragOver = index;
+    pointerStartY = e.clientY;
+    pointerOffsetY = 0;
+  }
+
+  function movePointerDrag(e: PointerEvent) {
+    if (pointerDragFrom == null) return;
+    e.preventDefault();
+    pointerOffsetY = e.clientY - pointerStartY;
+    const targetIdx = findRowIndexAtY(e.clientY);
+    if (targetIdx != null) pointerDragOver = targetIdx;
+  }
+
+  function endPointerDrag(e: PointerEvent, commit: boolean) {
+    if (pointerDragFrom == null) return;
+    e.preventDefault();
+    const from = pointerDragFrom;
+    const to = pointerDragOver;
+    pointerDragFrom = null;
+    pointerDragOver = null;
+    pointerOffsetY = 0;
+    if (commit && playlist && to != null && from !== to) {
+      player.movePlaylistTrack(playlist.id, from, to);
+    }
+  }
 
   function sortLabel(s: SortBy): string {
     if (s === "title") return t("collection.sort_title");
@@ -70,39 +160,141 @@
       </button>
     </div>
   {:else}
-    {#if tracks.length > 1}
-      <div class="flex items-center justify-end">
-        <button
-          class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[12px] font-semibold bg-[var(--surface)] hover:bg-[var(--surface-hover)] border border-[var(--border)] transition-colors"
-          onclick={onCycleSort}
+    <div class="flex flex-wrap items-center justify-between gap-2">
+      {#if tracks.length > 4}
+        <div
+          class="flex items-center gap-2 flex-1 min-w-[180px] max-w-[300px] h-8 px-3 rounded-full bg-[var(--surface)] border border-[var(--border)] focus-within:border-[var(--accent-border)] transition-colors"
         >
-          <ArrowUpDown size={13} />
-          {t("collection.sort", { mode: sortLabel(sortBy) })}
-        </button>
-      </div>
-    {/if}
+          <Search size={13} class="text-[var(--text-muted)] shrink-0" />
+          <input
+            type="text"
+            bind:value={filterText}
+            placeholder={t("filter.placeholder")}
+            class="w-full bg-transparent outline-none focus-visible:!outline-none text-[12.5px] placeholder:text-[var(--text-muted)]"
+          />
+          {#if filterText}
+            <button
+              type="button"
+              class="text-[var(--text-muted)] hover:text-[var(--text)]"
+              aria-label={t("header.clear")}
+              onclick={() => (filterText = "")}
+            >
+              <X size={13} />
+            </button>
+          {/if}
+        </div>
+      {/if}
 
-    <div>
-      <div class="track-list">
-        {#each tracks as track, i (track.id + ":" + i)}
-          {@const unavailableOffline = player.isOffline && !player.isTrackDownloaded(track.id)}
-          <div class={unavailableOffline ? "opacity-45" : ""}>
-            <TrackRow
-              {track}
-              number={i + 1}
-              onPlay={() => {
-                if (unavailableOffline) {
-                  player.showToast(t("offline.not_downloaded"));
-                  return;
-                }
-                onPlayTrack(i);
-              }}
-              onRemove={mode === "playlist" && playlist ? () => player.removeTrackFromPlaylist(playlist.id, track.id) : undefined}
-              removeLabel={t("collection.remove_from_playlist")}
-            />
-          </div>
-        {/each}
+      <div class="flex items-center gap-1.5 ml-auto">
+        {#if hasAnyDownloaded}
+          <button
+            type="button"
+            aria-pressed={onlyDownloaded}
+            class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[12px] font-semibold border transition-colors {onlyDownloaded
+              ? 'bg-[var(--accent-soft)] text-[var(--accent-bright)] border-[var(--accent-border)]'
+              : 'bg-[var(--surface)] hover:bg-[var(--surface-hover)] border-[var(--border)] text-[var(--text-muted)]'}"
+            onclick={() => (onlyDownloaded = !onlyDownloaded)}
+          >
+            <ArrowDownCircle size={13} />
+            {t("filter.downloaded_only")}
+          </button>
+        {/if}
+
+        {#if tracks.length > 1}
+          <button
+            type="button"
+            class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[12px] font-semibold bg-[var(--surface)] hover:bg-[var(--surface-hover)] border border-[var(--border)] transition-colors"
+            onclick={onCycleSort}
+          >
+            <ArrowUpDown size={13} />
+            {t("collection.sort", { mode: sortLabel(sortBy) })}
+          </button>
+        {/if}
       </div>
     </div>
+
+    {#if filteredEntries.length === 0}
+      <p class="text-[13px] text-[var(--text-muted)] text-center py-10">
+        {t("filter.no_matches")}
+      </p>
+    {:else}
+      <div>
+        <div class="track-list" role="list">
+          {#each filteredEntries as { track, originalIndex } (track.id + ":" + originalIndex)}
+            {@const unavailableOffline = player.isOffline && !player.isTrackDownloaded(track.id)}
+            {@const isPointerDragging = pointerDragFrom === originalIndex}
+            {@const activeDropTarget =
+              canReorder &&
+              ((dragOverIdx === originalIndex && dragFrom !== originalIndex) ||
+                (pointerDragOver === originalIndex &&
+                  pointerDragFrom != null &&
+                  pointerDragFrom !== originalIndex))}
+            <div
+              bind:this={rowEls[originalIndex]}
+              role="listitem"
+              class="relative rounded-xl transition-shadow {unavailableOffline ? 'opacity-45' : ''} {activeDropTarget
+                ? 'outline -outline-offset-1 outline-[var(--accent-bright)]'
+                : ''} {isPointerDragging ? 'z-20 shadow-lg bg-[var(--bg-elevated)] opacity-95' : ''}"
+              style={isPointerDragging ? `transform: translateY(${pointerOffsetY}px);` : undefined}
+              draggable={canReorder && !device.isTouch}
+              ondragstart={() => {
+                if (canReorder) dragFrom = originalIndex;
+              }}
+              ondragover={(e) => {
+                if (!canReorder) return;
+                e.preventDefault();
+                dragOverIdx = originalIndex;
+              }}
+              ondragleave={() => {
+                if (dragOverIdx === originalIndex) dragOverIdx = null;
+              }}
+              ondrop={() => {
+                if (canReorder && playlist && dragFrom != null && dragFrom !== originalIndex) {
+                  player.movePlaylistTrack(playlist.id, dragFrom, originalIndex);
+                }
+                dragFrom = null;
+                dragOverIdx = null;
+              }}
+              ondragend={() => {
+                dragFrom = null;
+                dragOverIdx = null;
+              }}
+            >
+              <TrackRow
+                {track}
+                number={originalIndex + 1}
+                onPlay={() => {
+                  if (unavailableOffline) {
+                    player.showToast(t("offline.not_downloaded"));
+                    return;
+                  }
+                  onPlayTrack(originalIndex);
+                }}
+                onRemove={mode === "playlist" && playlist ? () => player.removeTrackFromPlaylist(playlist.id, track.id) : undefined}
+                removeLabel={t("collection.remove_from_playlist")}
+              >
+                {#snippet leading()}
+                  {#if canReorder}
+                    <span
+                      role="presentation"
+                      data-drag-handle
+                      class="inline-flex items-center justify-center p-1 -ml-1 rounded-md cursor-grab active:cursor-grabbing text-[var(--text-muted)] opacity-45 md:opacity-30 group-hover:opacity-90 touch-none select-none shrink-0"
+                      style="touch-action: none;"
+                      onpointerdown={(e) => startPointerDrag(e, originalIndex)}
+                      onpointermove={movePointerDrag}
+                      onpointerup={(e) => endPointerDrag(e, true)}
+                      onpointercancel={(e) => endPointerDrag(e, false)}
+                      onclick={(e) => e.stopPropagation()}
+                    >
+                      <GripVertical size={14} aria-hidden="true" />
+                    </span>
+                  {/if}
+                {/snippet}
+              </TrackRow>
+            </div>
+          {/each}
+        </div>
+      </div>
+    {/if}
   {/if}
 </section>

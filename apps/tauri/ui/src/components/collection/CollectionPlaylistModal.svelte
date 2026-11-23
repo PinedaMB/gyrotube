@@ -1,7 +1,10 @@
 <script lang="ts">
-  import { Check, X } from "lucide-svelte";
+  import { Check, Link2, Loader2, X } from "lucide-svelte";
+  import { api, isTauriRuntime } from "../../lib/api";
   import { t } from "../../lib/i18n.svelte";
-  import type { UserPlaylist } from "../../lib/types";
+  import { player } from "../../lib/stores/player.svelte";
+  import type { Track, UserPlaylist } from "../../lib/types";
+  import { parseYtmUrl } from "../../lib/ytmUrl";
   import ModalSheet from "../ModalSheet.svelte";
   import PlaylistIcon, { PLAYLIST_ICON_IDS } from "./PlaylistIcon.svelte";
 
@@ -28,6 +31,7 @@
       description: string;
       colorHex: string | null;
       iconName: string;
+      tracks?: Track[];
     }) => void;
   }
 
@@ -37,6 +41,8 @@
   let formDesc = $state("");
   let formColor = $state<string | null>(SWATCHES[0]);
   let formIcon = $state<string>("music");
+  let importUrl = $state("");
+  let importing = $state(false);
 
   $effect(() => {
     if (open) {
@@ -44,12 +50,38 @@
       formDesc = editing?.description ?? "";
       formColor = editing?.color_hex ?? SWATCHES[0];
       formIcon = editing?.icon_name ?? "music";
+      importUrl = "";
+      importing = false;
     }
   });
 
-  function handleSubmit(e: SubmitEvent) {
+  async function handleSubmit(e: SubmitEvent) {
     e.preventDefault();
-    const clean = formName.trim();
+    if (importing) return;
+
+    const parsedLink = !editing ? parseYtmUrl(importUrl) : null;
+    let importedTracks: Track[] | undefined;
+    let clean = formName.trim();
+
+    if (parsedLink && (parsedLink.kind === "playlist" || parsedLink.kind === "album")) {
+      if (!isTauriRuntime()) return;
+      importing = true;
+      try {
+        const [resolvedTitle, resolvedTracks] =
+          parsedLink.kind === "album"
+            ? await api.getAlbumTracks(parsedLink.id)
+            : await api.getPlaylistTracks(parsedLink.id);
+        importedTracks = resolvedTracks;
+        if (!clean) clean = resolvedTitle;
+      } catch {
+        player.showToast(t("url.import_failed"));
+        importing = false;
+        return;
+      } finally {
+        importing = false;
+      }
+    }
+
     if (!clean) return;
     onSave({
       id: editing?.id ?? null,
@@ -57,7 +89,11 @@
       description: formDesc.trim(),
       colorHex: formColor,
       iconName: formIcon,
+      tracks: importedTracks,
     });
+    if (importedTracks && importedTracks.length > 0) {
+      player.showToast(t("url.imported_count", { count: importedTracks.length }));
+    }
     onClose();
   }
 
@@ -112,10 +148,32 @@
           type="text"
           bind:value={formName}
           placeholder={t("collection.modal_name_ph")}
-          required
+          required={!parseYtmUrl(importUrl)}
           class="w-full px-3.5 py-2.5 rounded-xl bg-[var(--surface)] border border-[var(--border-strong)] focus:border-[var(--accent-border)] outline-none text-[14px]"
         />
       </label>
+
+      {#if !editing && !player.isOffline}
+        <label class="flex flex-col gap-1.5 text-[12.5px] font-semibold">
+          <span class="text-[var(--text-muted)] inline-flex items-center gap-1.5">
+            <Link2 size={13} />
+            {t("url.import_label")}
+          </span>
+          <input
+            type="url"
+            bind:value={importUrl}
+            placeholder={t("url.import_placeholder")}
+            disabled={importing}
+            class="w-full px-3.5 py-2.5 rounded-xl bg-[var(--surface)] border border-[var(--border)] focus:border-[var(--accent-border)] outline-none text-[13px]"
+          />
+          {#if importing}
+            <span class="inline-flex items-center gap-1.5 text-[11.5px] text-[var(--accent-bright)]">
+              <Loader2 size={12} class="animate-spin" />
+              {t("url.importing")}
+            </span>
+          {/if}
+        </label>
+      {/if}
 
       <label class="flex flex-col gap-1.5 text-[12.5px] font-semibold">
         <span class="text-[var(--text-muted)]">{t("collection.modal_desc")}</span>

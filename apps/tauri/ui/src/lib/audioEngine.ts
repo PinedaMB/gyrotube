@@ -1,3 +1,4 @@
+import { DEFAULT_EQ_SETTINGS, EQ_FREQUENCIES, type EqSettings } from "./equalizer";
 import type { Track } from "./types";
 
 export interface AudioCallbacks {
@@ -28,14 +29,104 @@ export class DualDeckAudioEngine {
   private disposingTimers = new Map<HTMLAudioElement, number>();
   private callbacks: AudioCallbacks;
 
+  // Optional Web Audio API graph (lazy: only allocated when EQ or Normalization is enabled)
+  private eqSettings: EqSettings = { ...DEFAULT_EQ_SETTINGS, bands: [...DEFAULT_EQ_SETTINGS.bands] };
+  private audioCtx: AudioContext | null = null;
+  private eqFilters: BiquadFilterNode[] = [];
+  private compressor: DynamicsCompressorNode | null = null;
+  private graphInput: AudioNode | null = null;
+  private connectedSources = new Map<HTMLAudioElement, MediaElementAudioSourceNode>();
+
   constructor(callbacks: AudioCallbacks) {
     this.callbacks = callbacks;
     this.decks = [this.createDeck(0), this.createDeck(1)];
   }
 
+  private needsAudioGraph(): boolean {
+    return this.eqSettings.enabled || this.eqSettings.normalize;
+  }
+
+  private ensureAudioGraph(): AudioNode | null {
+    if (!this.needsAudioGraph()) return null;
+    if (typeof window === "undefined") return null;
+    const Ctx = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!Ctx) return null;
+
+    if (!this.audioCtx) {
+      this.audioCtx = new Ctx();
+      this.eqFilters = EQ_FREQUENCIES.map((freq, idx) => {
+        const filter = this.audioCtx!.createBiquadFilter();
+        filter.type = idx === 0 ? "lowshelf" : idx === EQ_FREQUENCIES.length - 1 ? "highshelf" : "peaking";
+        filter.frequency.value = freq;
+        filter.Q.value = 1.0;
+        filter.gain.value = this.eqSettings.enabled ? this.eqSettings.bands[idx] : 0;
+        return filter;
+      });
+      for (let i = 0; i < this.eqFilters.length - 1; i++) {
+        this.eqFilters[i].connect(this.eqFilters[i + 1]);
+      }
+      this.compressor = this.audioCtx.createDynamicsCompressor();
+      this.applyCompressorParams();
+      this.eqFilters[this.eqFilters.length - 1].connect(this.compressor);
+      this.compressor.connect(this.audioCtx.destination);
+      this.graphInput = this.eqFilters[0];
+    }
+    return this.graphInput;
+  }
+
+  private applyCompressorParams(): void {
+    if (!this.compressor || !this.audioCtx) return;
+    const now = this.audioCtx.currentTime;
+    if (this.eqSettings.normalize) {
+      this.compressor.threshold.setValueAtTime(-18, now);
+      this.compressor.knee.setValueAtTime(24, now);
+      this.compressor.ratio.setValueAtTime(4, now);
+      this.compressor.attack.setValueAtTime(0.005, now);
+      this.compressor.release.setValueAtTime(0.2, now);
+    } else {
+      // Bypass-like neutral settings when only EQ is active
+      this.compressor.threshold.setValueAtTime(0, now);
+      this.compressor.knee.setValueAtTime(0, now);
+      this.compressor.ratio.setValueAtTime(1, now);
+    }
+  }
+
+  private attachAudioGraphIfNeeded(audio: HTMLAudioElement): void {
+    if (!this.needsAudioGraph() || this.connectedSources.has(audio)) return;
+    const input = this.ensureAudioGraph();
+    if (!input || !this.audioCtx) return;
+    try {
+      const source = this.audioCtx.createMediaElementSource(audio);
+      source.connect(input);
+      this.connectedSources.set(audio, source);
+    } catch {
+      // Ignore if media element cannot be attached
+    }
+  }
+
+  public applyEqSettings(settings: EqSettings): void {
+    this.eqSettings = { ...settings, bands: [...settings.bands] };
+    if (this.needsAudioGraph()) {
+      this.ensureAudioGraph();
+      this.attachAudioGraphIfNeeded(this.activeDeck);
+      if (this.audioCtx?.state === "suspended") {
+        void this.audioCtx.resume().catch(() => {});
+      }
+    }
+    if (this.audioCtx && this.eqFilters.length === EQ_FREQUENCIES.length) {
+      const now = this.audioCtx.currentTime;
+      for (let i = 0; i < this.eqFilters.length; i++) {
+        const gain = this.eqSettings.enabled ? this.eqSettings.bands[i] : 0;
+        this.eqFilters[i].gain.setValueAtTime(gain, now);
+      }
+      this.applyCompressorParams();
+    }
+  }
+
   private createDeck(index: 0 | 1): HTMLAudioElement {
     const audio = document.createElement("audio");
     audio.preload = "auto";
+    audio.crossOrigin = "anonymous";
 
     audio.addEventListener("timeupdate", () => {
       if (this.decks[index] !== audio || index !== this.activeIndex) return;
@@ -104,6 +195,15 @@ export class DualDeckAudioEngine {
     if (timer !== undefined) {
       window.clearInterval(timer);
       this.disposingTimers.delete(audio);
+    }
+    const srcNode = this.connectedSources.get(audio);
+    if (srcNode) {
+      try {
+        srcNode.disconnect();
+      } catch {
+        // ignore
+      }
+      this.connectedSources.delete(audio);
     }
     audio.muted = true;
     audio.volume = 0;
@@ -216,6 +316,10 @@ export class DualDeckAudioEngine {
     const incoming = this.decks[incomingIndex];
 
     this.activeIndex = incomingIndex;
+    this.attachAudioGraphIfNeeded(incoming);
+    if (this.audioCtx?.state === "suspended") {
+      void this.audioCtx.resume().catch(() => {});
+    }
     incoming.src = url;
     incoming.load();
 

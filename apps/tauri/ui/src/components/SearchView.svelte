@@ -78,6 +78,7 @@
     editing = false;
     suggestions = [];
     inputEl?.blur();
+    if (player.tryOpenYtmLink(clean)) return;
     void player.runSearch(clean);
   }
 

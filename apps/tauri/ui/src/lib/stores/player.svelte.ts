@@ -1,6 +1,21 @@
 import { api, isTauriRuntime } from "../api";
 import { DualDeckAudioEngine, extractDominantRgb } from "../audioEngine";
+import {
+  EQ_PRESETS,
+  loadEqSettings,
+  saveEqSettings,
+  type EqPresetId,
+  type EqSettings,
+} from "../equalizer";
+import {
+  emptyStats,
+  loadListeningStats,
+  recordTrackPlay,
+  saveListeningStats,
+  type ListeningStats,
+} from "../listeningStats";
 import { hashToView, isSameView, type RouteState, viewToHash } from "../router";
+import { parseYtmUrl } from "../ytmUrl";
 import { contextMenu } from "./contextMenu.svelte";
 import { device } from "./device.svelte";
 import { bindTauriPlayerEvents } from "./nativeEvents";
@@ -168,6 +183,14 @@ class PlayerStore {
     }
   }
 
+  // Equalizer & Listening stats (local-only)
+  eqSettings = $state<EqSettings>(loadEqSettings());
+  listeningStats = $state<ListeningStats>(loadListeningStats());
+  private statsTrackId: string | null = null;
+  private statsRecordedForTrack = false;
+  private statsLastPos = 0;
+  private statsUnsavedSecs = 0;
+
   // Toasts
   toasts = $state<ToastItem[]>([]);
   private toastSeq = 0;
@@ -218,6 +241,7 @@ class PlayerStore {
         if (!this.videoMode) {
           this.updateActiveLyric(pos);
         }
+        this.trackListeningProgress(pos);
         const now = performance.now();
         if (this.spinStatus.local_active && this.isPlaying && !this.isLoadingAudio && now - this.lastLocalSpinUpdate >= 500) {
           this.lastLocalSpinUpdate = now;
@@ -261,6 +285,7 @@ class PlayerStore {
         this.showToast(msg);
       },
     });
+    this.engine.applyEqSettings(this.eqSettings);
   }
 
   public async bootstrap(): Promise<void> {
@@ -1464,6 +1489,24 @@ class PlayerStore {
     void this.playIndex(Math.max(0, Math.min(index, tracks.length - 1)));
   }
 
+  public playNext(track: Track): void {
+    if (this.currentIndex == null || this.queue.length === 0) {
+      this.replaceQueueAndPlay([track], 0, track.title);
+      return;
+    }
+    const insertAt = Math.min(this.currentIndex + 1, this.queue.length);
+    const next = [...this.queue];
+    next.splice(insertAt, 0, track);
+    this.queue = next;
+    this.showToast(
+      this.isSpanish()
+        ? `Sonará a continuación: ${track.title}`
+        : `Playing next: ${track.title}`,
+    );
+    void this.persistSession();
+    void this.syncSpinSnapshot();
+  }
+
   public enqueueTrack(track: Track): void {
     this.queue = [...this.queue, track];
     this.showToast(
@@ -1957,6 +2000,125 @@ class PlayerStore {
           : `Added "${track.title}" to playlist`,
       );
     }
+  }
+
+  public movePlaylistTrack(playlistId: string, from: number, to: number): void {
+    if (from === to) return;
+    let changed = false;
+    this.userPlaylists = this.userPlaylists.map((p) => {
+      if (p.id !== playlistId) return p;
+      if (from < 0 || to < 0 || from >= p.tracks.length || to >= p.tracks.length) return p;
+      const copy = [...p.tracks];
+      const [moved] = copy.splice(from, 1);
+      copy.splice(to, 0, moved);
+      changed = true;
+      return { ...p, tracks: copy };
+    });
+    if (changed && isTauriRuntime()) {
+      void api.saveUserPlaylists(this.userPlaylists);
+    }
+  }
+
+  public tryOpenYtmLink(raw: string): boolean {
+    const parsed = parseYtmUrl(raw);
+    if (!parsed || !isTauriRuntime() || this.isOffline) return false;
+
+    if (parsed.kind === "playlist") {
+      this.openAlbum(parsed.id, "Playlist", null, true);
+      return true;
+    }
+    if (parsed.kind === "album") {
+      this.openAlbum(parsed.id, this.isSpanish() ? "Álbum" : "Album");
+      return true;
+    }
+    if (parsed.kind === "artist") {
+      this.openArtist(parsed.id, this.isSpanish() ? "Artista" : "Artist");
+      return true;
+    }
+    if (parsed.kind === "track") {
+      const stub: Track = {
+        id: parsed.id,
+        title: "YouTube Music",
+        artist: "",
+        artist_id: null,
+        album: null,
+        album_id: null,
+        duration_secs: null,
+        cover_url: `https://i.ytimg.com/vi/${parsed.id}/hqdefault.jpg`,
+        cover_large_url: `https://i.ytimg.com/vi/${parsed.id}/hqdefault.jpg`,
+        is_video: false,
+      };
+      this.replaceQueueAndPlay([stub], 0, "YouTube Music");
+      return true;
+    }
+    return false;
+  }
+
+  public setEqEnabled(enabled: boolean): void {
+    this.eqSettings = { ...this.eqSettings, enabled };
+    saveEqSettings(this.eqSettings);
+    this.engine.applyEqSettings(this.eqSettings);
+  }
+
+  public setEqNormalize(normalize: boolean): void {
+    this.eqSettings = { ...this.eqSettings, normalize };
+    saveEqSettings(this.eqSettings);
+    this.engine.applyEqSettings(this.eqSettings);
+  }
+
+  public setEqPreset(preset: Exclude<EqPresetId, "custom">): void {
+    const bands: [number, number, number, number, number] = [...EQ_PRESETS[preset]];
+    this.eqSettings = { ...this.eqSettings, enabled: true, preset, bands };
+    saveEqSettings(this.eqSettings);
+    this.engine.applyEqSettings(this.eqSettings);
+  }
+
+  public setEqBand(index: number, db: number): void {
+    if (index < 0 || index >= 5) return;
+    const clamped = Math.max(-12, Math.min(12, Math.round(db)));
+    const bands: [number, number, number, number, number] = [...this.eqSettings.bands];
+    bands[index] = clamped;
+    this.eqSettings = { ...this.eqSettings, enabled: true, preset: "custom", bands };
+    saveEqSettings(this.eqSettings);
+    this.engine.applyEqSettings(this.eqSettings);
+  }
+
+  private trackListeningProgress(pos: number): void {
+    const cur = this.currentTrack;
+    if (!cur || !this.isPlaying) return;
+    if (this.statsTrackId !== cur.id) {
+      this.statsTrackId = cur.id;
+      this.statsRecordedForTrack = false;
+      this.statsLastPos = pos;
+      return;
+    }
+    const delta = pos - this.statsLastPos;
+    this.statsLastPos = pos;
+    if (delta > 0 && delta < 5) {
+      this.statsUnsavedSecs += delta;
+      if (this.statsUnsavedSecs >= 10) {
+        const add = Math.floor(this.statsUnsavedSecs);
+        this.statsUnsavedSecs -= add;
+        this.listeningStats = {
+          ...this.listeningStats,
+          totalSeconds: this.listeningStats.totalSeconds + add,
+        };
+        saveListeningStats(this.listeningStats);
+      }
+    }
+    if (!this.statsRecordedForTrack && pos >= 30) {
+      this.statsRecordedForTrack = true;
+      this.listeningStats = recordTrackPlay(this.listeningStats, cur);
+      saveListeningStats(this.listeningStats);
+    }
+  }
+
+  public resetListeningStats(): void {
+    this.listeningStats = emptyStats();
+    saveListeningStats(this.listeningStats);
+    this.showToast(
+      this.isSpanish() ? "Estadísticas reiniciadas" : "Listening stats reset",
+    );
   }
 
   public removeTrackFromPlaylist(playlistId: string, trackId: string): void {

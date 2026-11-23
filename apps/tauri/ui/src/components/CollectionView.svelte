@@ -7,6 +7,7 @@
   import CollectionPlaylistModal from "./collection/CollectionPlaylistModal.svelte";
   import CollectionPlaylistsGrid from "./collection/CollectionPlaylistsGrid.svelte";
   import CollectionRecentlyPlayed from "./collection/CollectionRecentlyPlayed.svelte";
+  import CollectionStatsCard from "./collection/CollectionStatsCard.svelte";
   import Carousel from "./Carousel.svelte";
   import CoverImage from "./CoverImage.svelte";
 
@@ -48,6 +49,7 @@
     description: string;
     colorHex: string | null;
     iconName: string;
+    tracks?: import("../lib/types").Track[];
   }) {
     if (data.id) {
       player.updateUserPlaylist(data.id, data.name, data.description, data.colorHex, data.iconName);
@@ -57,6 +59,7 @@
         data.description,
         data.colorHex,
         data.iconName,
+        data.tracks ?? [],
       );
       screen = { kind: "playlist", id: created.id };
     }
@@ -121,6 +124,8 @@
         </Carousel>
       </div>
     {/if}
+
+    <CollectionStatsCard />
 
     <CollectionRecentlyPlayed />
   </div>

@@ -7,6 +7,7 @@
     Library,
     Link2,
     ListPlus,
+    ListStart,
     PartyPopper,
     Pause,
     Play,
@@ -77,6 +78,19 @@
   >
     <Play size={15} fill="currentColor" />
     <span>{t("home.play")}</span>
+  </button>
+
+  <button
+    type="button"
+    role="menuitem"
+    class="ctx-item"
+    onclick={() => {
+      contextMenu.close();
+      player.playNext(track);
+    }}
+  >
+    <ListStart size={15} />
+    <span>{t("queue.play_next")}</span>
   </button>
 
   <button
