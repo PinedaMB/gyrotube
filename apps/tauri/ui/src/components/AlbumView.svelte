@@ -128,6 +128,7 @@
           {coverUrl}
           {isPlaylist}
           {tracks}
+          {loading}
         />
 
         <AlbumTrackList

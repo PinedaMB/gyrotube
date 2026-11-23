@@ -13,9 +13,10 @@
     coverUrl?: string | null;
     isPlaylist?: boolean;
     tracks: Track[];
+    loading?: boolean;
   }
 
-  let { id, title, coverUrl = null, isPlaylist = false, tracks }: Props = $props();
+  let { id, title, coverUrl = null, isPlaylist = false, tracks, loading = false }: Props = $props();
   let startingRadio = $state(false);
 
   async function startPlaylistRadio() {
@@ -95,12 +96,17 @@
       <span class="px-2 py-0.5 rounded-full text-[10.5px] font-bold uppercase tracking-wider bg-[var(--accent-soft)] text-[var(--accent-bright)]">
         {isPlaylist ? t("album.badge_playlist") : t("album.badge_album")}
       </span>
-      <span>·</span>
-      <span class="numeric">
-        {tracks.length === 1
-          ? t("collection.song_one")
-          : t("collection.song_many", { count: tracks.length })}{totalMins ? ` · ${totalMins} min` : ""}
-      </span>
+      {#if loading && tracks.length === 0}
+        <span>·</span>
+        <span class="inline-block h-3.5 w-20 rounded bg-[var(--skeleton)] animate-pulse" aria-hidden="true"></span>
+      {:else}
+        <span>·</span>
+        <span class="numeric">
+          {tracks.length === 1
+            ? t("collection.song_one")
+            : t("collection.song_many", { count: tracks.length })}{totalMins ? ` · ${totalMins} min` : ""}
+        </span>
+      {/if}
     </div>
   </div>
 

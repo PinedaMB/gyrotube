@@ -50,11 +50,11 @@
 
   function handleInput() {
     editing = true;
-    suggestions = [];
     const req = ++suggestionReq;
     window.clearTimeout(debounceTimer);
     const trimmed = query.trim();
     if (!trimmed) {
+      suggestions = [];
       player.clearSearch(false);
       return;
     }
@@ -68,7 +68,7 @@
       } catch {
         // Non-fatal
       }
-    }, 180);
+    }, 150);
   }
 
   function submit(term: string) {
@@ -87,6 +87,14 @@
     editing = true;
     player.clearSearch(false);
     inputEl?.focus();
+  }
+
+  function splitHighlight(term: string): [string, string] {
+    const typed = query.trim();
+    if (typed && term.toLowerCase().startsWith(typed.toLowerCase())) {
+      return [term.slice(0, typed.length), term.slice(typed.length)];
+    }
+    return ["", term];
   }
 </script>
 
@@ -150,38 +158,56 @@
       <ExploreSkeleton />
     {:else if !editing && player.searchResults}
       <ExploreSearchResults results={player.searchResults} />
-    {:else if query.trim().length > 0 && suggestions.length > 0}
-      <!-- Live suggestions list -->
-      <section class="space-y-2">
-        <h2 class="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)] px-1">
+    {:else if query.trim().length > 0}
+      <!-- Live suggestions list (stays stable while typing; never flashes back to recents) -->
+      <section class="space-y-1.5">
+        <h2 class="text-[11.5px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)] px-1">
           {t("header.suggestions")}
         </h2>
-        <div class="flex flex-col divide-y divide-[var(--border)] rounded-2xl bg-[var(--card-bg)] border border-[var(--border)] overflow-hidden">
-          {#each suggestions as term (term)}
-            <div class="flex items-center gap-1">
-              <button
-                type="button"
-                class="flex-1 min-w-0 flex items-center gap-3 px-4 py-3 text-left text-[14px] hover:bg-[var(--surface-hover)] transition-colors"
-                onclick={() => submit(term)}
-              >
-                <Search size={15} class="text-[var(--text-muted)] shrink-0" aria-hidden="true" />
-                <span class="truncate">{term}</span>
-              </button>
-              <button
-                type="button"
-                class="w-11 h-11 inline-flex items-center justify-center text-[var(--text-muted)] hover:text-[var(--text)] shrink-0"
-                title={term}
-                aria-label={term}
-                onclick={() => {
-                  query = term;
-                  handleInput();
-                  inputEl?.focus();
-                }}
-              >
-                <ArrowUpLeft size={16} />
-              </button>
-            </div>
-          {/each}
+        <div class="flex flex-col -mx-1.5">
+          {#if suggestions.length > 0}
+            {#each suggestions as term (term)}
+              {@const [prefix, rest] = splitHighlight(term)}
+              <div class="flex items-center gap-0.5 rounded-xl hover:bg-[var(--surface-hover)] transition-colors">
+                <button
+                  type="button"
+                  class="flex-1 min-w-0 flex items-center gap-3 px-2.5 py-2.5 text-left text-[14.5px]"
+                  onclick={() => submit(term)}
+                >
+                  <Search size={16} class="text-[var(--text-muted)] shrink-0" aria-hidden="true" />
+                  <span class="truncate">
+                    {#if prefix}
+                      <span class="text-[var(--text-muted)]">{prefix}</span><strong class="font-semibold text-[var(--text)]">{rest}</strong>
+                    {:else}
+                      <span class="font-medium text-[var(--text)]">{term}</span>
+                    {/if}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  class="w-9 h-9 inline-flex items-center justify-center rounded-full text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-[var(--surface)] shrink-0"
+                  title={term}
+                  aria-label={term}
+                  onclick={() => {
+                    query = term;
+                    handleInput();
+                    inputEl?.focus();
+                  }}
+                >
+                  <ArrowUpLeft size={16} />
+                </button>
+              </div>
+            {/each}
+          {:else}
+            <button
+              type="button"
+              class="flex items-center gap-3 px-2.5 py-2.5 rounded-xl text-left text-[14.5px] hover:bg-[var(--surface-hover)] transition-colors"
+              onclick={() => submit(query)}
+            >
+              <Search size={16} class="text-[var(--text-muted)] shrink-0" aria-hidden="true" />
+              <span class="truncate font-medium text-[var(--text)]">{query.trim()}</span>
+            </button>
+          {/if}
         </div>
       </section>
     {:else}

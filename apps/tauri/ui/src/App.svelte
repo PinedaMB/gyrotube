@@ -133,6 +133,7 @@
 
   let exploreMounted = $state(false);
   let collectionMounted = $state(false);
+  let searchMounted = $state(false);
   let lastArtist = $state<{ artistId: string; artistName: string } | null>(null);
   let lastAlbum = $state<{
     id: string;
@@ -156,6 +157,8 @@
       exploreMounted = true;
     } else if (player.activeView.kind === "collection") {
       collectionMounted = true;
+    } else if (player.activeView.kind === "search") {
+      searchMounted = true;
     } else if (player.activeView.kind === "artist") {
       if (
         !lastArtist ||
@@ -273,8 +276,11 @@
           </div>
         {/if}
 
-        {#if player.activeView.kind === "search"}
-          <div class="w-full h-full overflow-y-auto overflow-x-hidden scroll-y">
+        {#if searchMounted}
+          <div
+            class="w-full h-full overflow-y-auto overflow-x-hidden scroll-y"
+            class:hidden={player.activeView.kind !== "search"}
+          >
             <SearchView />
           </div>
         {/if}

@@ -50,11 +50,11 @@
 
   function handleInput() {
     selectedIdx = -1;
-    suggestions = [];
     const request = ++suggestionRequest;
     window.clearTimeout(debounceTimer);
     const trimmed = query.trim();
     if (!trimmed) {
+      suggestions = [];
       player.clearSearch();
       popoverOpen = player.searchHistory.length > 0;
       return;
@@ -68,7 +68,7 @@
       } catch {
         // Search can still be submitted without suggestions.
       }
-    }, 180);
+    }, 150);
   }
 
   function submitSearch(term: string) {

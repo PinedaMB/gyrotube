@@ -9,11 +9,11 @@
   );
 </script>
 
-<div class="justify-self-end flex items-center gap-0.5 sm:gap-1.5 shrink-0">
+<div class="justify-self-end flex items-center gap-1 sm:gap-1.5 shrink-0">
   <button
     type="button"
     disabled={player.isOffline}
-    class="icon-btn md:hidden"
+    class="icon-btn !w-9 !h-9 md:hidden"
     title={t("header.search_placeholder")}
     aria-label={t("header.search_placeholder")}
     onclick={() => player.openSearch()}
@@ -23,7 +23,7 @@
   <button
     type="button"
     disabled={player.isOffline && !spinLive}
-    class="icon-btn relative"
+    class="icon-btn max-md:!w-9 max-md:!h-9 relative"
     class:active={player.spinOpen || spinLive}
     title={t("header.spin_mode")}
     onclick={() => {
@@ -54,9 +54,10 @@
 
   <button
     type="button"
-    class="icon-btn"
+    class="icon-btn max-md:!w-9 max-md:!h-9"
     class:active={player.settingsOpen}
     title={t("header.settings")}
+    aria-label={t("header.settings")}
     onclick={() => (player.settingsOpen = true)}
   >
     <Settings size={18} />
