@@ -150,6 +150,13 @@ pub async fn get_downloads_bytes() -> u64 {
 }
 
 #[tauri::command]
+pub async fn clear_all_downloads() -> Result<(), String> {
+    tokio::task::spawn_blocking(gyrotube_core::backend::Backend::clear_all_downloads)
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
 pub async fn get_offline_cover_base_url() -> Result<String, String> {
     let streamer = AudioStreamer::global().await?;
     Ok(streamer.cover_base_url())

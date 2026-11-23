@@ -135,15 +135,15 @@
 <div class="h-screen w-screen overflow-hidden flex flex-col bg-[var(--bg)] text-[var(--text)]">
   <HeaderBar />
 
-  {#if player.isOffline}
+  {#if player.isOffline && player.activeView.kind === "collection"}
     <div
       role="alert"
       aria-live="assertive"
       transition:fly={{ y: -12, duration: 180, easing: cubicOut }}
-      class="shrink-0 z-30 flex items-center justify-center gap-2.5 px-4 py-2 bg-[var(--danger)]/15 border-b border-[var(--danger)]/35 text-[var(--text)] text-[13px]"
+      class="shrink-0 z-30 flex items-center justify-center gap-2 px-4 py-1.5 bg-[var(--danger)]/12 border-b border-[var(--danger)]/28 text-[var(--text)] text-[12.5px]"
     >
-      <WifiOff size={15} class="shrink-0 text-[var(--danger)]" />
-      <span class="font-semibold">{t("network.offline_title")}</span>
+      <WifiOff size={14} class="shrink-0 text-[var(--danger)]" />
+      <span class="font-semibold">{t("network.offline_mode")}</span>
       <span class="hidden sm:inline text-[var(--text-muted)]">· {t("network.offline_sub")}</span>
     </div>
   {/if}

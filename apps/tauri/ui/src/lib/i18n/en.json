@@ -231,7 +231,8 @@
   "player.video_fullscreen": "Fullscreen",
   "player.video_unavailable": "Video unavailable for this track",
   "network.offline_title": "No internet connection",
-  "network.offline_sub": "Check your connection to stream music",
+  "network.offline_mode": "Offline mode",
+  "network.offline_sub": "Only downloaded music is available",
   "network.offline_desc": "Connect to the internet to browse music. Meanwhile, you can access your local playlists.",
   "network.go_collection": "Go to local playlists",
   "network.search_disabled": "Search unavailable offline",
@@ -244,5 +245,17 @@
   "offline.download_done": "Playlist available offline",
   "offline.download_partial": "Downloaded {done} of {total} songs",
   "offline.downloads_removed": "Offline downloads removed",
-  "offline.not_downloaded": "Not downloaded for offline playback"
+  "offline.not_downloaded": "Not downloaded for offline playback",
+  "settings.cache_cleared": "Audio cache cleared",
+  "settings.downloads": "Offline downloads",
+  "settings.downloads_sub": "{mb} MB · {count} songs",
+  "settings.downloads_empty": "No downloaded songs",
+  "settings.backup": "Library backup",
+  "settings.backup_sub": "Export or import favorites, local playlists, and followed artists",
+  "settings.export": "Export",
+  "settings.import": "Import",
+  "settings.export_done": "Library exported",
+  "settings.import_done": "Library imported (+{favorites} favorites, +{playlists} playlists)",
+  "settings.import_nothing": "Everything in this backup is already in your library",
+  "settings.import_invalid": "Invalid backup file"
 }

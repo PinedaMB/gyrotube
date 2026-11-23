@@ -237,38 +237,43 @@
         {player.currentTrack?.title ?? t("player.nothing_playing")}
       </h2>
       {#if artistNames.length > 0}
-        <div class="flex flex-wrap items-center justify-center gap-x-0.5 gap-y-0.5 max-w-full">
-          {#each artistNames as name, i (`${name}:${i}`)}
-            <button
-              type="button"
-              disabled={resolvingArtist !== null || player.isOffline}
-              class="group inline-flex items-center justify-center gap-1 max-w-full px-2 py-0.5 rounded-full text-[14.5px] font-semibold text-[var(--text-muted)] hover:text-[var(--accent-bright)] hover:bg-[var(--surface-hover)] active:bg-[var(--surface-hover)] transition-colors"
-              title={t("ctx.go_artist")}
-              onclick={() => void goToArtist(name, i)}
-            >
-              {#if resolvingArtist === name}
-                <span class="w-3 h-3 rounded-full border-2 border-current/30 border-t-current animate-spin shrink-0"></span>
-              {/if}
-              <span class="truncate">{name}</span>
-              {#if artistNames.length === 1}
-                <ChevronRight
-                  size={13}
-                  class="shrink-0 opacity-0 -ml-0.5 group-hover:opacity-80 group-hover:ml-0 transition-all"
-                />
-              {/if}
-            </button>{#if i < artistNames.length - 1}<span class="text-[14px] font-semibold text-[var(--text-muted)]/60 -ml-1 mr-0.5 select-none">,</span>{/if}
-          {/each}
-        </div>
+        {#if player.isOffline}
+          <p class="text-[14.5px] font-semibold text-[var(--text-muted)] truncate max-w-full px-2">
+            {artistNames.join(", ")}
+          </p>
+        {:else}
+          <div class="flex flex-wrap items-center justify-center gap-x-0.5 gap-y-0.5 max-w-full">
+            {#each artistNames as name, i (`${name}:${i}`)}
+              <button
+                type="button"
+                disabled={resolvingArtist !== null}
+                class="group inline-flex items-center justify-center gap-1 max-w-full px-2 py-0.5 rounded-full text-[14.5px] font-semibold text-[var(--text-muted)] hover:text-[var(--accent-bright)] hover:bg-[var(--surface-hover)] active:bg-[var(--surface-hover)] transition-colors"
+                title={t("ctx.go_artist")}
+                onclick={() => void goToArtist(name, i)}
+              >
+                {#if resolvingArtist === name}
+                  <span class="w-3 h-3 rounded-full border-2 border-current/30 border-t-current animate-spin shrink-0"></span>
+                {/if}
+                <span class="truncate">{name}</span>
+                {#if artistNames.length === 1}
+                  <ChevronRight
+                    size={13}
+                    class="shrink-0 opacity-0 -ml-0.5 group-hover:opacity-80 group-hover:ml-0 transition-all"
+                  />
+                {/if}
+              </button>{#if i < artistNames.length - 1}<span class="text-[14px] font-semibold text-[var(--text-muted)]/60 -ml-1 mr-0.5 select-none">,</span>{/if}
+            {/each}
+          </div>
+        {/if}
       {:else}
         <p class="text-[14px] font-medium text-[var(--text-muted)] truncate">
           {t("player.select_song")}
         </p>
       {/if}
       {#if player.currentTrack?.album}
-        {#if player.currentTrack.album_id}
+        {#if player.currentTrack.album_id && !player.isOffline}
           <button
             type="button"
-            disabled={player.isOffline}
             class="group inline-flex items-center justify-center gap-1.5 max-w-full px-3 py-1 rounded-full text-[12px] font-medium bg-[var(--surface)] border border-[var(--border)] text-[var(--text-muted)] hover:bg-[var(--accent-soft)] hover:border-[var(--accent-border)] hover:text-[var(--accent-bright)] transition-colors"
             title={t("player.album_prefix", { album: player.currentTrack.album })}
             onclick={() => {
@@ -285,8 +290,8 @@
             />
           </button>
         {:else}
-          <span class="inline-flex items-center justify-center gap-1.5 max-w-full px-2.5 py-0.5 text-[12px] text-[var(--text-muted)]/80">
-            <Disc3 size={12} class="shrink-0 opacity-70" />
+          <span class="inline-flex items-center justify-center gap-1.5 max-w-full px-3 py-1 rounded-full text-[12px] font-medium bg-[var(--surface)] border border-[var(--border)] text-[var(--text-muted)]">
+            <Disc3 size={12} class="shrink-0 opacity-75" />
             <span class="truncate">{player.currentTrack.album}</span>
           </span>
         {/if}

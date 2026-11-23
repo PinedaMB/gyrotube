@@ -169,7 +169,7 @@
       >
         <X size={13} />
       </button>
-    {:else}
+    {:else if !player.isOffline}
       <kbd
         class="hidden sm:inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-[6px] text-[10.5px] font-mono font-semibold text-[var(--text-muted)] bg-[var(--surface)] border border-[var(--border)] shrink-0 leading-none"
       >

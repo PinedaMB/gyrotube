@@ -231,7 +231,8 @@
   "player.video_fullscreen": "Pantalla completa",
   "player.video_unavailable": "Video no disponible para esta pista",
   "network.offline_title": "Sin conexión a internet",
-  "network.offline_sub": "Revisa tu conexión para reproducir música",
+  "network.offline_mode": "Modo sin conexión",
+  "network.offline_sub": "Solo la música descargada está disponible",
   "network.offline_desc": "Conéctate a internet para explorar música. Mientras tanto, puedes acceder a tus playlists locales.",
   "network.go_collection": "Ir a playlists locales",
   "network.search_disabled": "Búsqueda no disponible sin conexión",
@@ -244,5 +245,17 @@
   "offline.download_done": "Playlist disponible sin conexión",
   "offline.download_partial": "Se descargaron {done} de {total} canciones",
   "offline.downloads_removed": "Descargas eliminadas",
-  "offline.not_downloaded": "No descargada para modo sin conexión"
+  "offline.not_downloaded": "No descargada para modo sin conexión",
+  "settings.cache_cleared": "Caché de audio limpiada",
+  "settings.downloads": "Descargas sin conexión",
+  "settings.downloads_sub": "{mb} MB · {count} canciones",
+  "settings.downloads_empty": "Sin canciones descargadas",
+  "settings.backup": "Respaldo de biblioteca",
+  "settings.backup_sub": "Exporta o importa favoritos, playlists locales y artistas seguidos",
+  "settings.export": "Exportar",
+  "settings.import": "Importar",
+  "settings.export_done": "Biblioteca exportada",
+  "settings.import_done": "Biblioteca importada (+{favorites} favoritos, +{playlists} playlists)",
+  "settings.import_nothing": "Todo lo de este respaldo ya estaba en tu biblioteca",
+  "settings.import_invalid": "Archivo de respaldo no válido"
 }

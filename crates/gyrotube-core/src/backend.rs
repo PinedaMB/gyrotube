@@ -997,6 +997,20 @@ impl Backend {
         Ok(())
     }
 
+    pub fn clear_all_downloads() -> Result<(), String> {
+        let Some(dir) = crate::models::downloads_dir() else {
+            return Ok(());
+        };
+        if let Ok(entries) = std::fs::read_dir(&dir) {
+            for entry in entries.flatten() {
+                if entry.metadata().is_ok_and(|m| m.is_file()) {
+                    let _ = std::fs::remove_file(entry.path());
+                }
+            }
+        }
+        Ok(())
+    }
+
     pub fn downloads_bytes() -> u64 {
         let Some(dir) = crate::models::downloads_dir() else {
             return 0;
@@ -1050,10 +1064,28 @@ impl Backend {
         }
     }
 
+    async fn download_lyrics_offline(&self, track: &Track, dl_dir: &std::path::Path) {
+        let lyrics_path = dl_dir.join(format!("{}.lyrics.json", track.id));
+        if std::fs::metadata(&lyrics_path).is_ok_and(|m| m.is_file() && m.len() > 0) {
+            return;
+        }
+        if let Ok(data) = self.fetch_synced_lyrics(track).await
+            && let Ok(json) = serde_json::to_vec(&data)
+        {
+            let tmp = dl_dir.join(format!("{}.lyrics.json.part", track.id));
+            if tokio::fs::write(&tmp, &json).await.is_ok() {
+                let _ = tokio::fs::rename(&tmp, &lyrics_path).await;
+            }
+        }
+    }
+
     pub async fn download_track_offline(&self, track: &Track) -> Result<String, String> {
         validate_video_id(&track.id)?;
         let dl_dir = Self::downloads_dir_ready()?;
-        Self::download_cover_offline(track, &dl_dir).await;
+        let ((), ()) = tokio::join!(
+            Self::download_cover_offline(track, &dl_dir),
+            self.download_lyrics_offline(track, &dl_dir)
+        );
         if audio_cache::find(&track.id, &dl_dir).is_some() {
             return Ok(track.id.clone());
         }
@@ -1976,6 +2008,18 @@ impl Backend {
     }
 
     pub async fn fetch_synced_lyrics(&self, track: &Track) -> Result<LyricsData, String> {
+        if !track.id.is_empty()
+            && validate_video_id(&track.id).is_ok()
+            && let Some(dl_dir) = crate::models::downloads_dir()
+        {
+            let lyrics_path = dl_dir.join(format!("{}.lyrics.json", track.id));
+            if let Ok(bytes) = tokio::fs::read(&lyrics_path).await
+                && let Ok(saved) = serde_json::from_slice::<LyricsData>(&bytes)
+            {
+                return Ok(saved);
+            }
+        }
+
         #[derive(serde::Deserialize)]
         #[serde(rename_all = "camelCase")]
         struct LrcLibResp {

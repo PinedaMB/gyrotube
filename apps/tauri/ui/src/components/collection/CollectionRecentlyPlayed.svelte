@@ -3,6 +3,17 @@
   import { t } from "../../lib/i18n.svelte";
   import { player } from "../../lib/stores/player.svelte";
   import TrackRow from "../TrackRow.svelte";
+
+  function playAllRecent() {
+    const list = player.isOffline
+      ? player.recentTracks.filter((tr) => player.isTrackDownloaded(tr.id))
+      : player.recentTracks;
+    if (!list.length) {
+      if (player.isOffline) player.showToast(t("offline.not_downloaded"));
+      return;
+    }
+    player.replaceQueueAndPlay(list, 0, t("collection.recently_played"));
+  }
 </script>
 
 <section class="mt-8 flex flex-col gap-3">
@@ -29,8 +40,7 @@
         <button
           type="button"
           class="pill-btn !text-[12.5px]"
-          onclick={() =>
-            player.replaceQueueAndPlay(player.recentTracks, 0, t("collection.recently_played"))}
+          onclick={playAllRecent}
         >
           <Play size={13} fill="currentColor" />
           {t("collection.play_all")}
@@ -46,13 +56,29 @@
   {:else}
     <div class="track-list">
       {#each player.recentTracks as track, i (track.id)}
-        <TrackRow
-          {track}
-          onPlay={() =>
-            player.replaceQueueAndPlay(player.recentTracks, i, t("collection.recently_played"))}
-          onRemove={() => player.removeRecentTrack(track.id)}
-          removeLabel={t("collection.remove_recent")}
-        />
+        {@const unavailableOffline = player.isOffline && !player.isTrackDownloaded(track.id)}
+        <div class={unavailableOffline ? "opacity-45" : ""}>
+          <TrackRow
+            {track}
+            onPlay={() => {
+              if (unavailableOffline) {
+                player.showToast(t("offline.not_downloaded"));
+                return;
+              }
+              if (player.isOffline) {
+                const downloaded = player.recentTracks.filter((tr) => player.isTrackDownloaded(tr.id));
+                const idx = downloaded.findIndex((tr) => tr.id === track.id);
+                if (idx >= 0) {
+                  player.replaceQueueAndPlay(downloaded, idx, t("collection.recently_played"));
+                }
+                return;
+              }
+              player.replaceQueueAndPlay(player.recentTracks, i, t("collection.recently_played"));
+            }}
+            onRemove={() => player.removeRecentTrack(track.id)}
+            removeLabel={t("collection.remove_recent")}
+          />
+        </div>
       {/each}
     </div>
   {/if}

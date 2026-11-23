@@ -626,7 +626,7 @@ pub struct SyncedLyricLine {
     pub text: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum LyricsData {
     Synced(Vec<SyncedLyricLine>),
     Plain(String),

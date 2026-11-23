@@ -557,6 +557,111 @@ class PlayerStore {
     }
   }
 
+  public async clearAllDownloads(): Promise<void> {
+    if (!isTauriRuntime()) return;
+    await api.clearAllDownloads();
+    this.downloadedTrackIds = new Set();
+  }
+
+  public exportLibraryJson(): string {
+    return JSON.stringify(
+      {
+        version: 1,
+        exported_at: new Date().toISOString(),
+        favorites: $state.snapshot(this.favorites),
+        user_playlists: $state.snapshot(this.userPlaylists),
+        followed_artists: $state.snapshot(this.followedArtists),
+      },
+      null,
+      2,
+    );
+  }
+
+  public importLibraryJson(raw: string): {
+    favoritesAdded: number;
+    playlistsAdded: number;
+    artistsAdded: number;
+  } {
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    if (!parsed || typeof parsed !== "object") {
+      throw new Error("Invalid backup");
+    }
+
+    let favoritesAdded = 0;
+    let playlistsAdded = 0;
+    let artistsAdded = 0;
+
+    if (Array.isArray(parsed.favorites)) {
+      const existing = new Set(this.favorites.map((t) => t.id));
+      const toAdd: Track[] = [];
+      for (const item of parsed.favorites) {
+        if (
+          item &&
+          typeof item === "object" &&
+          typeof (item as Track).id === "string" &&
+          typeof (item as Track).title === "string" &&
+          typeof (item as Track).artist === "string" &&
+          !existing.has((item as Track).id)
+        ) {
+          existing.add((item as Track).id);
+          toAdd.push(item as Track);
+        }
+      }
+      if (toAdd.length > 0) {
+        this.favorites = [...this.favorites, ...toAdd];
+        favoritesAdded = toAdd.length;
+        if (isTauriRuntime()) void api.saveFavorites(this.favorites);
+      }
+    }
+
+    if (Array.isArray(parsed.user_playlists)) {
+      const existing = new Set(this.userPlaylists.map((p) => p.id));
+      const toAdd: UserPlaylist[] = [];
+      for (const item of parsed.user_playlists) {
+        if (
+          item &&
+          typeof item === "object" &&
+          typeof (item as UserPlaylist).id === "string" &&
+          typeof (item as UserPlaylist).name === "string" &&
+          Array.isArray((item as UserPlaylist).tracks) &&
+          !existing.has((item as UserPlaylist).id)
+        ) {
+          existing.add((item as UserPlaylist).id);
+          toAdd.push(item as UserPlaylist);
+        }
+      }
+      if (toAdd.length > 0) {
+        this.userPlaylists = [...this.userPlaylists, ...toAdd];
+        playlistsAdded = toAdd.length;
+        if (isTauriRuntime()) void api.saveUserPlaylists(this.userPlaylists);
+      }
+    }
+
+    if (Array.isArray(parsed.followed_artists)) {
+      const existing = new Set(this.followedArtists.map((a) => a.id));
+      const toAdd: Artist[] = [];
+      for (const item of parsed.followed_artists) {
+        if (
+          item &&
+          typeof item === "object" &&
+          typeof (item as Artist).id === "string" &&
+          typeof (item as Artist).name === "string" &&
+          !existing.has((item as Artist).id)
+        ) {
+          existing.add((item as Artist).id);
+          toAdd.push(item as Artist);
+        }
+      }
+      if (toAdd.length > 0) {
+        this.followedArtists = [...this.followedArtists, ...toAdd];
+        artistsAdded = toAdd.length;
+        if (isTauriRuntime()) void api.saveFollowedArtists(this.followedArtists);
+      }
+    }
+
+    return { favoritesAdded, playlistsAdded, artistsAdded };
+  }
+
   private isMobilePlayerHistoryEnabled(): boolean {
     if (typeof window === "undefined") return false;
     const win = window as unknown as { __GYROTUBE_ANDROID__?: unknown };

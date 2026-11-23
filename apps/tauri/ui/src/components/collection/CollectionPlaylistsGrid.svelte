@@ -1,8 +1,8 @@
 <script lang="ts">
-  import { Heart, Pencil, Play } from "lucide-svelte";
+  import { CheckCircle2, Heart, Pencil, Play } from "lucide-svelte";
   import { t } from "../../lib/i18n.svelte";
   import { player } from "../../lib/stores/player.svelte";
-  import type { UserPlaylist } from "../../lib/types";
+  import type { Track, UserPlaylist } from "../../lib/types";
   import PlaylistIcon from "./PlaylistIcon.svelte";
 
   interface Props {
@@ -12,6 +12,21 @@
   }
 
   let { onOpenFavorites, onOpenPlaylist, onEditPlaylist }: Props = $props();
+
+  function allDownloaded(tracks: Track[]): boolean {
+    return tracks.length > 0 && tracks.every((tr) => player.isTrackDownloaded(tr.id));
+  }
+
+  function playTracks(tracks: Track[], source: string) {
+    const list = player.isOffline
+      ? tracks.filter((tr) => player.isTrackDownloaded(tr.id))
+      : tracks;
+    if (!list.length) {
+      if (player.isOffline) player.showToast(t("offline.not_downloaded"));
+      return;
+    }
+    player.replaceQueueAndPlay(list, 0, source);
+  }
 </script>
 
 <section class="mt-6 flex flex-col gap-3">
@@ -20,8 +35,8 @@
   <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
     <!-- Favorites card -->
     <div
-      class="group flex items-center gap-3.5 p-3.5 rounded-2xl border border-white/10 hover:border-white/20 cursor-pointer transition-all duration-150 hover:-translate-y-0.5"
-      style="background: linear-gradient(135deg, rgba(224, 27, 36, 0.2), var(--surface) 70%);"
+      class="group flex items-center gap-3.5 p-3.5 rounded-2xl border border-[var(--border)] hover:border-[var(--border-strong)] cursor-pointer transition-all duration-150 hover:-translate-y-0.5"
+      style="background: linear-gradient(135deg, rgba(224, 27, 36, 0.16), var(--card-bg) 70%); box-shadow: var(--card-shadow);"
       role="button"
       tabindex="0"
       onclick={onOpenFavorites}
@@ -34,7 +49,14 @@
         <Heart size={20} fill="currentColor" />
       </span>
       <div class="min-w-0 flex-1">
-        <strong class="block text-[14.5px] font-bold truncate">{t("collection.favorites")}</strong>
+        <div class="flex items-center gap-1.5">
+          <strong class="text-[14.5px] font-bold truncate">{t("collection.favorites")}</strong>
+          {#if allDownloaded(player.favorites)}
+            <span title={t("offline.downloaded")} class="text-[var(--accent-bright)] shrink-0">
+              <CheckCircle2 size={13} />
+            </span>
+          {/if}
+        </div>
         <span class="block text-[12px] text-[var(--text-muted)]">
           {player.favorites.length === 1
             ? t("collection.song_one")
@@ -42,12 +64,12 @@
         </span>
       </div>
       <button
-        class="w-9 h-9 rounded-full inline-flex items-center justify-center shrink-0 bg-white/10 text-white group-hover:bg-[var(--accent)] transition-all active:scale-95 disabled:opacity-35"
+        class="w-9 h-9 rounded-full inline-flex items-center justify-center shrink-0 bg-[var(--surface-hover)] text-[var(--text)] group-hover:bg-[var(--accent)] group-hover:text-white transition-all active:scale-95 disabled:opacity-35"
         disabled={player.favorites.length === 0}
         title={t("home.play")}
         onclick={(e) => {
           e.stopPropagation();
-          if (player.favorites.length) player.replaceQueueAndPlay(player.favorites, 0, t("collection.favorites"));
+          playTracks(player.favorites, t("collection.favorites"));
         }}
       >
         <Play size={15} fill="currentColor" class="translate-x-[1px]" />
@@ -58,8 +80,8 @@
     {#each player.userPlaylists as pl (pl.id)}
       {@const accent = pl.color_hex || "#10b981"}
       <div
-        class="group flex items-center gap-3.5 p-3.5 rounded-2xl border border-[var(--border)] hover:border-white/20 cursor-pointer transition-all duration-150 hover:-translate-y-0.5"
-        style="background: linear-gradient(135deg, {accent}26, var(--surface) 72%);"
+        class="group flex items-center gap-3.5 p-3.5 rounded-2xl border border-[var(--border)] hover:border-[var(--border-strong)] cursor-pointer transition-all duration-150 hover:-translate-y-0.5"
+        style="background: linear-gradient(135deg, {accent}22, var(--card-bg) 72%); box-shadow: var(--card-shadow);"
         role="button"
         tabindex="0"
         onclick={() => onOpenPlaylist(pl.id)}
@@ -72,7 +94,14 @@
           <PlaylistIcon name={pl.icon_name} size={20} />
         </span>
         <div class="min-w-0 flex-1">
-          <strong class="block text-[14.5px] font-bold truncate">{pl.name}</strong>
+          <div class="flex items-center gap-1.5">
+            <strong class="text-[14.5px] font-bold truncate">{pl.name}</strong>
+            {#if allDownloaded(pl.tracks)}
+              <span title={t("offline.downloaded")} class="text-[var(--accent-bright)] shrink-0">
+                <CheckCircle2 size={13} />
+              </span>
+            {/if}
+          </div>
           <span class="block text-[12px] text-[var(--text-muted)] truncate">
             {pl.tracks.length === 1
               ? t("collection.song_one")
@@ -91,12 +120,12 @@
             <Pencil size={14} />
           </button>
           <button
-            class="w-9 h-9 rounded-full inline-flex items-center justify-center bg-white/10 text-white group-hover:bg-[var(--accent)] transition-all active:scale-95 disabled:opacity-35"
+            class="w-9 h-9 rounded-full inline-flex items-center justify-center bg-[var(--surface-hover)] text-[var(--text)] group-hover:bg-[var(--accent)] group-hover:text-white transition-all active:scale-95 disabled:opacity-35"
             disabled={pl.tracks.length === 0}
             title={t("home.play")}
             onclick={(e) => {
               e.stopPropagation();
-              if (pl.tracks.length) player.replaceQueueAndPlay(pl.tracks, 0, pl.name);
+              playTracks(pl.tracks, pl.name);
             }}
           >
             <Play size={15} fill="currentColor" class="translate-x-[1px]" />
