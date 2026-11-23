@@ -68,7 +68,7 @@
           </div>
           <button
             type="button"
-            class="w-8 h-8 rounded-full inline-flex items-center justify-center shrink-0 bg-[var(--accent)] text-white opacity-0 group-hover:opacity-100 focus-visible:opacity-100 shadow-md transition-all active:scale-95"
+            class="w-7 h-7 sm:w-8 sm:h-8 rounded-full inline-flex items-center justify-center shrink-0 bg-[var(--accent)] text-white opacity-100 sm:opacity-0 sm:group-hover:opacity-100 focus-visible:opacity-100 shadow-md transition-all active:scale-95"
             title={t("home.play")}
             onclick={(e) => {
               e.stopPropagation();
@@ -115,7 +115,7 @@
           {#if pl.tracks.length > 0}
             <button
               type="button"
-              class="w-8 h-8 rounded-full inline-flex items-center justify-center shrink-0 bg-[var(--accent)] text-white opacity-0 group-hover:opacity-100 focus-visible:opacity-100 shadow-md transition-all active:scale-95"
+              class="w-7 h-7 sm:w-8 sm:h-8 rounded-full inline-flex items-center justify-center shrink-0 bg-[var(--accent)] text-white opacity-100 sm:opacity-0 sm:group-hover:opacity-100 focus-visible:opacity-100 shadow-md transition-all active:scale-95"
               title={t("home.play")}
               onclick={(e) => {
                 e.stopPropagation();
@@ -145,7 +145,7 @@
             <span class="block text-[11.5px] text-[var(--text-muted)] truncate">{tr.artist}</span>
           </div>
           <span
-            class="w-8 h-8 rounded-full inline-flex items-center justify-center shrink-0 bg-[var(--accent)] text-white opacity-0 group-hover:opacity-100 shadow-md transition-all"
+            class="hidden sm:inline-flex w-8 h-8 rounded-full items-center justify-center shrink-0 bg-[var(--accent)] text-white opacity-0 group-hover:opacity-100 shadow-md transition-all"
             aria-hidden="true"
           >
             <Play size={13} fill="currentColor" class="translate-x-[1px]" />

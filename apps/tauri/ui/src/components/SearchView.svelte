@@ -226,6 +226,7 @@
                 class="flex items-center gap-3 px-2.5 py-2 rounded-xl hover:bg-[var(--surface-hover)] text-left transition-colors"
                 onclick={() => {
                   inputEl?.blur();
+                  player.recordRecentSearch({ kind: "artist", key: `ar:${artist.id}`, artist });
                   player.openArtist(artist.id, artist.name);
                 }}
               >
@@ -248,6 +249,7 @@
                 class="flex items-center gap-3 px-2.5 py-2 rounded-xl hover:bg-[var(--surface-hover)] text-left transition-colors"
                 onclick={() => {
                   inputEl?.blur();
+                  player.recordRecentSearch({ kind: "track", key: `tr:${track.id}`, track });
                   player.replaceQueueAndPlay([track], 0, track.title);
                 }}
               >
@@ -270,6 +272,7 @@
                 class="flex items-center gap-3 px-2.5 py-2 rounded-xl hover:bg-[var(--surface-hover)] text-left transition-colors"
                 onclick={() => {
                   inputEl?.blur();
+                  player.recordRecentSearch({ kind: "album", key: `al:${album.id}`, album });
                   player.openAlbum(album.id, album.title, album.cover_url);
                 }}
               >
@@ -291,8 +294,8 @@
       </section>
     {:else}
       <div class="space-y-6">
-        {#if player.searchHistory.length > 0}
-          <!-- Recent searches (YouTube Music clean row list) -->
+        {#if player.recentSearches.length > 0}
+          <!-- Recent searches (mixed queries, artists, tracks & albums) -->
           <section class="space-y-1.5">
             <div class="flex items-center justify-between px-1">
               <h2 class="text-[11.5px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">
@@ -307,35 +310,97 @@
               </button>
             </div>
             <div class="flex flex-col -mx-1.5">
-              {#each player.searchHistory as term (term)}
+              {#each player.recentSearches as entry (entry.key)}
                 <div class="flex items-center gap-0.5 rounded-xl hover:bg-[var(--surface-hover)] transition-colors">
-                  <button
-                    type="button"
-                    class="flex-1 min-w-0 flex items-center gap-3 px-2.5 py-2.5 text-left text-[14.5px] font-medium"
-                    onclick={() => submit(term)}
-                  >
-                    <Clock size={16} class="text-[var(--text-muted)] shrink-0" aria-hidden="true" />
-                    <span class="truncate">{term}</span>
-                  </button>
-                  <button
-                    type="button"
-                    class="w-9 h-9 inline-flex items-center justify-center rounded-full text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-[var(--surface)] shrink-0"
-                    title={term}
-                    aria-label={term}
-                    onclick={() => {
-                      query = term;
-                      handleInput();
-                      inputEl?.focus();
-                    }}
-                  >
-                    <ArrowUpLeft size={16} />
-                  </button>
+                  {#if entry.kind === "query"}
+                    <button
+                      type="button"
+                      class="flex-1 min-w-0 flex items-center gap-3 px-2.5 py-2.5 text-left text-[14.5px] font-medium"
+                      onclick={() => submit(entry.term)}
+                    >
+                      <Clock size={16} class="text-[var(--text-muted)] shrink-0" aria-hidden="true" />
+                      <span class="truncate">{entry.term}</span>
+                    </button>
+                    <button
+                      type="button"
+                      class="w-9 h-9 inline-flex items-center justify-center rounded-full text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-[var(--surface)] shrink-0"
+                      title={entry.term}
+                      aria-label={entry.term}
+                      onclick={() => {
+                        query = entry.term;
+                        handleInput();
+                        inputEl?.focus();
+                      }}
+                    >
+                      <ArrowUpLeft size={16} />
+                    </button>
+                  {:else if entry.kind === "artist"}
+                    <button
+                      type="button"
+                      class="flex-1 min-w-0 flex items-center gap-3 px-2.5 py-2 text-left"
+                      onclick={() => {
+                        player.recordRecentSearch(entry);
+                        player.openArtist(entry.artist.id, entry.artist.name);
+                      }}
+                    >
+                      <CoverImage
+                        class="w-10 h-10 !rounded-full shrink-0 border border-[var(--border)]"
+                        src={entry.artist.avatar_url}
+                        alt={entry.artist.name}
+                        fallbackIcon="👤"
+                      />
+                      <div class="min-w-0 flex-1">
+                        <div class="text-[14px] font-bold truncate">{entry.artist.name}</div>
+                        <div class="text-[12px] text-[var(--text-muted)]">{t("explore.artist_pill")}</div>
+                      </div>
+                    </button>
+                  {:else if entry.kind === "track"}
+                    <button
+                      type="button"
+                      class="flex-1 min-w-0 flex items-center gap-3 px-2.5 py-2 text-left"
+                      onclick={() => {
+                        player.recordRecentSearch(entry);
+                        player.replaceQueueAndPlay([entry.track], 0, entry.track.title);
+                      }}
+                    >
+                      <CoverImage
+                        class="track-cover !w-10 !h-10 !rounded-[8px] shrink-0"
+                        src={entry.track.cover_url}
+                        alt=""
+                      />
+                      <div class="min-w-0 flex-1">
+                        <div class="text-[14px] font-bold truncate">{entry.track.title}</div>
+                        <div class="text-[12px] text-[var(--text-muted)] truncate">{entry.track.artist}</div>
+                      </div>
+                    </button>
+                  {:else}
+                    <button
+                      type="button"
+                      class="flex-1 min-w-0 flex items-center gap-3 px-2.5 py-2 text-left"
+                      onclick={() => {
+                        player.recordRecentSearch(entry);
+                        player.openAlbum(entry.album.id, entry.album.title, entry.album.cover_url);
+                      }}
+                    >
+                      <CoverImage
+                        class="track-cover !w-10 !h-10 !rounded-[8px] shrink-0"
+                        src={entry.album.cover_url}
+                        alt=""
+                      />
+                      <div class="min-w-0 flex-1">
+                        <div class="text-[14px] font-bold truncate">{entry.album.title}</div>
+                        <div class="text-[12px] text-[var(--text-muted)] truncate">
+                          {t("album.badge_album")}{entry.album.artist ? ` · ${entry.album.artist}` : ""}
+                        </div>
+                      </div>
+                    </button>
+                  {/if}
                   <button
                     type="button"
                     class="w-9 h-9 inline-flex items-center justify-center rounded-full text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-[var(--surface)] shrink-0"
                     title={t("queue.remove")}
                     aria-label={t("queue.remove")}
-                    onclick={() => player.removeSearchHistoryItem(term)}
+                    onclick={() => player.removeRecentSearch(entry.key)}
                   >
                     <X size={15} />
                   </button>
@@ -366,7 +431,7 @@
               {/each}
             </div>
           </section>
-        {:else if player.searchHistory.length === 0}
+        {:else if player.recentSearches.length === 0}
           <div class="min-h-[42vh] flex flex-col items-center justify-center text-center gap-3 text-[var(--text-muted)]">
             <span class="w-14 h-14 rounded-2xl bg-[var(--surface)] border border-[var(--border)] inline-flex items-center justify-center">
               <Search size={24} />

@@ -68,14 +68,20 @@
           style="background: linear-gradient(145deg, var(--accent-soft), var(--surface) 60%);"
           role="button"
           tabindex="0"
-          onclick={() => player.openArtist(topArtist.id, topArtist.name)}
+          onclick={() => {
+            player.recordRecentSearch({ kind: "artist", key: `ar:${topArtist.id}`, artist: topArtist });
+            player.openArtist(topArtist.id, topArtist.name);
+          }}
           onkeydown={(e) => {
             if (e.target !== e.currentTarget) return;
-            if (e.key === "Enter") player.openArtist(topArtist.id, topArtist.name);
-            else if (e.key === " ") e.preventDefault();
+            if (e.key === "Enter") {
+              player.recordRecentSearch({ kind: "artist", key: `ar:${topArtist.id}`, artist: topArtist });
+              player.openArtist(topArtist.id, topArtist.name);
+            } else if (e.key === " ") e.preventDefault();
           }}
           onkeyup={(e) => {
             if (e.target === e.currentTarget && e.key === " ") {
+              player.recordRecentSearch({ kind: "artist", key: `ar:${topArtist.id}`, artist: topArtist });
               player.openArtist(topArtist.id, topArtist.name);
             }
           }}
@@ -126,7 +132,13 @@
         </div>
         <div class="track-list">
           {#each topFourSongs as track (track.id)}
-            <TrackRow {track} onPlay={() => player.replaceQueueAndPlay([track], 0, `Search: ${player.searchQuery}`)} />
+            <TrackRow
+              {track}
+              onPlay={() => {
+                player.recordRecentSearch({ kind: "track", key: `tr:${track.id}`, track });
+                player.replaceQueueAndPlay([track], 0, `Search: ${player.searchQuery}`);
+              }}
+            />
           {/each}
         </div>
       </section>
@@ -141,7 +153,10 @@
         <button
           type="button"
           class="w-[154px] shrink-0 p-2.5 rounded-2xl hover:bg-[var(--surface)] flex flex-col items-center gap-2 text-center transition-colors"
-          onclick={() => player.openArtist(artist.id, artist.name)}
+          onclick={() => {
+            player.recordRecentSearch({ kind: "artist", key: `ar:${artist.id}`, artist });
+            player.openArtist(artist.id, artist.name);
+          }}
         >
           <CoverImage class="artist-avatar" src={artist.avatar_url} alt={artist.name} fallbackIcon="👤" />
           <strong class="text-[14px] font-bold truncate max-w-full">{artist.name}</strong>
@@ -161,7 +176,10 @@
         <button
           type="button"
           class="group w-[184px] shrink-0 p-2 rounded-2xl hover:bg-[var(--surface)] text-left flex flex-col gap-2 transition-colors"
-          onclick={() => player.openAlbum(album.id, album.title, album.cover_url)}
+          onclick={() => {
+            player.recordRecentSearch({ kind: "album", key: `al:${album.id}`, album });
+            player.openAlbum(album.id, album.title, album.cover_url);
+          }}
         >
           <CoverImage class="media-cover !rounded-xl shadow-[0_6px_18px_rgba(0,0,0,0.3)]" src={album.cover_url} alt={album.title} />
           <div class="px-0.5 min-w-0">
@@ -199,7 +217,13 @@
     <h2 class="section-title">{t("explore.songs")}</h2>
     <div class="track-list">
       {#each results.tracks as track (track.id)}
-        <TrackRow {track} onPlay={() => player.replaceQueueAndPlay([track], 0, `Search: ${player.searchQuery}`)} />
+        <TrackRow
+          {track}
+          onPlay={() => {
+            player.recordRecentSearch({ kind: "track", key: `tr:${track.id}`, track });
+            player.replaceQueueAndPlay([track], 0, `Search: ${player.searchQuery}`);
+          }}
+        />
       {/each}
     </div>
   </section>

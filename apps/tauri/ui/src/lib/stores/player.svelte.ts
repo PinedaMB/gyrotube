@@ -46,6 +46,7 @@ import type {
   HomeFeed,
   LyricsData,
   MainTab,
+  RecentSearchEntry,
   RelatedFeed,
   SearchResults,
   SessionState,
@@ -114,6 +115,7 @@ class PlayerStore {
   recentTracks = $state<Track[]>([]);
   userPlaylists = $state<UserPlaylist[]>([]);
   searchHistory = $state<string[]>([]);
+  recentSearches = $state<RecentSearchEntry[]>(PlayerStore.readRecentSearches());
   followedArtists = $state<Artist[]>([]);
 
   // Video mode (hybrid synced <video muted> alongside master audio deck)
@@ -179,6 +181,27 @@ class PlayerStore {
   downloadProgress = $state<{ done: number; total: number } | null>(null);
   private downloadQueue: Track[] = [];
   private downloadWorkerRunning = false;
+
+  private static readRecentSearches(): RecentSearchEntry[] {
+    if (typeof localStorage === "undefined") return [];
+    try {
+      const raw = localStorage.getItem("gyrotube.recent_searches_v1");
+      if (!raw) return [];
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? (parsed as RecentSearchEntry[]).slice(0, 10) : [];
+    } catch {
+      return [];
+    }
+  }
+
+  private persistRecentSearches(): void {
+    if (typeof localStorage === "undefined") return;
+    try {
+      localStorage.setItem("gyrotube.recent_searches_v1", JSON.stringify(this.recentSearches));
+    } catch {
+      // ignore
+    }
+  }
 
   private static readDownloadedPlaylistKeys(): Set<string> {
     if (typeof localStorage === "undefined") return new Set();
@@ -321,6 +344,14 @@ class PlayerStore {
       this.recentTracks = initial.recent_tracks;
       this.userPlaylists = initial.user_playlists;
       this.searchHistory = initial.search_history;
+      if (this.recentSearches.length === 0 && initial.search_history.length > 0) {
+        this.recentSearches = initial.search_history.slice(0, 10).map((term) => ({
+          kind: "query",
+          key: `q:${term.toLowerCase()}`,
+          term,
+        }));
+        this.persistRecentSearches();
+      }
       this.followedArtists = initial.followed_artists ?? [];
 
       const s = initial.session;
@@ -1282,9 +1313,8 @@ class PlayerStore {
     if (pushRoute) {
       this.commitRoute({ kind: "search", query: q }, this.activeTab);
     }
-    this.searchHistory = [q, ...this.searchHistory.filter((h) => h.toLowerCase() !== q.toLowerCase())].slice(0, 8);
+    this.recordRecentSearch({ kind: "query", key: `q:${q.toLowerCase()}`, term: q });
     if (isTauriRuntime()) {
-      void api.saveSearchHistory(this.searchHistory);
       const cacheKey = q.toLowerCase();
       const cached = this.searchCache.get(cacheKey);
       if (cached) {
@@ -1310,14 +1340,42 @@ class PlayerStore {
     }
   }
 
+  public recordRecentSearch(entry: RecentSearchEntry): void {
+    this.recentSearches = [
+      entry,
+      ...this.recentSearches.filter((item) => item.key !== entry.key),
+    ].slice(0, 10);
+    this.persistRecentSearches();
+    if (entry.kind === "query") {
+      this.searchHistory = [
+        entry.term,
+        ...this.searchHistory.filter((h) => h.toLowerCase() !== entry.term.toLowerCase()),
+      ].slice(0, 8);
+      if (isTauriRuntime()) void api.saveSearchHistory(this.searchHistory);
+    }
+  }
+
+  public removeRecentSearch(key: string): void {
+    const removed = this.recentSearches.find((item) => item.key === key);
+    this.recentSearches = this.recentSearches.filter((item) => item.key !== key);
+    this.persistRecentSearches();
+    if (removed?.kind === "query") {
+      this.searchHistory = this.searchHistory.filter(
+        (item) => item.toLowerCase() !== removed.term.toLowerCase(),
+      );
+      if (isTauriRuntime()) void api.saveSearchHistory(this.searchHistory);
+    }
+  }
+
   public clearSearchHistory(): void {
     this.searchHistory = [];
+    this.recentSearches = [];
+    this.persistRecentSearches();
     if (isTauriRuntime()) void api.saveSearchHistory([]);
   }
 
   public removeSearchHistoryItem(term: string): void {
-    this.searchHistory = this.searchHistory.filter((item) => item !== term);
-    if (isTauriRuntime()) void api.saveSearchHistory(this.searchHistory);
+    this.removeRecentSearch(`q:${term.toLowerCase()}`);
   }
 
   public removeRecentTrack(trackId: string): void {

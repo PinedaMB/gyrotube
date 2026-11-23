@@ -6,7 +6,7 @@
   import { api, isTauriRuntime } from "../../lib/api";
   import { t } from "../../lib/i18n.svelte";
   import { player } from "../../lib/stores/player.svelte";
-  import type { Album, Artist, SearchSuggestions, Track } from "../../lib/types";
+  import type { Album, Artist, RecentSearchEntry, SearchSuggestions, Track } from "../../lib/types";
   import CoverImage from "../CoverImage.svelte";
 
   const EMPTY_SUGGESTIONS: SearchSuggestions = { terms: [], tracks: [], artists: [], albums: [] };
@@ -20,31 +20,48 @@
   let searchInput = $state<HTMLInputElement | null>(null);
 
   let showingHistory = $derived(query.trim().length === 0);
-  let listItems = $derived(showingHistory ? player.searchHistory : suggestions.terms);
+  let listItems = $derived(showingHistory ? [] : suggestions.terms);
   let hasRichEntities = $derived(
     !showingHistory &&
       (suggestions.artists.length > 0 ||
         suggestions.tracks.length > 0 ||
         suggestions.albums.length > 0),
   );
-  let hasPopoverContent = $derived(listItems.length > 0 || hasRichEntities);
+  let hasPopoverContent = $derived(
+    showingHistory ? player.recentSearches.length > 0 : listItems.length > 0 || hasRichEntities,
+  );
 
   function pickSuggestedArtist(artist: Artist) {
     popoverOpen = false;
     searchInput?.blur();
+    player.recordRecentSearch({ kind: "artist", key: `ar:${artist.id}`, artist });
     player.openArtist(artist.id, artist.name);
   }
 
   function pickSuggestedTrack(track: Track) {
     popoverOpen = false;
     searchInput?.blur();
+    player.recordRecentSearch({ kind: "track", key: `tr:${track.id}`, track });
     player.replaceQueueAndPlay([track], 0, track.title);
   }
 
   function pickSuggestedAlbum(album: Album) {
     popoverOpen = false;
     searchInput?.blur();
+    player.recordRecentSearch({ kind: "album", key: `al:${album.id}`, album });
     player.openAlbum(album.id, album.title, album.cover_url);
+  }
+
+  function openRecentEntry(entry: RecentSearchEntry) {
+    if (entry.kind === "query") {
+      submitSearch(entry.term);
+    } else if (entry.kind === "artist") {
+      pickSuggestedArtist(entry.artist);
+    } else if (entry.kind === "track") {
+      pickSuggestedTrack(entry.track);
+    } else {
+      pickSuggestedAlbum(entry.album);
+    }
   }
 
   $effect(() => {
@@ -85,7 +102,7 @@
     if (!trimmed) {
       suggestions = EMPTY_SUGGESTIONS;
       player.clearSearch();
-      popoverOpen = player.searchHistory.length > 0;
+      popoverOpen = player.recentSearches.length > 0;
       return;
     }
     popoverOpen = true;
@@ -125,23 +142,30 @@
 
   function handleKeydown(e: KeyboardEvent) {
     if (e.isComposing) return;
-    if (!popoverOpen || listItems.length === 0) {
+    const navLen = showingHistory ? player.recentSearches.length : listItems.length;
+    if (!popoverOpen || navLen === 0) {
       if (e.key === "Enter") submitSearch(query);
       else if (e.key === "Escape") searchInput?.blur();
       return;
     }
     if (e.key === "ArrowDown") {
       e.preventDefault();
-      selectedIdx = (selectedIdx + 1) % listItems.length;
+      selectedIdx = (selectedIdx + 1) % navLen;
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
-      selectedIdx = ((selectedIdx < 0 ? 0 : selectedIdx) - 1 + listItems.length) % listItems.length;
+      selectedIdx = ((selectedIdx < 0 ? 0 : selectedIdx) - 1 + navLen) % navLen;
     } else if (e.key === "Tab" && !e.shiftKey && !showingHistory && listItems[selectedIdx]) {
       e.preventDefault();
       fillSuggestion(listItems[selectedIdx]);
     } else if (e.key === "Enter") {
       e.preventDefault();
-      submitSearch(listItems[selectedIdx] ?? query);
+      if (showingHistory) {
+        const entry = player.recentSearches[selectedIdx];
+        if (entry) openRecentEntry(entry);
+        else submitSearch(query);
+      } else {
+        submitSearch(listItems[selectedIdx] ?? query);
+      }
     } else if (e.key === "Escape") {
       popoverOpen = false;
     }
@@ -234,49 +258,121 @@
       </div>
 
       <div class="px-1.5 space-y-0.5 max-h-[min(420px,55dvh)] md:max-h-[420px] overflow-y-auto overscroll-contain scroll-y">
-        {#each listItems as term, i (term)}
-          {@const [prefix, rest] = splitHighlight(term)}
-          <div
-            class="group flex items-center gap-1 rounded-xl transition-colors {i === selectedIdx
-              ? 'bg-[var(--accent-soft)] text-[var(--accent-bright)]'
-              : 'hover:bg-white/[0.06]'}"
-            role="option"
-            aria-selected={i === selectedIdx}
-          >
-            <button
-              type="button"
-              class="flex-1 min-w-0 min-h-12 md:min-h-0 flex items-center gap-2.5 px-2.5 py-2 text-left text-[13.5px]"
-              onmousedown={(e) => e.preventDefault()}
-              onclick={() => submitSearch(term)}
+        {#if showingHistory}
+          {#each player.recentSearches as entry, i (entry.key)}
+            <div
+              class="group flex items-center gap-1 rounded-xl transition-colors {i === selectedIdx
+                ? 'bg-[var(--accent-soft)] text-[var(--accent-bright)]'
+                : 'hover:bg-white/[0.06]'}"
+              role="option"
+              aria-selected={i === selectedIdx}
             >
-              {#if showingHistory}
-                <Clock size={14} class="text-[var(--text-muted)] shrink-0" />
+              {#if entry.kind === "query"}
+                <button
+                  type="button"
+                  class="flex-1 min-w-0 min-h-11 md:min-h-0 flex items-center gap-2.5 px-2.5 py-2 text-left text-[13.5px]"
+                  onmousedown={(e) => e.preventDefault()}
+                  onclick={() => openRecentEntry(entry)}
+                >
+                  <Clock size={14} class="text-[var(--text-muted)] shrink-0" />
+                  <span class="truncate">{entry.term}</span>
+                </button>
+              {:else if entry.kind === "artist"}
+                <button
+                  type="button"
+                  class="flex-1 min-w-0 flex items-center gap-2.5 px-2.5 py-1.5 text-left"
+                  onmousedown={(e) => e.preventDefault()}
+                  onclick={() => openRecentEntry(entry)}
+                >
+                  <CoverImage
+                    class="w-9 h-9 !rounded-full shrink-0 border border-[var(--border)]"
+                    src={entry.artist.avatar_url}
+                    alt={entry.artist.name}
+                    fallbackIcon="👤"
+                  />
+                  <div class="min-w-0 flex-1">
+                    <div class="text-[13px] font-bold truncate">{entry.artist.name}</div>
+                    <div class="text-[11px] text-[var(--text-muted)]">{t("explore.artist_pill")}</div>
+                  </div>
+                </button>
+              {:else if entry.kind === "track"}
+                <button
+                  type="button"
+                  class="flex-1 min-w-0 flex items-center gap-2.5 px-2.5 py-1.5 text-left"
+                  onmousedown={(e) => e.preventDefault()}
+                  onclick={() => openRecentEntry(entry)}
+                >
+                  <CoverImage
+                    class="track-cover !w-9 !h-9 !rounded-[7px] shrink-0"
+                    src={entry.track.cover_url}
+                    alt=""
+                  />
+                  <div class="min-w-0 flex-1">
+                    <div class="text-[13px] font-bold truncate">{entry.track.title}</div>
+                    <div class="text-[11px] text-[var(--text-muted)] truncate">{entry.track.artist}</div>
+                  </div>
+                </button>
               {:else}
-                <Search size={14} class="text-[var(--text-muted)] shrink-0" />
+                <button
+                  type="button"
+                  class="flex-1 min-w-0 flex items-center gap-2.5 px-2.5 py-1.5 text-left"
+                  onmousedown={(e) => e.preventDefault()}
+                  onclick={() => openRecentEntry(entry)}
+                >
+                  <CoverImage
+                    class="track-cover !w-9 !h-9 !rounded-[7px] shrink-0"
+                    src={entry.album.cover_url}
+                    alt=""
+                  />
+                  <div class="min-w-0 flex-1">
+                    <div class="text-[13px] font-bold truncate">{entry.album.title}</div>
+                    <div class="text-[11px] text-[var(--text-muted)] truncate">
+                      {t("album.badge_album")}{entry.album.artist ? ` · ${entry.album.artist}` : ""}
+                    </div>
+                  </div>
+                </button>
               {/if}
-              <span class="truncate">
-                {#if prefix}
-                  <span class="text-[var(--text-muted)]">{prefix}</span><strong class="font-semibold text-[var(--text)]">{rest}</strong>
-                {:else}
-                  {term}
-                {/if}
-              </span>
-            </button>
 
-            {#if showingHistory}
               <button
                 type="button"
-                class="w-11 h-11 md:w-7 md:h-7 mr-1 rounded-lg inline-flex items-center justify-center text-[var(--text-muted)] md:opacity-0 group-hover:opacity-100 focus-visible:opacity-100 hover:text-[var(--text)] hover:bg-white/[0.1] transition-all shrink-0"
+                class="w-10 h-10 md:w-7 md:h-7 mr-1 rounded-lg inline-flex items-center justify-center text-[var(--text-muted)] md:opacity-0 group-hover:opacity-100 focus-visible:opacity-100 hover:text-[var(--text)] hover:bg-white/[0.1] transition-all shrink-0"
                 title={t("queue.remove")}
                 onmousedown={(e) => e.preventDefault()}
                 onclick={() => {
-                  player.removeSearchHistoryItem(term);
-                  if (player.searchHistory.length === 0) popoverOpen = false;
+                  player.removeRecentSearch(entry.key);
+                  if (player.recentSearches.length === 0) popoverOpen = false;
                 }}
               >
                 <X size={13} />
               </button>
-            {:else}
+            </div>
+          {/each}
+        {:else}
+          {#each listItems as term, i (term)}
+            {@const [prefix, rest] = splitHighlight(term)}
+            <div
+              class="group flex items-center gap-1 rounded-xl transition-colors {i === selectedIdx
+                ? 'bg-[var(--accent-soft)] text-[var(--accent-bright)]'
+                : 'hover:bg-white/[0.06]'}"
+              role="option"
+              aria-selected={i === selectedIdx}
+            >
+              <button
+                type="button"
+                class="flex-1 min-w-0 min-h-12 md:min-h-0 flex items-center gap-2.5 px-2.5 py-2 text-left text-[13.5px]"
+                onmousedown={(e) => e.preventDefault()}
+                onclick={() => submitSearch(term)}
+              >
+                <Search size={14} class="text-[var(--text-muted)] shrink-0" />
+                <span class="truncate">
+                  {#if prefix}
+                    <span class="text-[var(--text-muted)]">{prefix}</span><strong class="font-semibold text-[var(--text)]">{rest}</strong>
+                  {:else}
+                    {term}
+                  {/if}
+                </span>
+              </button>
+
               <button
                 type="button"
                 class="w-11 h-11 md:w-7 md:h-7 mr-1 rounded-lg inline-flex items-center justify-center text-[var(--text-muted)] md:opacity-0 group-hover:opacity-100 focus-visible:opacity-100 hover:text-[var(--text)] hover:bg-white/[0.1] transition-all shrink-0"
@@ -286,9 +382,9 @@
               >
                 <ArrowUpLeft size={14} />
               </button>
-            {/if}
-          </div>
-        {/each}
+            </div>
+          {/each}
+        {/if}
 
         {#if hasRichEntities}
           {#if listItems.length > 0}

@@ -84,6 +84,12 @@ export interface SearchSuggestions {
   albums: Album[];
 }
 
+export type RecentSearchEntry =
+  | { kind: "query"; key: string; term: string }
+  | { kind: "artist"; key: string; artist: Artist }
+  | { kind: "track"; key: string; track: Track }
+  | { kind: "album"; key: string; album: Album };
+
 export interface StreamInfo {
   url: string;
   quality_label: string;

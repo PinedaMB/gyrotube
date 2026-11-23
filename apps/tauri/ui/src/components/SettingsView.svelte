@@ -519,16 +519,16 @@
           <div class="min-w-0">
             <div class="text-[14px] font-semibold leading-snug">{t("settings.search_history")}</div>
             <div class="text-[12px] text-[var(--text-muted)] numeric">
-              {player.searchHistory.length === 1
+              {player.recentSearches.length === 1
                 ? t("settings.search_history_one")
-                : t("settings.search_history_many", { count: player.searchHistory.length })}
+                : t("settings.search_history_many", { count: player.recentSearches.length })}
             </div>
           </div>
         </div>
         <button
           type="button"
           class="pill-btn shrink-0"
-          disabled={player.searchHistory.length === 0}
+          disabled={player.recentSearches.length === 0 && player.searchHistory.length === 0}
           onclick={() => player.clearSearchHistory()}
         >
           <Trash2 size={13} />
