@@ -1,6 +1,5 @@
 use std::path::PathBuf;
 
-use rustypipe::model::{AlbumItem, ArtistItem, MusicPlaylistItem, TrackItem};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -181,95 +180,12 @@ pub fn upgrade_cover_url(url: &str, target_size: i32) -> String {
     url.to_string()
 }
 
-pub fn pick_cover(covers: &[rustypipe::model::Thumbnail], target_width: i32) -> Option<String> {
+pub fn pick_cover_thumbs(covers: &[(String, u32)], target_width: i32) -> Option<String> {
     covers
         .iter()
-        .min_by_key(|t| (t.width as i32 - target_width).abs())
+        .min_by_key(|(_, width)| (*width as i32 - target_width).abs())
         .or_else(|| covers.last())
-        .map(|t| upgrade_cover_url(&t.url, target_width))
-}
-
-impl From<&TrackItem> for Track {
-    fn from(item: &TrackItem) -> Self {
-        let artist = if item.artists.is_empty() {
-            String::from("Artista desconocido")
-        } else {
-            item.artists
-                .iter()
-                .map(|a| a.name.as_str())
-                .collect::<Vec<_>>()
-                .join(", ")
-        };
-
-        let artist_id = item
-            .artist_id
-            .clone()
-            .or_else(|| item.artists.first().and_then(|a| a.id.clone()));
-
-        Self {
-            is_music: item.track_type == rustypipe::model::TrackType::Track,
-            is_video: item.track_type == rustypipe::model::TrackType::Video,
-            id: item.id.clone(),
-            title: clean_track_title(&item.name),
-            artist,
-            artist_id,
-            album: item.album.as_ref().map(|a| a.name.clone()),
-            album_id: item.album.as_ref().map(|a| a.id.clone()),
-            duration_secs: item.duration,
-            view_count: item.view_count,
-            cover_url: pick_cover(&item.cover, 240),
-            cover_large_url: pick_cover(&item.cover, 544),
-        }
-    }
-}
-
-impl From<&AlbumItem> for Album {
-    fn from(item: &AlbumItem) -> Self {
-        let artist = if item.artists.is_empty() {
-            String::from("Artista desconocido")
-        } else {
-            item.artists
-                .iter()
-                .map(|a| a.name.as_str())
-                .collect::<Vec<_>>()
-                .join(", ")
-        };
-
-        Self {
-            id: item.id.clone(),
-            title: item.name.clone(),
-            artist,
-            year: item.year,
-            cover_url: pick_cover(&item.cover, 544),
-        }
-    }
-}
-
-impl From<&MusicPlaylistItem> for Playlist {
-    fn from(item: &MusicPlaylistItem) -> Self {
-        let subtitle = item
-            .channel
-            .as_ref()
-            .map(|c| c.name.clone())
-            .unwrap_or_else(|| String::from("YouTube Music"));
-        Self {
-            id: item.id.clone(),
-            name: item.name.clone(),
-            subtitle,
-            cover_url: pick_cover(&item.thumbnail, 544),
-        }
-    }
-}
-
-impl From<&ArtistItem> for Artist {
-    fn from(item: &ArtistItem) -> Self {
-        Self {
-            id: item.id.clone(),
-            name: item.name.clone(),
-            avatar_url: pick_cover(&item.avatar, 360),
-            subscriber_count: item.subscriber_count,
-        }
-    }
+        .map(|(url, _)| upgrade_cover_url(url, target_width))
 }
 
 pub fn color_to_hex(color: u32) -> String {
@@ -758,13 +674,27 @@ mod tests {
 
     #[test]
     fn music_provenance_comes_from_catalog_type() {
-        for (kind, expected) in [("track", true), ("video", false), ("episode", false)] {
-            let item: TrackItem = serde_json::from_value(serde_json::json!({
-                "id":"Abc_123-xyz", "name":"Song", "cover":[], "artists":[],
-                "track_type":kind, "by_va":false, "unavailable":false
-            }))
-            .unwrap();
-            assert_eq!(Track::from(&item).is_music, expected);
+        for (mvt, expected) in [
+            ("MUSIC_VIDEO_TYPE_ATV", true),
+            ("MUSIC_VIDEO_TYPE_OMV", false),
+            ("MUSIC_VIDEO_TYPE_PODCAST_EPISODE", false),
+        ] {
+            let payload = serde_json::json!({
+                "playlistPanelVideoRenderer": {
+                    "videoId": "Abc_123-xyz",
+                    "title": { "runs": [{ "text": "Song" }] },
+                    "navigationEndpoint": {
+                        "watchEndpoint": {
+                            "videoId": "Abc_123-xyz",
+                            "watchEndpointMusicSupportedConfigs": {
+                                "watchEndpointMusicConfig": { "musicVideoType": mvt }
+                            }
+                        }
+                    }
+                }
+            });
+            let details = crate::innertube::parse_music_details_json("Abc_123-xyz", &payload).unwrap();
+            assert_eq!(details.item.track.is_music, expected);
         }
     }
 

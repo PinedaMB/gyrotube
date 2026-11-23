@@ -2,8 +2,6 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
 use std::time::{Duration, Instant};
 
-use rustypipe::client::RustyPipe;
-use rustypipe::model::{AlbumType, TrackType};
 use ytmapi_rs::YtMusic;
 use ytmapi_rs::auth::noauth::NoAuthToken;
 use ytmapi_rs::common::{
@@ -16,9 +14,10 @@ use ytmapi_rs::parse::{
 
 use crate::audio_cache;
 use crate::i18n::tr;
+use crate::innertube::{CatalogItem, InnerTubeClient, TrackKind};
 use crate::models::{
     Album, Artist, ArtistDetails, Genre, LyricsData, Playlist, SearchResults, StreamInfo, Track,
-    VideoStreamInfo, cache_dir, clean_track_title, color_to_hex, parse_lrc,
+    VideoStreamInfo, cache_dir, clean_track_title, color_to_hex, parse_lrc, pick_cover_thumbs,
 };
 
 const MUSIC_PROOF_TTL: Duration = Duration::from_secs(15 * 60);
@@ -72,7 +71,7 @@ type AudioLocks = Mutex<HashMap<(String, AudioWork), Arc<tokio::sync::Mutex<()>>
 #[derive(Clone)]
 pub struct Backend {
     ytm: Arc<tokio::sync::OnceCell<YtMusic<NoAuthToken>>>,
-    rp: RustyPipe,
+    innertube: InnerTubeClient,
     http: reqwest::Client,
     home_cache: Arc<RwLock<Option<(Instant, HomeFeed)>>>,
     genres_cache: Arc<RwLock<Option<(Instant, Vec<Genre>)>>>,
@@ -84,23 +83,16 @@ pub struct Backend {
 impl Backend {
     pub fn new() -> Self {
         crate::tls::ensure_crypto_provider();
-        let mut rp_builder = RustyPipe::builder()
-            .timeout(Duration::from_secs(8))
-            .n_http_retries(1);
-        if let Some(dir) = cache_dir()
-            && std::fs::create_dir_all(&dir).is_ok()
-        {
-            rp_builder = rp_builder.storage_dir(dir);
-        }
+        let http = crate::tls::http_client_builder()
+            .http2_max_header_list_size(64 * 1024)
+            .connect_timeout(Duration::from_secs(5))
+            .timeout(Duration::from_secs(10))
+            .build()
+            .expect("HTTP client");
         Self {
             ytm: Arc::new(tokio::sync::OnceCell::new()),
-            rp: rp_builder.build().unwrap_or_else(|_| RustyPipe::new()),
-            http: crate::tls::http_client_builder()
-                .http2_max_header_list_size(64 * 1024)
-                .connect_timeout(Duration::from_secs(5))
-                .timeout(Duration::from_secs(10))
-                .build()
-                .expect("HTTP client"),
+            innertube: InnerTubeClient::new(http.clone()),
+            http,
             home_cache: Arc::new(RwLock::new(
                 cache_dir().and_then(|dir| load_home_cache(&dir.join("home.json"))),
             )),
@@ -151,48 +143,24 @@ impl Backend {
             return Ok(feed.clone());
         }
 
-        let parsed_country = normalized_country
-            .as_deref()
-            .and_then(|code| code.parse::<rustypipe::param::Country>().ok());
-
         let mut trending = Vec::new();
         let mut top = Vec::new();
         let mut new_albums = Vec::new();
         let mut top_artists = Vec::new();
         let mut available_countries = Vec::new();
 
-        let rp_q = self.rp.query();
-        let (charts_res, releases_res) =
-            tokio::join!(rp_q.music_charts(parsed_country), rp_q.music_new_albums());
+        let (charts_res, releases_res) = tokio::join!(
+            self.innertube.fetch_charts(normalized_country.as_deref()),
+            self.innertube.fetch_new_albums()
+        );
         if let Ok(charts) = charts_res {
-            trending = charts
-                .trending_tracks
-                .iter()
-                .filter(|t| t.track_type == TrackType::Track && !t.unavailable)
-                .take(12)
-                .map(Track::from)
-                .collect();
-            top = charts
-                .top_tracks
-                .iter()
-                .filter(|t| t.track_type == TrackType::Track && !t.unavailable)
-                .take(12)
-                .map(Track::from)
-                .collect();
-            top_artists = charts
-                .artists
-                .iter()
-                .take(12)
-                .map(Artist::from)
-                .collect();
-            available_countries = charts
-                .available_countries
-                .iter()
-                .map(|c| c.to_string())
-                .collect();
+            trending = charts.trending;
+            top = charts.top;
+            top_artists = charts.artists;
+            available_countries = charts.available_countries;
         }
         if let Ok(releases) = releases_res {
-            new_albums = releases.iter().take(12).map(Album::from).collect();
+            new_albums = releases.into_iter().take(12).collect();
         }
 
         if trending.is_empty()
@@ -276,28 +244,10 @@ impl Backend {
             }
         }
 
-        let album = self
-            .rp
-            .query()
-            .music_album(album_id)
+        self.innertube
+            .fetch_album_tracks(album_id)
             .await
-            .map_err(|e| format!("Error cargando álbum: {e}"))?;
-        let tracks = album
-            .tracks
-            .iter()
-            .filter(|t| t.track_type == TrackType::Track && !t.unavailable)
-            .map(|item| {
-                let mut track = Track::from(item);
-                if let Some(large) = crate::models::pick_cover(&album.cover, 544) {
-                    track.cover_large_url = Some(large);
-                }
-                if track.cover_url.is_none() {
-                    track.cover_url = crate::models::pick_cover(&album.cover, 240);
-                }
-                track
-            })
-            .collect();
-        Ok((album.name, tracks))
+            .map_err(|e| format!("Error cargando álbum: {e}"))
     }
 
     #[allow(dead_code)]
@@ -414,9 +364,9 @@ impl Backend {
             }
         }
 
-        let query = self.rp.query();
-        let mut playlist = query
-            .music_playlist(playlist_id.strip_prefix("VL").unwrap_or(playlist_id))
+        let page = self
+            .innertube
+            .fetch_playlist_tracks(playlist_id)
             .await
             .map_err(|e| {
                 if had_entries {
@@ -430,52 +380,36 @@ impl Backend {
                 }
             })?;
 
-        // shortcut: check up to three continuation pages for playable items, extend further on demand if needed.
-        for _ in 0..3 {
-            if playlist.tracks.is_exhausted()
-                || playlist.tracks.items.iter().any(is_playlist_playable)
-            {
-                break;
-            }
-            if let Err(err) = playlist.tracks.extend(&query).await {
-                eprintln!("GyroTube: no se pudo consultar otra página de la playlist: {err}");
-                break;
-            }
-        }
-        had_entries |= !playlist.tracks.items.is_empty()
-            || playlist.track_count.is_some_and(|count| count > 0);
-        let complete = playlist.tracks.is_exhausted();
-        let tracks = playlist
-            .tracks
+        had_entries |= page.had_entries;
+        let complete = page.exhausted;
+        let tracks = page
             .items
-            .iter()
-            .filter(|t| is_playlist_playable(t))
-            .map(|t| {
-                let mut tr = Track::from(t);
-                if t.track_type == TrackType::Video {
+            .into_iter()
+            .filter(is_playlist_playable)
+            .map(|item| {
+                let mut tr = item.track;
+                if item.kind == TrackKind::Video {
                     tr.is_music = true;
                     tr.is_video = true;
                 }
                 tr
             })
             .collect();
-        playlist_audio_result(playlist.name, tracks, had_entries, complete)
+        playlist_audio_result(page.title, tracks, had_entries, complete)
     }
 
     pub async fn fetch_radio_tracks(&self, video_id: &str) -> Result<Vec<Track>, String> {
-        if let Ok(radio) = self.rp.query().music_radio_track(video_id).await {
-            let mut tracks: Vec<Track> = radio
-                .items
+        if let Ok(items) = self.innertube.fetch_radio_track(video_id).await {
+            let mut tracks: Vec<Track> = items
                 .iter()
-                .filter(|t| t.track_type == TrackType::Track && !t.unavailable)
-                .map(Track::from)
+                .filter(|t| t.kind == TrackKind::Track && !t.unavailable)
+                .map(|t| t.track.clone())
                 .collect();
             if tracks.is_empty() {
-                tracks = radio
-                    .items
-                    .iter()
+                tracks = items
+                    .into_iter()
                     .filter(|t| !t.unavailable)
-                    .map(Track::from)
+                    .map(|t| t.track)
                     .collect();
             }
             if !tracks.is_empty() {
@@ -506,75 +440,37 @@ impl Backend {
                 return Ok(list);
             }
         }
-        self.rp
-            .query()
-            .music_search_suggestion(query_str)
+        self.innertube
+            .search_suggestions(query_str)
             .await
-            .map(|suggestions| suggestions.terms)
             .map_err(|e| format!("Error obteniendo sugerencias: {e}"))
     }
 
     pub async fn search_all(&self, query_str: &str) -> Result<SearchResults, String> {
-        let ytm = self.primary().await.ok();
-        let rp = self.rp.query();
+        let ytm = self.primary().await?;
         let (tracks, albums, artists, playlists) = tokio::join!(
             async {
-                if let Some(ytm) = ytm
-                    && let Ok(songs) = ytm.search_songs(query_str).await
-                {
-                    return Ok(songs
-                        .into_iter()
-                        .map(track_from_ytm_song)
-                        .collect::<Vec<_>>());
-                }
-                rp.music_search_tracks(query_str).await.map(|results| {
-                    results
-                        .items
-                        .items
-                        .iter()
-                        .filter(|t| t.track_type == TrackType::Track && !t.unavailable)
-                        .map(Track::from)
-                        .collect()
-                })
-            },
-            async {
-                if let Some(ytm) = ytm
-                    && let Ok(albums) = ytm.search_albums(query_str).await
-                {
-                    return Ok(albums
-                        .into_iter()
-                        .map(album_from_ytm_album)
-                        .collect::<Vec<_>>());
-                }
-                rp.music_search_albums(query_str)
+                ytm.search_songs(query_str)
                     .await
-                    .map(|results| results.items.items.iter().map(Album::from).collect())
+                    .map(|songs| songs.into_iter().map(track_from_ytm_song).collect::<Vec<_>>())
             },
             async {
-                if let Some(ytm) = ytm
-                    && let Ok(artists) = ytm.search_artists(query_str).await
-                {
-                    return Ok(artists
-                        .into_iter()
-                        .map(artist_from_ytm_artist)
-                        .collect::<Vec<_>>());
-                }
-                rp.music_search_artists(query_str)
+                ytm.search_albums(query_str)
                     .await
-                    .map(|results| results.items.items.iter().map(Artist::from).collect())
+                    .map(|albums| albums.into_iter().map(album_from_ytm_album).collect::<Vec<_>>())
             },
             async {
-                if let Some(ytm) = ytm
-                    && let Ok(playlists) = ytm.search_playlists(query_str).await
-                {
-                    return Ok(playlists
+                ytm.search_artists(query_str)
+                    .await
+                    .map(|artists| artists.into_iter().map(artist_from_ytm_artist).collect::<Vec<_>>())
+            },
+            async {
+                ytm.search_playlists(query_str).await.map(|playlists| {
+                    playlists
                         .into_iter()
                         .filter_map(playlist_from_ytm_playlist)
-                        .collect::<Vec<_>>());
-                }
-                rp.music_search_playlists(query_str, false)
-                    .await
-                    .map(|results| results.items.items.iter().map(Playlist::from).collect())
+                        .collect::<Vec<_>>()
+                })
             },
         );
         if tracks.is_err() && albums.is_err() && artists.is_err() && playlists.is_err() {
@@ -595,61 +491,32 @@ impl Backend {
             let ytm = self.primary().await.ok()?;
             ytm.get_artist(ArtistChannelID::from_raw(artist_id)).await.ok()
         };
-        let rp_fut = async { self.rp.query().music_artist(artist_id, true).await.ok() };
-        let (ytm_artist, rp_artist) = tokio::join!(ytm_fut, rp_fut);
+        let it_fut = async { self.innertube.fetch_artist_enrichment(artist_id).await.ok() };
+        let (ytm_artist, it_artist) = tokio::join!(ytm_fut, it_fut);
 
-        let rp_view_counts: HashMap<String, u64> = rp_artist
+        let rp_view_counts: HashMap<String, u64> = it_artist
             .as_ref()
-            .map(|rp| {
-                rp.tracks
-                    .iter()
-                    .filter_map(|t| t.view_count.map(|vc| (t.id.clone(), vc)))
-                    .collect()
-            })
+            .map(|it| it.view_counts.clone())
             .unwrap_or_default();
 
-        let rp_videos: Vec<Track> = rp_artist
+        let rp_videos: Vec<Track> = it_artist
             .as_ref()
-            .map(|rp| {
-                rp.tracks
-                    .iter()
-                    .filter(|t| t.track_type == TrackType::Video && !t.unavailable)
-                    .map(|t| {
-                        let mut tr = Track::from(t);
-                        tr.is_music = true;
-                        tr.is_video = true;
-                        if tr.artist_id.is_none() {
-                            tr.artist_id = Some(artist_id.to_string());
-                        }
-                        tr
-                    })
-                    .collect()
-            })
+            .map(|it| it.videos.clone())
             .unwrap_or_default();
 
-        let rp_playlists: Vec<Playlist> = rp_artist
+        let rp_playlists: Vec<Playlist> = it_artist
             .as_ref()
-            .map(|rp| rp.playlists.iter().map(Playlist::from).collect())
+            .map(|it| it.playlists.clone())
             .unwrap_or_default();
 
-        let rp_similar: Vec<Artist> = rp_artist
+        let rp_similar: Vec<Artist> = it_artist
             .as_ref()
-            .map(|rp| rp.similar_artists.iter().map(Artist::from).collect())
+            .map(|it| it.similar_artists.clone())
             .unwrap_or_default();
 
-        let (rp_studio_albums, rp_single_releases): (Vec<Album>, Vec<Album>) = rp_artist
+        let (rp_studio_albums, rp_single_releases): (Vec<Album>, Vec<Album>) = it_artist
             .as_ref()
-            .map(|rp| {
-                let mut albums = Vec::new();
-                let mut singles = Vec::new();
-                for alb in &rp.albums {
-                    match alb.album_type {
-                        AlbumType::Single | AlbumType::Ep => singles.push(Album::from(alb)),
-                        _ => albums.push(Album::from(alb)),
-                    }
-                }
-                (albums, singles)
-            })
+            .map(|it| (it.albums.clone(), it.singles.clone()))
             .unwrap_or_default();
 
         if let Some(artist) = ytm_artist {
@@ -802,15 +669,15 @@ impl Backend {
             return Ok(ArtistDetails {
                 name,
                 header_url: best_ytm_banner(&artist.thumbnails)
-                    .or_else(|| rp_artist.as_ref().and_then(|rp| crate::models::pick_cover(&rp.header_image, 1000))),
+                    .or_else(|| it_artist.as_ref().and_then(|it| it.header_url.clone())),
                 subscriber_count: artist
                     .subscribers
                     .as_deref()
                     .and_then(parse_sub_count)
-                    .or_else(|| rp_artist.as_ref().and_then(|rp| rp.subscriber_count)),
+                    .or_else(|| it_artist.as_ref().and_then(|it| it.subscriber_count)),
                 description: artist
                     .description
-                    .or_else(|| rp_artist.as_ref().and_then(|rp| rp.description.clone())),
+                    .or_else(|| it_artist.as_ref().and_then(|it| it.description.clone())),
                 tracks,
                 albums: studio_albums,
                 singles: single_releases,
@@ -820,20 +687,14 @@ impl Backend {
             });
         }
 
-        if let Some(rp_artist) = rp_artist {
-            let tracks: Vec<Track> = rp_artist
-                .tracks
-                .iter()
-                .filter(|t| t.track_type == TrackType::Track && !t.unavailable)
-                .map(Track::from)
-                .collect();
-            if !tracks.is_empty() || !rp_studio_albums.is_empty() || !rp_single_releases.is_empty() {
+        if let Some(it_artist) = it_artist {
+            if !it_artist.tracks.is_empty() || !rp_studio_albums.is_empty() || !rp_single_releases.is_empty() {
                 return Ok(ArtistDetails {
-                    name: rp_artist.name,
-                    header_url: crate::models::pick_cover(&rp_artist.header_image, 1000),
-                    description: rp_artist.description,
-                    subscriber_count: rp_artist.subscriber_count,
-                    tracks,
+                    name: it_artist.name.unwrap_or_else(|| String::from("Artista")),
+                    header_url: it_artist.header_url,
+                    description: it_artist.description,
+                    subscriber_count: it_artist.subscriber_count,
+                    tracks: it_artist.tracks,
                     albums: rp_studio_albums,
                     singles: rp_single_releases,
                     videos: rp_videos,
@@ -928,14 +789,10 @@ impl Backend {
         }
 
         let started = Instant::now();
-        let result = self
-            .rp
-            .query()
-            .music_details(video_id)
-            .await;
+        let result = self.innertube.fetch_music_details(video_id).await;
         log_audio_timing(video_id, "catalogo", started);
         let details = result.map_err(|e| format!("No se pudo verificar la canción de YouTube Music: {e}"))?;
-        let track = verified_music_track(video_id, &details.track)?;
+        let track = verified_music_track(video_id, &details.item)?;
         if let Ok(mut proofs) = self.music_proofs.write() {
             proofs.retain(|_, (checked, _)| checked.elapsed() < MUSIC_PROOF_TTL);
             proofs.insert(video_id.to_owned(), (Instant::now(), track.clone()));
@@ -1279,7 +1136,7 @@ impl Backend {
             }
         }
 
-        let visitor_data = self.rp.query().get_visitor_data(true).await.ok();
+        let visitor_data = self.innertube.visitor_data(true).await;
         let profiles = [
             (
                 "com.google.android.apps.youtube.vr.oculus/1.65.10 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip",
@@ -1476,243 +1333,20 @@ impl Backend {
         &self,
         video_id: &str,
     ) -> Result<(StreamInfo, &'static str, Option<u64>), String> {
-        use rustypipe::client::ClientType;
-        use rustypipe::model::AudioFormat;
         let started = Instant::now();
-        let player = tokio::time::timeout(
-            Duration::from_millis(2500),
-            self.rp.query().player_from_client(video_id, ClientType::Ios),
-        )
-        .await
-        .map_err(|_| "Tiempo de espera agotado al consultar el reproductor".to_string())?
-        .map_err(|_| "No se pudo consultar el reproductor".to_string())?;
-        // Require itag 251 (Opus WebM ~160kbps) for the fast-start iOS path so byte offsets
-        // match the background visionos handover identically to the single byte.
-        let stream = player.audio_streams.iter().find(|s| s.itag == 251)
-            .ok_or_else(|| "El reproductor no ofreció audio WebM".to_string())?;
-        let ext = match stream.format {
-            AudioFormat::M4a => "m4a",
-            _ => "webm",
-        };
-        let kbps = (stream.bitrate / 1000).max(128);
-        let quality_label = format!("{kbps}kbps ({})", ext.to_uppercase());
-        let ua = self.rp.query().user_agent(ClientType::Ios).into_owned();
-        let mut headers = HashMap::new();
-        headers.insert("User-Agent".to_string(), ua.clone());
-        let size = (stream.size > 0).then_some(stream.size);
+        let visitor_data = self.innertube.visitor_data(false).await;
+        let res = self
+            .innertube
+            .extract_direct_stream(
+                video_id,
+                "IOS",
+                visitor_data.as_deref(),
+                Duration::from_millis(2500),
+                Some(251),
+            )
+            .await?;
         log_audio_timing(video_id, "extraccion-ios-rapida", started);
-        Ok((
-            StreamInfo {
-                url: stream.url.clone(),
-                quality_label,
-                user_agent: Some(ua),
-                headers,
-                local_audio: None,
-            },
-            ext,
-            size,
-        ))
-    }
-
-    #[cfg(target_os = "android")]
-    async fn extract_innertube_direct_stream(
-        &self,
-        video_id: &str,
-        profile: &str,
-        visitor_data: Option<&str>,
-    ) -> Result<(StreamInfo, &'static str, Option<u64>), String> {
-        let (user_agent, client_name_hdr, client_version_hdr, mut payload) = match profile {
-            "ANDROID_VR" => (
-                "com.google.android.apps.youtube.vr.oculus/1.65.10 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip",
-                "28",
-                "1.65.10",
-                serde_json::json!({
-                    "context": { "client": {
-                        "clientName": "ANDROID_VR",
-                        "clientVersion": "1.65.10",
-                        "deviceMake": "Oculus",
-                        "deviceModel": "Quest 3",
-                        "androidSdkVersion": 32,
-                        "osName": "Android",
-                        "osVersion": "12L",
-                        "hl": "en",
-                        "gl": "US"
-                    } },
-                    "videoId": video_id,
-                    "contentCheckOk": true,
-                    "racyCheckOk": true,
-                }),
-            ),
-            "ANDROID_VR_LEGACY" => (
-                "com.google.android.apps.youtube.vr.oculus/1.43.32 (Linux; U; Android 12; Quest 2) gzip",
-                "28",
-                "1.43.32",
-                serde_json::json!({
-                    "context": { "client": {
-                        "clientName": "ANDROID_VR",
-                        "clientVersion": "1.43.32",
-                        "deviceMake": "Oculus",
-                        "deviceModel": "Quest 2",
-                        "androidSdkVersion": 32,
-                        "osName": "Android",
-                        "osVersion": "12",
-                        "hl": "en",
-                        "gl": "US"
-                    } },
-                    "videoId": video_id,
-                    "contentCheckOk": true,
-                    "racyCheckOk": true,
-                }),
-            ),
-            "TV_EMBEDDED" => (
-                "Mozilla/5.0 (ChromiumStylePlatform) Cobalt/Version",
-                "85",
-                "2.0",
-                serde_json::json!({
-                    "context": {
-                        "client": {
-                            "clientName": "TVHTML5_SIMPLY_EMBEDDED_PLAYER",
-                            "clientVersion": "2.0",
-                            "hl": "en",
-                            "gl": "US"
-                        },
-                        "thirdParty": {
-                            "embedUrl": "https://www.youtube.com"
-                        }
-                    },
-                    "videoId": video_id,
-                    "contentCheckOk": true,
-                    "racyCheckOk": true,
-                }),
-            ),
-            _ => (
-                "Mozilla/5.0 (Macintosh; Intel Mac OS X 15_7_3) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15",
-                "101",
-                "1.02",
-                serde_json::json!({
-                    "context": { "client": {
-                        "clientName": "VISIONOS", "clientVersion": "1.02",
-                        "deviceMake": "Apple", "deviceModel": "RealityDevice17,1",
-                        "osName": "visionOS", "osVersion": "26.5.23O471"
-                    } },
-                    "videoId": video_id,
-                }),
-            ),
-        };
-
-        if let Some(vd) = visitor_data
-            && let Some(client_obj) = payload["context"]["client"].as_object_mut()
-        {
-            client_obj.insert("visitorData".to_string(), serde_json::Value::String(vd.to_string()));
-        }
-
-        let mut req = self.http
-            .post("https://www.youtube.com/youtubei/v1/player?prettyPrint=false")
-            .timeout(Duration::from_secs(6))
-            .header("User-Agent", user_agent)
-            .header("X-YouTube-Client-Name", client_name_hdr)
-            .header("X-YouTube-Client-Version", client_version_hdr);
-        if let Some(vd) = visitor_data {
-            req = req.header("X-Goog-Visitor-Id", vd);
-        }
-
-        let response: serde_json::Value = req
-            .json(&payload)
-            .send().await.and_then(reqwest::Response::error_for_status)
-            .map_err(|err| err.without_url().to_string())?
-            .json().await.map_err(|err| err.without_url().to_string())?;
-
-        let adaptive = response["streamingData"]["adaptiveFormats"].as_array();
-        let muxed = response["streamingData"]["formats"].as_array();
-        if adaptive.is_none() && muxed.is_none() {
-            let status = response["playabilityStatus"]["status"].as_str()
-                .filter(|status| status.len() <= 40 && status.bytes().all(|b| b.is_ascii_uppercase() || b == b'_'));
-            return Err(format!("El reproductor no ofreció audio ({})", status.unwrap_or("SIN_FORMATOS")));
-        }
-
-        let all_formats: Vec<&serde_json::Value> = adaptive
-            .into_iter()
-            .flatten()
-            .chain(muxed.into_iter().flatten())
-            .collect();
-
-        for (itag, extension) in [
-            (251u64, "webm"),
-            (140u64, "m4a"),
-            (250u64, "webm"),
-            (249u64, "webm"),
-            (139u64, "m4a"),
-            (18u64, "mp4"),
-        ] {
-            let Some(format) = all_formats
-                .iter()
-                .find(|f| f["itag"].as_u64() == Some(itag) && f["url"].is_string())
-            else {
-                continue;
-            };
-            let Some(url) = format["url"].as_str().and_then(|url| reqwest::Url::parse(url).ok()) else {
-                continue;
-            };
-            if url.scheme() != "https" || !url.host_str().is_some_and(|host| host.ends_with(".googlevideo.com")) {
-                continue;
-            }
-            let size = format["contentLength"].as_str().and_then(|v| v.parse().ok());
-            let kbps = format["bitrate"].as_u64().unwrap_or(128_000) / 1000;
-            return Ok((StreamInfo {
-                url: url.into(),
-                quality_label: format!("{kbps}kbps ({})", extension.to_uppercase()),
-                user_agent: Some(user_agent.into()),
-                headers: HashMap::new(),
-                local_audio: None,
-            }, extension, size));
-        }
-        Err("El reproductor no ofreció una URL directa de audio compatible".into())
-    }
-
-    #[cfg(target_os = "android")]
-    async fn extract_rustypipe_client_stream(
-        &self,
-        video_id: &str,
-        client: rustypipe::client::ClientType,
-    ) -> Result<(StreamInfo, &'static str, Option<u64>), String> {
-        use rustypipe::model::AudioFormat;
-        let player = tokio::time::timeout(
-            Duration::from_secs(6),
-            self.rp.query().player_from_client(video_id, client),
-        )
-        .await
-        .map_err(|_| format!("Timeout consultando cliente {client:?}"))?
-        .map_err(|e| format!("Error en cliente {client:?}: {e}"))?;
-
-        let stream = player
-            .audio_streams
-            .iter()
-            .find(|s| s.itag == 251)
-            .or_else(|| player.audio_streams.iter().find(|s| s.itag == 140))
-            .or_else(|| player.audio_streams.iter().max_by_key(|s| s.bitrate))
-            .ok_or_else(|| format!("Sin streams de audio en {client:?}"))?;
-
-        let ext = match stream.format {
-            AudioFormat::M4a => "m4a",
-            _ => "webm",
-        };
-        let kbps = (stream.bitrate / 1000).max(96);
-        let quality_label = format!("{kbps}kbps ({})", ext.to_uppercase());
-        let ua = self.rp.query().user_agent(client).into_owned();
-        let mut headers = HashMap::new();
-        headers.insert("User-Agent".to_string(), ua.clone());
-        let size = (stream.size > 0).then_some(stream.size);
-        Ok((
-            StreamInfo {
-                url: stream.url.clone(),
-                quality_label,
-                user_agent: Some(ua),
-                headers,
-                local_audio: None,
-            },
-            ext,
-            size,
-        ))
+        Ok(res)
     }
 
     async fn resolve_audio_stream(&self, video_id: &str) -> Result<StreamInfo, String> {
@@ -1732,21 +1366,19 @@ impl Backend {
 
         #[cfg(target_os = "android")]
         {
-            use rustypipe::client::ClientType;
-            let visitor_data = self.rp.query().get_visitor_data(false).await.ok();
-            let attempts = ["ANDROID_VR", "ANDROID_VR_LEGACY", "TV_EMBEDDED", "VISIONOS", "iOS"];
+            let visitor_data = self.innertube.visitor_data(false).await;
+            let attempts = ["ANDROID_VR", "ANDROID_VR_LEGACY", "TV_EMBEDDED", "VISIONOS", "IOS"];
             for source in attempts {
-                let extracted = match source {
-                    "iOS" => self.extract_rustypipe_client_stream(video_id, ClientType::Ios).await,
-                    profile => {
-                        self.extract_innertube_direct_stream(
-                            video_id,
-                            profile,
-                            visitor_data.as_deref(),
-                        )
-                        .await
-                    }
-                };
+                let extracted = self
+                    .innertube
+                    .extract_direct_stream(
+                        video_id,
+                        source,
+                        visitor_data.as_deref(),
+                        Duration::from_secs(6),
+                        None,
+                    )
+                    .await;
                 let (remote, ext, size_hint) = match extracted {
                     Ok(stream) => stream,
                     Err(err) => {
@@ -1964,46 +1596,29 @@ impl Backend {
     ) -> Result<crate::models::RelatedFeed, String> {
         validate_video_id(track_id)?;
         let details = self
-            .rp
-            .query()
-            .music_details(track_id)
+            .innertube
+            .fetch_music_details(track_id)
             .await
             .map_err(|e| format!("Error obteniendo detalles: {e}"))?;
-        let Some(related_id) = details.related_id else {
+        let Some(related_id) = details.related_browse_id else {
             return Ok(crate::models::RelatedFeed::default());
         };
-        let related = self
-            .rp
-            .query()
-            .music_related(&related_id)
+        self.innertube
+            .fetch_related(&related_id)
             .await
-            .map_err(|e| format!("Error obteniendo relacionados: {e}"))?;
-        Ok(crate::models::RelatedFeed {
-            tracks: related
-                .tracks
-                .iter()
-                .filter(|t| !t.unavailable)
-                .take(16)
-                .map(Track::from)
-                .collect(),
-            albums: related.albums.iter().take(12).map(Album::from).collect(),
-            playlists: related.playlists.iter().take(12).map(Playlist::from).collect(),
-            artists: related.artists.iter().take(12).map(Artist::from).collect(),
-        })
+            .map_err(|e| format!("Error obteniendo relacionados: {e}"))
     }
 
     pub async fn fetch_playlist_radio(&self, playlist_id: &str) -> Result<Vec<Track>, String> {
-        let radio = self
-            .rp
-            .query()
-            .music_radio_playlist(playlist_id)
+        let items = self
+            .innertube
+            .fetch_radio_playlist(playlist_id)
             .await
             .map_err(|e| format!("Error iniciando radio de playlist: {e}"))?;
-        Ok(radio
-            .items
-            .iter()
-            .filter(|t| t.track_type == TrackType::Track && !t.unavailable)
-            .map(Track::from)
+        Ok(items
+            .into_iter()
+            .filter(|t| t.kind == TrackKind::Track && !t.unavailable)
+            .map(|t| t.track)
             .collect())
     }
 
@@ -2103,12 +1718,12 @@ impl Backend {
             }
         }
 
-        if let Ok(details) = self.rp.query().music_details(video_id).await
-            && let Some(id) = details.lyrics_id
-            && let Ok(lyrics) = self.rp.query().music_lyrics(id).await
-            && !lyrics.body.trim().is_empty()
+        if let Ok(details) = self.innertube.fetch_music_details(video_id).await
+            && let Some(id) = details.lyrics_browse_id
+            && let Ok(lyrics) = self.innertube.fetch_lyrics(&id).await
+            && !lyrics.trim().is_empty()
         {
-            return Ok(lyrics.body);
+            return Ok(lyrics);
         }
 
         Err(String::from("No hay letras disponibles para esta pista."))
@@ -2134,16 +1749,14 @@ impl Backend {
 
     pub async fn resolve_ytm_cover(&self, track: &Track) -> Option<String> {
         // Exact ID only: another search result can be a different recording.
-        let details = self.rp.query().music_details(&track.id).await.ok()?;
-        if details.track.id != track.id {
+        let details = self.innertube.fetch_music_details(&track.id).await.ok()?;
+        if details.item.track.id != track.id {
             return None;
         }
-        if let Some(cover) = crate::models::pick_cover(&details.track.cover, 800) {
+        if let Some(cover) = pick_cover_thumbs(&details.covers, 800) {
             return Some(cover);
         }
-        let album = details.track.album?;
-        let album = self.rp.query().music_album(album.id).await.ok()?;
-        crate::models::pick_cover(&album.cover, 800)
+        details.item.track.cover_large_url
     }
 }
 
@@ -2178,14 +1791,14 @@ fn stream_url_is_fresh(created: Instant, stream: &StreamInfo) -> bool {
 
 fn verified_music_track(
     video_id: &str,
-    item: &rustypipe::model::TrackItem,
+    item: &CatalogItem,
 ) -> Result<Track, String> {
-    if item.id != video_id || item.track_type != TrackType::Track || item.unavailable {
+    if item.track.id != video_id || item.kind != TrackKind::Track || item.unavailable {
         return Err(String::from(
             "Solo se reproducen canciones disponibles del catálogo de YouTube Music.",
         ));
     }
-    Ok(Track::from(item))
+    Ok(item.track.clone())
 }
 
 pub(crate) fn validate_video_id(video_id: &str) -> Result<(), String> {
@@ -2566,12 +2179,12 @@ fn parse_watch_counterpart_json(
 }
 
 #[allow(dead_code)]
-fn is_playlist_audio(track: &rustypipe::model::TrackItem) -> bool {
-    track.track_type == TrackType::Track && !track.unavailable
+fn is_playlist_audio(item: &CatalogItem) -> bool {
+    item.kind == TrackKind::Track && !item.unavailable
 }
 
-fn is_playlist_playable(track: &rustypipe::model::TrackItem) -> bool {
-    matches!(track.track_type, TrackType::Track | TrackType::Video) && !track.unavailable
+fn is_playlist_playable(item: &CatalogItem) -> bool {
+    matches!(item.kind, TrackKind::Track | TrackKind::Video) && !item.unavailable
 }
 
 fn playlist_audio_result(
@@ -2876,12 +2489,11 @@ mod tests {
     #[tokio::test]
     async fn cached_audio_cannot_bypass_failed_catalog_verification() {
         let mut backend = Backend::new();
-        backend.rp = RustyPipe::builder()
-            .timeout(Duration::ZERO)
-            .n_http_retries(1)
-            .no_storage()
-            .visitor_data("test")
-            .build().unwrap();
+        let dead_http = crate::tls::http_client_builder()
+            .timeout(Duration::from_millis(1))
+            .build()
+            .unwrap();
+        backend.innertube = InnerTubeClient::new(dead_http);
         let mut track: Track = serde_json::from_value(serde_json::json!({
             "id":"video123456", "title":"Song", "artist":"Artist"
         }))
@@ -2914,15 +2526,28 @@ mod tests {
             "verified_catalog_audio":true, "cover_url":"http://127.0.0.1/private"
         }))
         .unwrap();
-        let mut item: rustypipe::model::TrackItem = serde_json::from_value(serde_json::json!({
-            "id":claimed.id, "name":"Catalog song", "cover":[], "artists":[],
-            "track_type":"video", "by_va":false, "unavailable":false
-        }))
-        .unwrap();
+        let mut item = CatalogItem {
+            track: Track {
+                is_music: true,
+                is_video: false,
+                id: claimed.id.clone(),
+                title: "Catalog song".into(),
+                artist: "Artista desconocido".into(),
+                artist_id: None,
+                album: None,
+                album_id: None,
+                duration_secs: None,
+                view_count: None,
+                cover_url: None,
+                cover_large_url: None,
+            },
+            kind: TrackKind::Video,
+            unavailable: false,
+        };
         assert!(verified_music_track(&claimed.id, &item).is_err());
-        item.track_type = TrackType::Episode;
+        item.kind = TrackKind::Episode;
         assert!(verified_music_track(&claimed.id, &item).is_err());
-        item.track_type = TrackType::Track;
+        item.kind = TrackKind::Track;
         item.unavailable = true;
         assert!(verified_music_track(&claimed.id, &item).is_err());
         item.unavailable = false;
@@ -2987,16 +2612,30 @@ mod tests {
         assert_ne!(filtered, incomplete);
         assert!(playlist_audio_result("Lista".into(), vec![], false, false).is_err());
 
-        let mut item: rustypipe::model::TrackItem = serde_json::from_value(serde_json::json!({
-            "id":"audio123456", "name":"Song", "cover":[], "artists":[],
-            "track_type":"video", "by_va":false, "unavailable":false
-        })).unwrap();
+        let mut item = CatalogItem {
+            track: Track {
+                is_music: true,
+                is_video: false,
+                id: "audio123456".into(),
+                title: "Song".into(),
+                artist: "Artista desconocido".into(),
+                artist_id: None,
+                album: None,
+                album_id: None,
+                duration_secs: None,
+                view_count: None,
+                cover_url: None,
+                cover_large_url: None,
+            },
+            kind: TrackKind::Video,
+            unavailable: false,
+        };
         assert!(!is_playlist_audio(&item));
-        item.track_type = TrackType::Track;
+        item.kind = TrackKind::Track;
         let tracks = [&item]
             .into_iter()
             .filter(|t| is_playlist_audio(t))
-            .map(Track::from)
+            .map(|t| t.track.clone())
             .collect();
         let (_, tracks) = playlist_audio_result("Lista".into(), tracks, true, false).unwrap();
         assert_eq!(tracks[0].id, "audio123456");
@@ -3036,19 +2675,18 @@ mod tests {
             .find(|t| t.title.to_lowercase() == "me habla de amor")
             .unwrap();
         let old = backend
-            .rp
-            .query()
-            .music_details("zuFs_gXr_Wk")
+            .innertube
+            .fetch_music_details("zuFs_gXr_Wk")
             .await
             .unwrap();
-        let current = backend.rp.query().music_details(&audio.id).await.unwrap();
+        let current = backend.innertube.fetch_music_details(&audio.id).await.unwrap();
         eprintln!(
             "Álbum: {title}; ID anterior: {} ({:?}); ID de audio: {} ({:?})",
-            old.track.id, old.track.track_type, current.track.id, current.track.track_type
+            old.item.track.id, old.item.kind, current.item.track.id, current.item.kind
         );
-        assert_eq!(current.track.track_type, TrackType::Track);
-        if old.track.track_type == TrackType::Video {
-            assert_ne!(old.track.id, audio.id);
+        assert_eq!(current.item.kind, TrackKind::Track);
+        if old.item.kind == TrackKind::Video {
+            assert_ne!(old.item.track.id, audio.id);
         }
     }
 

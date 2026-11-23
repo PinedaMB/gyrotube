@@ -35,17 +35,6 @@ if [[ -z "${NDK_HOME}" || ! -d "${NDK_HOME}" ]]; then
   exit 1
 fi
 
-LLVM="${NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64"
-CLANG_INC="$(find "${LLVM}/lib/clang" -maxdepth 2 -name include -type d | sort -V | tail -n 1)"
-
-if [[ -d "${LLVM}/lib" && -n "$(ls "${LLVM}/lib"/libclang.so* 2>/dev/null || true)" ]]; then
-  export LIBCLANG_PATH="${LLVM}/lib"
-elif [[ -d "${LLVM}/lib64" ]]; then
-  export LIBCLANG_PATH="${LLVM}/lib64"
-fi
-
-export BINDGEN_EXTRA_CLANG_ARGS_aarch64_linux_android="--sysroot=${LLVM}/sysroot -isystem ${CLANG_INC}"
-
 if [[ -z "${JAVA_HOME:-}" ]]; then
   if [[ -x "/usr/lib/jvm/java-25-openjdk/bin/javac" ]]; then
     export JAVA_HOME="/usr/lib/jvm/java-25-openjdk"

@@ -13,16 +13,12 @@ qrcode = { version = "0.15.0", default-features = false, features = ["svg"] }
 reqwest = { version = "0.13.5", default-features = false, features = ["rustls", "query", "json"] }
 ring = "0.17.14"
 rustls = { version = "0.23.46", default-features = false, features = ["ring", "std", "tls12"] }
-rustypipe = { git = "https://codeberg.org/ThetaDev/rustypipe.git", default-features = false, features = ["rustls-tls-webpki-roots"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 tempfile = "3.27.0"
 tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros", "process", "sync", "time", "net", "io-util"] }
 webpki-roots = "1.0.12"
 ytmapi-rs = { version = "0.3.4", features = ["reqwest"] }
-
-[target.'cfg(target_os = "android")'.dependencies]
-rquickjs-sys = { version = "0.9", features = ["bindgen"] }
 
 [dev-dependencies]
 quircs = "0.10.3"
