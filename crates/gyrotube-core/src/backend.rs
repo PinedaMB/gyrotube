@@ -106,6 +106,15 @@ impl Backend {
         }
     }
 
+    pub fn set_audio_quality(&self, quality: crate::models::AudioQuality) {
+        if self.innertube.audio_quality() != quality {
+            self.innertube.set_audio_quality(quality);
+            if let Ok(mut cache) = self.stream_cache.write() {
+                cache.clear();
+            }
+        }
+    }
+
     async fn primary(&self) -> Result<&YtMusic<NoAuthToken>, String> {
         self.ytm
             .get_or_try_init(|| async {
@@ -1280,6 +1289,11 @@ impl Backend {
 
         // Fallback: extract stream URL via yt-dlp excluding tv_samsung (which triggers 6s ad / 403)
         // and skipping HLS/DASH manifest downloads.
+        let ytdlp_format = match self.innertube.audio_quality() {
+            crate::models::AudioQuality::High => "251/140/bestaudio",
+            crate::models::AudioQuality::Normal => "250/249/140/bestaudio",
+            crate::models::AudioQuality::Low => "249/139/250/worstaudio/bestaudio",
+        };
         let mut cmd = tokio::process::Command::new("yt-dlp");
         cmd.kill_on_drop(true)
             .args([
@@ -1299,7 +1313,7 @@ impl Backend {
                 "--remote-components",
                 "ejs:github",
                 "-f",
-                "251/140/bestaudio",
+                ytdlp_format,
                 "--",
             ])
             .arg(format!("https://music.youtube.com/watch?v={video_id}"));

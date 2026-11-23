@@ -41,6 +41,7 @@ import type {
   ActiveView,
   AppLanguage,
   Artist,
+  AudioQuality,
   Genre,
   HomeFeed,
   LyricsData,
@@ -92,6 +93,7 @@ class PlayerStore {
   crossfadeSecs = $state(0);
   autoplayRelated = $state(true);
   backgroundPlayback = $state(true);
+  audioQuality = $state<AudioQuality>("High");
   themeMode = $state<ThemeMode>(readThemeMode());
   language = $state<AppLanguage>("Auto");
 
@@ -317,6 +319,8 @@ class PlayerStore {
       this.repeat = s.repeat;
       this.crossfadeSecs = s.crossfade_secs ?? 0;
       this.autoplayRelated = s.autoplay_related ?? true;
+      this.audioQuality =
+        s.audio_quality === "Normal" || s.audio_quality === "Low" ? s.audio_quality : "High";
       this.backgroundPlayback = s.background_playback ?? true;
       this.language = s.language ?? "Auto";
       this.themeMode = (s.theme_mode as ThemeMode) || "system";
@@ -475,6 +479,11 @@ class PlayerStore {
 
   public setAutoplay(enabled: boolean): void {
     this.autoplayRelated = enabled;
+    void this.persistSession();
+  }
+
+  public setAudioQuality(quality: AudioQuality): void {
+    this.audioQuality = quality;
     void this.persistSession();
   }
 
@@ -2203,6 +2212,7 @@ class PlayerStore {
         background_playback: this.backgroundPlayback,
         autoplay_related: this.autoplayRelated,
         theme_mode: this.themeMode,
+        audio_quality: this.audioQuality,
       }),
     );
   }

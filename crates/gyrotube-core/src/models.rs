@@ -505,6 +505,14 @@ fn default_autoplay_related() -> bool {
     true
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum AudioQuality {
+    #[default]
+    High,
+    Normal,
+    Low,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct SessionState {
     pub sidebar_collapsed: bool,
@@ -531,6 +539,8 @@ pub struct SessionState {
     pub autoplay_related: bool,
     #[serde(default)]
     pub theme_mode: String,
+    #[serde(default)]
+    pub audio_quality: AudioQuality,
 }
 
 pub fn load_session_state() -> SessionState {

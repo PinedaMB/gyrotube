@@ -5,8 +5,8 @@ use std::time::{Duration, Instant};
 use serde_json::{Value, json};
 
 use crate::models::{
-    Album, Artist, LyricsData, Playlist, RelatedFeed, SearchSuggestions, StreamInfo, SyncedLyricLine,
-    Track, clean_track_title, pick_cover_thumbs,
+    Album, Artist, AudioQuality, LyricsData, Playlist, RelatedFeed, SearchSuggestions, StreamInfo,
+    SyncedLyricLine, Track, clean_track_title, pick_cover_thumbs,
 };
 
 const YTM_CLIENT_NAME: &str = "WEB_REMIX";
@@ -102,6 +102,7 @@ pub struct InnerTubeClient {
     visitor_cache: Arc<RwLock<Option<(Instant, String)>>>,
     preferred_profile: Arc<RwLock<Option<&'static str>>>,
     details_cache: Arc<RwLock<HashMap<String, (Instant, MusicTrackDetails)>>>,
+    audio_quality: Arc<RwLock<AudioQuality>>,
 }
 
 impl InnerTubeClient {
@@ -111,7 +112,22 @@ impl InnerTubeClient {
             visitor_cache: Arc::new(RwLock::new(None)),
             preferred_profile: Arc::new(RwLock::new(None)),
             details_cache: Arc::new(RwLock::new(HashMap::new())),
+            audio_quality: Arc::new(RwLock::new(AudioQuality::High)),
         }
+    }
+
+    pub fn set_audio_quality(&self, quality: AudioQuality) {
+        if let Ok(mut guard) = self.audio_quality.write() {
+            *guard = quality;
+        }
+    }
+
+    pub fn audio_quality(&self) -> AudioQuality {
+        self.audio_quality
+            .read()
+            .ok()
+            .map(|g| *g)
+            .unwrap_or(AudioQuality::High)
     }
 
     pub fn ordered_profiles(&self) -> Vec<&'static str> {
@@ -400,14 +416,32 @@ impl InnerTubeClient {
             .chain(muxed.into_iter().flatten())
             .collect();
 
-        let candidates: &[(u64, &str)] = &[
-            (251, "webm"),
-            (140, "m4a"),
-            (250, "webm"),
-            (249, "webm"),
-            (139, "m4a"),
-            (18, "mp4"),
-        ];
+        let candidates: &[(u64, &str)] = match self.audio_quality() {
+            AudioQuality::High => &[
+                (251, "webm"),
+                (140, "m4a"),
+                (250, "webm"),
+                (249, "webm"),
+                (139, "m4a"),
+                (18, "mp4"),
+            ],
+            AudioQuality::Normal => &[
+                (250, "webm"),
+                (249, "webm"),
+                (140, "m4a"),
+                (251, "webm"),
+                (139, "m4a"),
+                (18, "mp4"),
+            ],
+            AudioQuality::Low => &[
+                (249, "webm"),
+                (139, "m4a"),
+                (250, "webm"),
+                (140, "m4a"),
+                (251, "webm"),
+                (18, "mp4"),
+            ],
+        };
 
         for &(itag, extension) in candidates {
             if let Some(req_itag) = require_itag
@@ -435,7 +469,7 @@ impl InnerTubeClient {
                 continue;
             }
             let size = format["contentLength"].as_str().and_then(|v| v.parse().ok());
-            let kbps = (format["bitrate"].as_u64().unwrap_or(128_000) / 1000).max(96);
+            let kbps = (format["bitrate"].as_u64().unwrap_or(128_000) / 1000).max(48);
             let mut headers = HashMap::new();
             headers.insert("User-Agent".to_string(), user_agent.to_string());
             return Ok((

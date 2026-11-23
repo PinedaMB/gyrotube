@@ -25,9 +25,11 @@ pub struct InitialAppData {
 #[tauri::command]
 pub async fn load_initial_state(state: State<'_, AppCoreState>) -> Result<InitialAppData, String> {
     let bg_flag = Arc::clone(&state.background_playback);
+    let backend = state.backend.clone();
     tokio::task::spawn_blocking(move || {
         let session = load_session_state();
         bg_flag.store(session.background_playback, Ordering::Relaxed);
+        backend.set_audio_quality(session.audio_quality);
         InitialAppData {
             session,
             favorites: load_favorites(),
@@ -49,6 +51,7 @@ pub async fn save_session(
     state
         .background_playback
         .store(session.background_playback, Ordering::Relaxed);
+    state.backend.set_audio_quality(session.audio_quality);
     tokio::task::spawn_blocking(move || save_session_state(&session).map_err(|e| e.to_string()))
         .await
         .map_err(|e| e.to_string())?

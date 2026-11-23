@@ -25,7 +25,7 @@
   import { t } from "../lib/i18n.svelte";
   import { device } from "../lib/stores/device.svelte";
   import { player } from "../lib/stores/player.svelte";
-  import type { AppLanguage, ThemeMode } from "../lib/types";
+  import type { AppLanguage, AudioQuality, ThemeMode } from "../lib/types";
   import SegmentedControl, { type SegmentedOption } from "./SegmentedControl.svelte";
 
   let cacheBytes = $state(0);
@@ -120,6 +120,12 @@
     { value: "Auto", label: t("settings.lang_auto") },
     { value: "Es", label: "Español" },
     { value: "En", label: "English" },
+  ]);
+
+  let qualityOptions = $derived<SegmentedOption<AudioQuality>[]>([
+    { value: "High", label: t("settings.quality_high") },
+    { value: "Normal", label: t("settings.quality_normal") },
+    { value: "Low", label: t("settings.quality_low") },
   ]);
 
   const eqPresetList: { id: Exclude<EqPresetId, "custom">; key: Parameters<typeof t>[0] }[] = [
@@ -219,6 +225,26 @@
       class="rounded-2xl bg-[var(--surface)] border border-[var(--border)] divide-y divide-[var(--border)] overflow-hidden"
       style="box-shadow: var(--card-shadow);"
     >
+      <div class="p-3.5 sm:p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-colors hover:bg-[var(--surface-hover)]/35">
+        <div class="flex items-center gap-3 min-w-0">
+          <span class="w-9 h-9 rounded-xl bg-[var(--bg)]/60 border border-[var(--border)] inline-flex items-center justify-center text-[var(--accent-bright)] shrink-0">
+            <Music2 size={16} />
+          </span>
+          <div class="min-w-0">
+            <div class="text-[14px] font-semibold leading-snug">{t("settings.audio_quality")}</div>
+            <div class="text-[12px] text-[var(--text-muted)]">{t("settings.audio_quality_sub")}</div>
+          </div>
+        </div>
+        <div class="flex sm:justify-end">
+          <SegmentedControl
+            options={qualityOptions}
+            value={player.audioQuality}
+            ariaLabel={t("settings.audio_quality")}
+            onchange={(q) => player.setAudioQuality(q)}
+          />
+        </div>
+      </div>
+
       <div class="p-4 flex flex-wrap sm:flex-nowrap items-center justify-between gap-4 transition-colors hover:bg-[var(--surface-hover)]/35">
         <div class="flex items-center gap-3 min-w-0">
           <span class="w-9 h-9 rounded-xl bg-[var(--bg)]/60 border border-[var(--border)] inline-flex items-center justify-center text-[var(--accent-bright)] shrink-0">

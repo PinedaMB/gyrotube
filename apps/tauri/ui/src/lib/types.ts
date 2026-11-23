@@ -118,6 +118,7 @@ export interface UserPlaylist {
 
 export type ThemeMode = "system" | "dark" | "light";
 export type AppLanguage = "Auto" | "Es" | "En";
+export type AudioQuality = "High" | "Normal" | "Low";
 export type MainTab = "home" | "explore" | "collection";
 export type ActiveView =
   | { kind: "home" }
@@ -143,6 +144,7 @@ export interface SessionState {
   background_playback: boolean;
   autoplay_related: boolean;
   theme_mode: ThemeMode;
+  audio_quality?: AudioQuality;
 }
 
 export interface InitialAppData {
