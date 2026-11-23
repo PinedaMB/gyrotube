@@ -122,15 +122,17 @@
   <section bind:this={sectionEl} class="mt-6 flex flex-col gap-3">
     <div class="flex items-center justify-between gap-3">
       <h2 class="section-title">{t("home.stations_title")}</h2>
-      <button
-        class="shrink-0 text-[12.5px] font-semibold text-[var(--accent-bright)] hover:underline"
-        onclick={() => {
-          player.clearSearch();
-          player.navigateTab("explore");
-        }}
-      >
-        {t("home.see_all")}
-      </button>
+      {#if player.activeView.kind !== "explore"}
+        <button
+          class="shrink-0 text-[12.5px] font-semibold text-[var(--accent-bright)] hover:underline"
+          onclick={() => {
+            player.clearSearch();
+            player.navigateTab("explore");
+          }}
+        >
+          {t("home.see_all")}
+        </button>
+      {/if}
     </div>
 
     <div class="grid grid-cols-2 lg:grid-cols-3 gap-2.5 md:gap-3.5">
