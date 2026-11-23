@@ -88,10 +88,14 @@
         onkeydown={(e) => e.key === "Enter" && onOpenPlaylist(pl.id)}
       >
         <span
-          class="w-12 h-12 rounded-xl inline-flex items-center justify-center text-white shrink-0 shadow-md"
+          class="w-12 h-12 rounded-xl inline-flex items-center justify-center text-white shrink-0 shadow-md overflow-hidden"
           style="background: {accent};"
         >
-          <PlaylistIcon name={pl.icon_name} size={20} />
+          {#if pl.cover_path}
+            <img src={pl.cover_path} alt={pl.name} class="w-full h-full object-cover" />
+          {:else}
+            <PlaylistIcon name={pl.icon_name} size={20} />
+          {/if}
         </span>
         <div class="min-w-0 flex-1">
           <div class="flex items-center gap-1.5">

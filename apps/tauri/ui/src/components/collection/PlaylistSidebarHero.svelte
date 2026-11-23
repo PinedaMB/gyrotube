@@ -98,16 +98,20 @@
       ? "background: linear-gradient(135deg, #e01b24 0%, #ff6b81 100%);"
       : `background: linear-gradient(135deg, ${accentColor} 0%, ${accentColor}b8 100%);`}
   >
-    <div
-      class="pointer-events-none absolute inset-0 bg-gradient-to-br from-white/20 via-transparent to-black/30"
-    ></div>
-    <div class="relative z-10 drop-shadow-[0_10px_24px_rgba(0,0,0,0.35)]">
-      {#if mode === "favorites"}
-        <Heart size={82} fill="currentColor" />
-      {:else}
-        <PlaylistIcon name={playlist?.icon_name} size={82} />
-      {/if}
-    </div>
+    {#if mode === "playlist" && playlist?.cover_path}
+      <img src={playlist.cover_path} alt={title} class="w-full h-full object-cover" />
+    {:else}
+      <div
+        class="pointer-events-none absolute inset-0 bg-gradient-to-br from-white/20 via-transparent to-black/30"
+      ></div>
+      <div class="relative z-10 drop-shadow-[0_10px_24px_rgba(0,0,0,0.35)]">
+        {#if mode === "favorites"}
+          <Heart size={82} fill="currentColor" />
+        {:else}
+          <PlaylistIcon name={playlist?.icon_name} size={82} />
+        {/if}
+      </div>
+    {/if}
   </div>
 
   <div class="space-y-1.5 max-w-[300px]">

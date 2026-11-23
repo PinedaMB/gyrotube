@@ -90,10 +90,14 @@
           onkeydown={(e) => e.key === "Enter" && player.navigateTab("collection")}
         >
           <span
-            class="w-13 h-13 sm:w-14 sm:h-14 shrink-0 inline-flex items-center justify-center text-white"
+            class="w-13 h-13 sm:w-14 sm:h-14 shrink-0 inline-flex items-center justify-center text-white overflow-hidden"
             style="background: {accent};"
           >
-            <PlaylistIcon name={pl.icon_name} size={20} />
+            {#if pl.cover_path}
+              <img src={pl.cover_path} alt={pl.name} class="w-full h-full object-cover" />
+            {:else}
+              <PlaylistIcon name={pl.icon_name} size={20} />
+            {/if}
           </span>
           <div class="min-w-0 flex-1 py-1.5">
             <div class="flex items-center gap-1">

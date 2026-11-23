@@ -1939,6 +1939,7 @@ class PlayerStore {
     colorHex: string | null = "#10b981",
     iconName: string | null = null,
     tracks: Track[] = [],
+    coverPath: string | null = null,
   ): UserPlaylist {
     const clean = name.trim() || "New playlist";
     const pl: UserPlaylist = {
@@ -1947,7 +1948,7 @@ class PlayerStore {
       description: description.trim(),
       color_hex: colorHex,
       icon_name: iconName,
-      cover_path: null,
+      cover_path: coverPath,
       tracks,
     };
     this.userPlaylists = [pl, ...this.userPlaylists];
@@ -1961,12 +1962,20 @@ class PlayerStore {
     description: string,
     colorHex: string | null,
     iconName: string | null,
+    coverPath?: string | null,
   ): void {
     const clean = name.trim();
     if (!clean) return;
     this.userPlaylists = this.userPlaylists.map((p) =>
       p.id === id
-        ? { ...p, name: clean, description: description.trim(), color_hex: colorHex, icon_name: iconName }
+        ? {
+            ...p,
+            name: clean,
+            description: description.trim(),
+            color_hex: colorHex,
+            icon_name: iconName,
+            cover_path: coverPath !== undefined ? coverPath : p.cover_path,
+          }
         : p,
     );
     if (isTauriRuntime()) void api.saveUserPlaylists(this.userPlaylists);

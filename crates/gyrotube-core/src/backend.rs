@@ -1173,29 +1173,15 @@ impl Backend {
         track: &Track,
         want_video: bool,
     ) -> Result<Option<Track>, String> {
-        // Ask YouTube Music's /next watch playlist for the official Song <-> Video
-        // counterpart linked inside playlistPanelVideoWrapperRenderer.
-        // If no official counterpart exists, return None so the UI disables switching.
+        // Reuse InnerTubeClient's cached /next watch response (RDAMVM{id}) so official
+        // Song <-> Video counterparts resolve with zero duplicate HTTP calls.
         if validate_video_id(&track.id).is_err() {
             return Ok(None);
         }
-        let Ok(ytm) = self.primary().await else {
+        let Ok(details) = self.innertube.fetch_music_details(&track.id).await else {
             return Ok(None);
         };
-        let Ok(raw) = ytm
-            .raw_json_query(
-                ytmapi_rs::query::GetWatchPlaylistQuery::new_from_video_id(VideoID::from_raw(
-                    track.id.as_str(),
-                )),
-            )
-            .await
-        else {
-            return Ok(None);
-        };
-        let Ok(json) = serde_json::from_str::<serde_json::Value>(&raw) else {
-            return Ok(None);
-        };
-        Ok(parse_watch_counterpart_json(&json, track, want_video))
+        Ok(select_official_counterpart(&details, track, want_video))
     }
 
     async fn resolve_audio_stream(&self, video_id: &str) -> Result<StreamInfo, String> {
@@ -1962,6 +1948,57 @@ fn track_from_panel_video_renderer(
     })
 }
 
+fn select_official_counterpart(
+    details: &crate::innertube::MusicTrackDetails,
+    source: &Track,
+    want_video: bool,
+) -> Option<Track> {
+    // Respect the real catalog musicVideoType of the playing ID:
+    // - If we want a video, only pick an official Video counterpart (OMV/UGC), never an ATV track.
+    // - If we want studio audio, only pick an official ATV Track counterpart.
+    if want_video && details.item.kind == TrackKind::Video {
+        return None;
+    }
+    if !want_video && details.item.kind == TrackKind::Track {
+        return None;
+    }
+
+    let candidate = details.counterparts.iter().find(|cp| {
+        if cp.track.id == source.id || cp.unavailable {
+            return false;
+        }
+        if want_video {
+            cp.kind == TrackKind::Video || (cp.kind == TrackKind::Unknown && details.item.kind == TrackKind::Track)
+        } else {
+            cp.kind == TrackKind::Track
+        }
+    })?;
+
+    let mut out = candidate.track.clone();
+    out.is_music = true;
+    out.is_video = want_video;
+    if out.artist.is_empty() || out.artist == "Artista desconocido" {
+        out.artist = source.artist.clone();
+    }
+    if out.artist_id.is_none() {
+        out.artist_id = source.artist_id.clone();
+    }
+    if out.album.is_none() {
+        out.album = source.album.clone();
+    }
+    if out.album_id.is_none() {
+        out.album_id = source.album_id.clone();
+    }
+    if out.cover_url.is_none() {
+        out.cover_url = source.cover_url.clone();
+    }
+    if out.cover_large_url.is_none() {
+        out.cover_large_url = source.cover_large_url.clone().or_else(|| out.cover_url.clone());
+    }
+    Some(out)
+}
+
+#[allow(dead_code)]
 fn parse_watch_counterpart_json(
     json: &serde_json::Value,
     source: &Track,

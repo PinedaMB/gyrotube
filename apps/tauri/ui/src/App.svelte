@@ -340,10 +340,10 @@
       open={true}
       editing={null}
       onClose={() => (player.playlistDraftTrack = null)}
-      onSave={({ name, description, colorHex, iconName }) => {
+      onSave={({ name, description, colorHex, iconName, coverPath }) => {
         const track = player.playlistDraftTrack;
         if (!track) return;
-        player.createUserPlaylist(name, description, colorHex, iconName, [track]);
+        player.createUserPlaylist(name, description, colorHex, iconName, [track], coverPath ?? null);
       }}
     />
   {/if}

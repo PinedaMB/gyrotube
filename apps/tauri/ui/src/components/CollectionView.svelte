@@ -49,10 +49,18 @@
     description: string;
     colorHex: string | null;
     iconName: string;
+    coverPath?: string | null;
     tracks?: import("../lib/types").Track[];
   }) {
     if (data.id) {
-      player.updateUserPlaylist(data.id, data.name, data.description, data.colorHex, data.iconName);
+      player.updateUserPlaylist(
+        data.id,
+        data.name,
+        data.description,
+        data.colorHex,
+        data.iconName,
+        data.coverPath ?? null,
+      );
     } else {
       const created = player.createUserPlaylist(
         data.name,
@@ -60,6 +68,7 @@
         data.colorHex,
         data.iconName,
         data.tracks ?? [],
+        data.coverPath ?? null,
       );
       screen = { kind: "playlist", id: created.id };
     }

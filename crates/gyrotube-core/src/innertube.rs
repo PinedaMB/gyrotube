@@ -61,6 +61,7 @@ pub struct MusicTrackDetails {
     pub covers: Vec<(String, u32)>,
     pub lyrics_browse_id: Option<String>,
     pub related_browse_id: Option<String>,
+    pub counterparts: Vec<CatalogItem>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -651,6 +652,7 @@ impl InnerTubeClient {
         }
         let body = json!({
             "videoId": video_id,
+            "playlistId": format!("RDAMVM{video_id}"),
             "isAudioOnly": true,
             "enablePersistentPlaylistPanel": true
         });
@@ -1376,6 +1378,20 @@ pub fn parse_music_details_json(video_id: &str, resp: &Value) -> Result<MusicTra
     let mut related_browse_id = None;
     collect_watch_tab_ids(resp, &mut lyrics_browse_id, &mut related_browse_id);
 
+    // Prefer matching inside playlistPanelVideoWrapperRenderer so we capture both the
+    // exact requested track (ATV or OMV) and its official Song <-> Video counterpart(s).
+    let mut wrapped: Option<(CatalogItem, Vec<(String, u32)>, Vec<CatalogItem>)> = None;
+    find_wrapped_panel_video_by_id(resp, video_id, &mut wrapped);
+    if let Some((item, covers, counterparts)) = wrapped {
+        return Ok(MusicTrackDetails {
+            item,
+            covers,
+            lyrics_browse_id,
+            related_browse_id,
+            counterparts,
+        });
+    }
+
     let mut matched: Option<(CatalogItem, Vec<(String, u32)>)> = None;
     find_panel_video_by_id(resp, video_id, &mut matched);
 
@@ -1388,7 +1404,64 @@ pub fn parse_music_details_json(video_id: &str, resp: &Value) -> Result<MusicTra
         covers,
         lyrics_browse_id,
         related_browse_id,
+        counterparts: Vec::new(),
     })
+}
+
+fn find_wrapped_panel_video_by_id(
+    val: &Value,
+    video_id: &str,
+    out: &mut Option<(CatalogItem, Vec<(String, u32)>, Vec<CatalogItem>)>,
+) {
+    if out.is_some() {
+        return;
+    }
+    match val {
+        Value::Object(map) => {
+            if let Some(wrapper) = map.get("playlistPanelVideoWrapperRenderer") {
+                let mut parsed_all: Vec<(CatalogItem, Vec<(String, u32)>)> = Vec::new();
+                if let Some(primary) = wrapper.pointer("/primaryRenderer/playlistPanelVideoRenderer")
+                    && let Some(p) = parse_panel_video_renderer(primary)
+                {
+                    parsed_all.push(p);
+                }
+                if let Some(cps) = wrapper.get("counterpart").and_then(Value::as_array) {
+                    for cp in cps {
+                        if let Some(r) = cp.pointer("/counterpartRenderer/playlistPanelVideoRenderer")
+                            && let Some(p) = parse_panel_video_renderer(r)
+                        {
+                            parsed_all.push(p);
+                        }
+                    }
+                }
+                if let Some(pos) = parsed_all.iter().position(|(item, _)| item.track.id == video_id) {
+                    let (matched_item, covers) = parsed_all.remove(pos);
+                    let counterparts = parsed_all
+                        .into_iter()
+                        .map(|(item, _)| item)
+                        .filter(|item| item.track.id != video_id && !item.unavailable)
+                        .collect();
+                    *out = Some((matched_item, covers, counterparts));
+                    return;
+                }
+            }
+            for v in map.values() {
+                find_wrapped_panel_video_by_id(v, video_id, out);
+                if out.is_some() {
+                    return;
+                }
+            }
+        }
+        Value::Array(arr) => {
+            for v in arr {
+                find_wrapped_panel_video_by_id(v, video_id, out);
+                if out.is_some() {
+                    return;
+                }
+            }
+        }
+        _ => {}
+    }
 }
 
 fn collect_watch_tab_ids(
@@ -1995,6 +2068,7 @@ mod tests {
             covers: vec![],
             lyrics_browse_id: Some("MPLYt_cached".into()),
             related_browse_id: Some("MPTRt_cached".into()),
+            counterparts: vec![],
         };
         client
             .details_cache
@@ -2005,6 +2079,58 @@ mod tests {
         let hit = client.fetch_music_details("cached12345").await.unwrap();
         assert_eq!(hit.item.track.title, "Cached Song");
         assert_eq!(hit.related_browse_id.as_deref(), Some("MPTRt_cached"));
+    }
+
+    #[test]
+    fn parses_wrapped_song_and_video_counterparts_both_ways() {
+        let wrapped = json!({
+            "playlistPanelVideoWrapperRenderer": {
+                "primaryRenderer": {
+                    "playlistPanelVideoRenderer": {
+                        "videoId": "atvSong1234",
+                        "title": { "runs": [{ "text": "Studio Song" }] },
+                        "shortBylineText": { "runs": [{ "text": "Artist" }] },
+                        "navigationEndpoint": {
+                            "watchEndpoint": {
+                                "videoId": "atvSong1234",
+                                "watchEndpointMusicSupportedConfigs": {
+                                    "watchEndpointMusicConfig": { "musicVideoType": "MUSIC_VIDEO_TYPE_ATV" }
+                                }
+                            }
+                        }
+                    }
+                },
+                "counterpart": [{
+                    "counterpartRenderer": {
+                        "playlistPanelVideoRenderer": {
+                            "videoId": "omvVid12345",
+                            "title": { "runs": [{ "text": "Studio Song (Official Video)" }] },
+                            "shortBylineText": { "runs": [{ "text": "Artist" }] },
+                            "navigationEndpoint": {
+                                "watchEndpoint": {
+                                    "videoId": "omvVid12345",
+                                    "watchEndpointMusicSupportedConfigs": {
+                                        "watchEndpointMusicConfig": { "musicVideoType": "MUSIC_VIDEO_TYPE_OMV" }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }]
+            }
+        });
+
+        let from_song = parse_music_details_json("atvSong1234", &wrapped).unwrap();
+        assert_eq!(from_song.item.kind, TrackKind::Track);
+        assert_eq!(from_song.counterparts.len(), 1);
+        assert_eq!(from_song.counterparts[0].track.id, "omvVid12345");
+        assert_eq!(from_song.counterparts[0].kind, TrackKind::Video);
+
+        let from_video = parse_music_details_json("omvVid12345", &wrapped).unwrap();
+        assert_eq!(from_video.item.kind, TrackKind::Video);
+        assert_eq!(from_video.counterparts.len(), 1);
+        assert_eq!(from_video.counterparts[0].track.id, "atvSong1234");
+        assert_eq!(from_video.counterparts[0].kind, TrackKind::Track);
     }
 }
 
