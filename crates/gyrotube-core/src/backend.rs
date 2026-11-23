@@ -1454,6 +1454,7 @@ impl Backend {
     }
 
     pub async fn fetch_synced_lyrics(&self, track: &Track) -> Result<LyricsData, String> {
+        // 1. Offline local cache
         if !track.id.is_empty()
             && validate_video_id(&track.id).is_ok()
             && let Some(dl_dir) = crate::models::downloads_dir()
@@ -1463,6 +1464,26 @@ impl Backend {
                 && let Ok(saved) = serde_json::from_slice::<LyricsData>(&bytes)
             {
                 return Ok(saved);
+            }
+        }
+
+        // 2. YouTube Music official lyrics via innertube.rs (ANDROID_MUSIC synced -> WEB_REMIX plain).
+        //    Reuses cached /next details so lyrics_browse_id costs 0 extra network calls.
+        let mut ytm_plain: Option<String> = None;
+        if !track.id.is_empty()
+            && validate_video_id(&track.id).is_ok()
+            && let Ok(details) = self.innertube.fetch_music_details(&track.id).await
+            && let Some(lyrics_id) = details.lyrics_browse_id
+            && let Ok(data) = self.innertube.fetch_lyrics_data(&lyrics_id).await
+        {
+            match data {
+                LyricsData::Synced(lines) if !lines.is_empty() => {
+                    return Ok(LyricsData::Synced(lines));
+                }
+                LyricsData::Plain(text) if !text.trim().is_empty() => {
+                    ytm_plain = Some(text);
+                }
+                _ => {}
             }
         }
 
@@ -1490,11 +1511,13 @@ impl Backend {
             params.push(("duration", dur.to_string()));
         }
 
+        // 3. LRCLIB exact match (prefers synced timestamps if YTM only had static text)
+        let mut lrclib_exact_plain: Option<String> = None;
         if let Ok(resp) = self
             .http
             .get("https://lrclib.net/api/get")
             .query(&params)
-            .header(reqwest::header::USER_AGENT, "GyroTube/0.1 (Linux GTK4)")
+            .header(reqwest::header::USER_AGENT, "GyroTube/1.0")
             .send()
             .await
             && resp.status().is_success()
@@ -1507,15 +1530,31 @@ impl Backend {
                 }
             }
             if let Some(plain) = body.plain_lyrics.filter(|s| !s.trim().is_empty()) {
-                return Ok(LyricsData::Plain(plain));
+                lrclib_exact_plain = Some(plain);
             }
         }
 
+        // 4. Official YTM static lyrics (exact video_id — strictly preferred over fuzzy LRCLIB search)
+        if let Some(plain) = ytm_plain {
+            return Ok(LyricsData::Plain(plain));
+        }
+
+        // 5. LRCLIB exact plain match
+        if let Some(plain) = lrclib_exact_plain {
+            return Ok(LyricsData::Plain(plain));
+        }
+
+        // 6. Fallback ytmapi-rs static lyrics
+        if let Ok(plain) = self.fetch_lyrics(&track.id).await {
+            return Ok(LyricsData::Plain(plain));
+        }
+
+        // 7. Last resort: LRCLIB free search
         if let Ok(resp) = self
             .http
             .get("https://lrclib.net/api/search")
             .query(&[("q", format!("{} {}", artist_q, track.title))])
-            .header(reqwest::header::USER_AGENT, "GyroTube/0.1 (Linux GTK4)")
+            .header(reqwest::header::USER_AGENT, "GyroTube/1.0")
             .send()
             .await
             && resp.status().is_success()
@@ -1534,11 +1573,18 @@ impl Backend {
             }
         }
 
-        let plain = self.fetch_lyrics(&track.id).await?;
-        Ok(LyricsData::Plain(plain))
+        Err(String::from("No hay letras disponibles para esta pista."))
     }
 
     pub async fn fetch_lyrics(&self, video_id: &str) -> Result<String, String> {
+        if let Ok(details) = self.innertube.fetch_music_details(video_id).await
+            && let Some(id) = details.lyrics_browse_id
+            && let Ok(lyrics) = self.innertube.fetch_lyrics(&id).await
+            && !lyrics.trim().is_empty()
+        {
+            return Ok(lyrics);
+        }
+
         if let Ok(ytm) = self.primary().await
             && let Ok(lyrics_id) = ytm.get_lyrics_id(VideoID::from_raw(video_id)).await
             && let Ok(lyrics) = ytm.get_lyrics(lyrics_id).await
@@ -1547,14 +1593,6 @@ impl Backend {
             if !text.is_empty() {
                 return Ok(text);
             }
-        }
-
-        if let Ok(details) = self.innertube.fetch_music_details(video_id).await
-            && let Some(id) = details.lyrics_browse_id
-            && let Ok(lyrics) = self.innertube.fetch_lyrics(&id).await
-            && !lyrics.trim().is_empty()
-        {
-            return Ok(lyrics);
         }
 
         Err(String::from("No hay letras disponibles para esta pista."))

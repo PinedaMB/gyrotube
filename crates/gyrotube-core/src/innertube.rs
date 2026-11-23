@@ -5,7 +5,8 @@ use std::time::{Duration, Instant};
 use serde_json::{Value, json};
 
 use crate::models::{
-    Album, Artist, Playlist, RelatedFeed, StreamInfo, Track, clean_track_title, pick_cover_thumbs,
+    Album, Artist, LyricsData, Playlist, RelatedFeed, StreamInfo, SyncedLyricLine, Track,
+    clean_track_title, pick_cover_thumbs,
 };
 
 const YTM_CLIENT_NAME: &str = "WEB_REMIX";
@@ -686,6 +687,54 @@ impl InnerTubeClient {
             .await?;
         parse_lyrics_browse_json(&resp)
             .ok_or_else(|| String::from("No hay letras disponibles para esta pista."))
+    }
+
+    pub async fn fetch_lyrics_data(&self, lyrics_browse_id: &str) -> Result<LyricsData, String> {
+        // 1. Try ANDROID_MUSIC mobile client first: returns official synced timedLyricsData when available.
+        let visitor = self.visitor_data(false).await;
+        let mut client_ctx = json!({
+            "clientName": "ANDROID_MUSIC",
+            "clientVersion": "7.27.52",
+            "androidSdkVersion": 34,
+            "osName": "Android",
+            "osVersion": "14",
+            "hl": active_hl(),
+            "gl": "US"
+        });
+        if let Some(ref vd) = visitor
+            && let Some(obj) = client_ctx.as_object_mut()
+        {
+            obj.insert("visitorData".into(), Value::String(vd.clone()));
+        }
+        let body = json!({
+            "context": { "client": client_ctx },
+            "browseId": lyrics_browse_id
+        });
+        let mut req = self
+            .http
+            .post("https://music.youtube.com/youtubei/v1/browse?prettyPrint=false")
+            .timeout(Duration::from_secs(6))
+            .header(
+                "User-Agent",
+                "com.google.android.apps.youtube.music/7.27.52 (Linux; U; Android 14) gzip",
+            )
+            .header("X-YouTube-Client-Name", "21")
+            .header("X-YouTube-Client-Version", "7.27.52");
+        if let Some(ref vd) = visitor {
+            req = req.header("X-Goog-Visitor-Id", vd.as_str());
+        }
+
+        if let Ok(resp) = req.json(&body).send().await
+            && let Ok(resp) = resp.error_for_status()
+            && let Ok(val) = resp.json::<Value>().await
+            && let Some(parsed) = parse_timed_lyrics_browse_json(&val)
+        {
+            return Ok(parsed);
+        }
+
+        // 2. Fallback to WEB_REMIX static lyrics.
+        let plain = self.fetch_lyrics(lyrics_browse_id).await?;
+        Ok(LyricsData::Plain(plain))
     }
 
     pub async fn fetch_artist_enrichment(&self, artist_id: &str) -> Result<ArtistEnrichment, String> {
@@ -1573,6 +1622,60 @@ pub fn parse_related_browse_json(resp: &Value) -> RelatedFeed {
     feed
 }
 
+pub fn parse_timed_lyrics_browse_json(resp: &Value) -> Option<LyricsData> {
+    let mut synced = Vec::new();
+    collect_timed_lyrics(resp, &mut synced);
+    if !synced.is_empty() {
+        return Some(LyricsData::Synced(synced));
+    }
+    parse_lyrics_browse_json(resp).map(LyricsData::Plain)
+}
+
+fn collect_timed_lyrics(val: &Value, out: &mut Vec<SyncedLyricLine>) {
+    if !out.is_empty() {
+        return;
+    }
+    match val {
+        Value::Object(map) => {
+            if let Some(arr) = map.get("timedLyricsData").and_then(Value::as_array) {
+                for entry in arr {
+                    let text = entry["lyricLine"].as_str().unwrap_or("").trim();
+                    let ms = entry["cueRange"]["startTimeMilliseconds"]
+                        .as_str()
+                        .and_then(|s| s.parse::<u64>().ok())
+                        .or_else(|| entry["cueRange"]["startTimeMilliseconds"].as_u64());
+                    if !text.is_empty()
+                        && let Some(ms) = ms
+                    {
+                        out.push(SyncedLyricLine {
+                            time_secs: ms as f64 / 1000.0,
+                            text: text.to_string(),
+                        });
+                    }
+                }
+                if !out.is_empty() {
+                    return;
+                }
+            }
+            for v in map.values() {
+                collect_timed_lyrics(v, out);
+                if !out.is_empty() {
+                    return;
+                }
+            }
+        }
+        Value::Array(arr) => {
+            for v in arr {
+                collect_timed_lyrics(v, out);
+                if !out.is_empty() {
+                    return;
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
 pub fn parse_lyrics_browse_json(resp: &Value) -> Option<String> {
     let mut found = None;
     find_description_shelf(resp, &mut found);
@@ -2131,6 +2234,41 @@ mod tests {
         assert_eq!(from_video.counterparts.len(), 1);
         assert_eq!(from_video.counterparts[0].track.id, "atvSong1234");
         assert_eq!(from_video.counterparts[0].kind, TrackKind::Track);
+    }
+
+    #[test]
+    fn parses_android_music_timed_lyrics() {
+        let sample = json!({
+            "contents": {
+                "elementRenderer": {
+                    "newElement": {
+                        "type": {
+                            "componentType": {
+                                "model": {
+                                    "timedLyricsModel": {
+                                        "lyricsData": {
+                                            "timedLyricsData": [
+                                                { "lyricLine": "First line", "cueRange": { "startTimeMilliseconds": "12500" } },
+                                                { "lyricLine": "Second line", "cueRange": { "startTimeMilliseconds": "18200" } }
+                                            ]
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        });
+        match parse_timed_lyrics_browse_json(&sample) {
+            Some(LyricsData::Synced(lines)) => {
+                assert_eq!(lines.len(), 2);
+                assert!((lines[0].time_secs - 12.5).abs() < 0.001);
+                assert_eq!(lines[0].text, "First line");
+                assert!((lines[1].time_secs - 18.2).abs() < 0.001);
+            }
+            other => panic!("expected Synced lyrics, got {other:?}"),
+        }
     }
 }
 
