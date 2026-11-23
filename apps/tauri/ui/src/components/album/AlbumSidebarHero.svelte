@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { ArrowLeft, ListPlus, Play, Radio, Shuffle } from "lucide-svelte";
+  import { ArrowLeft, Bookmark, BookmarkCheck, ListPlus, Play, Radio, Shuffle } from "lucide-svelte";
   import { api, isTauriRuntime } from "../../lib/api";
   import { t } from "../../lib/i18n.svelte";
   import { player } from "../../lib/stores/player.svelte";
@@ -40,6 +40,21 @@
     Math.round(tracks.reduce((sum, t) => sum + (t.duration_secs ?? 0), 0) / 60),
   );
   let artistLabel = $derived(tracks[0]?.artist ?? "");
+  let isSavedToCollection = $derived(
+    player.userPlaylists.some(
+      (p) => p.name.trim().toLowerCase() === title.trim().toLowerCase(),
+    ),
+  );
+
+  function savePlaylistToCollection() {
+    if (!tracks.length) return;
+    if (isSavedToCollection) {
+      player.showToast(t("album.already_saved_toast"));
+      return;
+    }
+    player.createUserPlaylist(title, artistLabel, null, null, [...tracks]);
+    player.showToast(t("album.saved_toast"));
+  }
 
   function playAll() {
     if (!tracks.length) return;
@@ -110,30 +125,56 @@
     </div>
   </div>
 
-  <!-- 3 centered circular controls -->
-  <div class="flex items-center justify-center gap-4 pt-2">
+  <!-- Centered circular controls (Play always dead-center) -->
+  <div class="flex items-center justify-center gap-3 sm:gap-4 pt-2">
+    {#if isPlaylist}
+      <button
+        type="button"
+        class="w-11 h-11 rounded-full inline-flex items-center justify-center border transition-all active:scale-95 disabled:opacity-40 {isSavedToCollection
+          ? 'bg-[var(--accent-soft)] text-[var(--accent-bright)] border-[var(--accent)]/40'
+          : 'bg-[var(--surface)] hover:bg-[var(--surface-hover)] border-[var(--border)]'}"
+        disabled={tracks.length === 0}
+        title={isSavedToCollection ? t("album.saved_playlist") : t("album.save_playlist")}
+        aria-label={isSavedToCollection ? t("album.saved_playlist") : t("album.save_playlist")}
+        aria-pressed={isSavedToCollection}
+        onclick={savePlaylistToCollection}
+      >
+        {#if isSavedToCollection}
+          <BookmarkCheck size={18} />
+        {:else}
+          <Bookmark size={18} />
+        {/if}
+      </button>
+    {/if}
+
     <button
+      type="button"
       class="w-11 h-11 rounded-full inline-flex items-center justify-center bg-[var(--surface)] hover:bg-[var(--surface-hover)] border border-[var(--border)] transition-all active:scale-95 disabled:opacity-40"
       disabled={tracks.length === 0}
       title={t("player.shuffle")}
+      aria-label={t("player.shuffle")}
       onclick={shuffleAll}
     >
       <Shuffle size={18} />
     </button>
 
     <button
+      type="button"
       class="play-circle !w-[60px] !h-[60px]"
       disabled={tracks.length === 0}
       title={t("home.play")}
+      aria-label={t("home.play")}
       onclick={playAll}
     >
       <Play size={24} fill="currentColor" class="translate-x-[1.5px]" />
     </button>
 
     <button
+      type="button"
       class="w-11 h-11 rounded-full inline-flex items-center justify-center bg-[var(--surface)] hover:bg-[var(--surface-hover)] border border-[var(--border)] transition-all active:scale-95 disabled:opacity-40"
       disabled={tracks.length === 0}
       title={t("queue.add")}
+      aria-label={t("queue.add")}
       onclick={queueAll}
     >
       <ListPlus size={18} />
@@ -141,9 +182,11 @@
 
     {#if isPlaylist}
       <button
+        type="button"
         class="w-11 h-11 rounded-full inline-flex items-center justify-center bg-[var(--surface)] hover:bg-[var(--surface-hover)] border border-[var(--border)] transition-all active:scale-95 disabled:opacity-40"
         disabled={startingRadio}
         title={t("album.start_radio")}
+        aria-label={t("album.start_radio")}
         onclick={() => void startPlaylistRadio()}
       >
         {#if startingRadio}
