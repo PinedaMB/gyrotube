@@ -75,7 +75,7 @@
       player.queue = [...player.queue, tr];
     }
     void player.persistSession();
-    player.showToast(`${tracks.length} ${t("queue.title")}`);
+    player.showToast(t("toast.added_many_to_queue", { count: tracks.length }));
   }
 </script>
 

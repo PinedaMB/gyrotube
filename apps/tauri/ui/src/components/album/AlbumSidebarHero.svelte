@@ -26,7 +26,7 @@
       if (radio.length > 0) {
         player.replaceQueueAndPlay(radio, 0, `Radio · ${title}`);
       } else {
-        player.showToast("No radio tracks available");
+        player.showToast(t("toast.radio_empty"));
       }
     } catch (err) {
       player.showToast(String(err));
@@ -57,7 +57,7 @@
       player.queue = [...player.queue, t];
     }
     void player.persistSession();
-    player.showToast(`Added ${tracks.length} songs to queue`);
+    player.showToast(t("toast.added_many_to_queue", { count: tracks.length }));
   }
 </script>
 

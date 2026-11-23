@@ -17,7 +17,64 @@
   import SidebarPlayer from "./components/SidebarPlayer.svelte";
   import { t } from "./lib/i18n.svelte";
   import { contextMenu } from "./lib/stores/contextMenu.svelte";
+  import { device } from "./lib/stores/device.svelte";
   import { player } from "./lib/stores/player.svelte";
+
+  let savedMuteVolume = 1;
+
+  function handleGlobalKeydown(e: KeyboardEvent) {
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    const target = e.target as HTMLElement | null;
+    const tag = target?.tagName;
+    if (
+      tag === "INPUT" ||
+      tag === "TEXTAREA" ||
+      tag === "SELECT" ||
+      target?.isContentEditable
+    ) {
+      return;
+    }
+
+    if (e.key === " " && tag !== "BUTTON" && tag !== "A" && target?.getAttribute("role") !== "button") {
+      if (player.currentTrack) {
+        e.preventDefault();
+        void player.togglePlay();
+      }
+      return;
+    }
+
+    if (e.key === "ArrowRight" && player.currentTrack) {
+      if (e.shiftKey) {
+        e.preventDefault();
+        void player.next();
+      } else {
+        e.preventDefault();
+        player.seek(Math.min(player.durationSecs || 0, player.getExactPositionSecs() + 5));
+      }
+      return;
+    }
+
+    if (e.key === "ArrowLeft" && player.currentTrack) {
+      if (e.shiftKey) {
+        e.preventDefault();
+        void player.prev();
+      } else {
+        e.preventDefault();
+        player.seek(Math.max(0, player.getExactPositionSecs() - 5));
+      }
+      return;
+    }
+
+    if ((e.key === "m" || e.key === "M") && !device.isAndroid) {
+      e.preventDefault();
+      if (player.volume > 0.01) {
+        savedMuteVolume = player.volume;
+        player.setVolume(0);
+      } else {
+        player.setVolume(savedMuteVolume > 0.05 ? savedMuteVolume : 0.8);
+      }
+    }
+  }
 
   onMount(() => {
     const startedAt = performance.now();
@@ -75,6 +132,7 @@
   }
 
   let exploreMounted = $state(false);
+  let collectionMounted = $state(false);
   let lastArtist = $state<{ artistId: string; artistName: string } | null>(null);
   let lastAlbum = $state<{
     id: string;
@@ -96,6 +154,8 @@
   $effect(() => {
     if (player.activeView.kind === "explore") {
       exploreMounted = true;
+    } else if (player.activeView.kind === "collection") {
+      collectionMounted = true;
     } else if (player.activeView.kind === "artist") {
       if (
         !lastArtist ||
@@ -132,7 +192,7 @@
   });
 </script>
 
-<svelte:window oncontextmenu={(e) => contextMenu.openAppMenu(e)} />
+<svelte:window oncontextmenu={(e) => contextMenu.openAppMenu(e)} onkeydown={handleGlobalKeydown} />
 
 <div class="h-screen w-screen overflow-hidden flex flex-col bg-[var(--bg)] text-[var(--text)]">
   <HeaderBar />
@@ -197,17 +257,25 @@
           </div>
         {/if}
 
-        {#if player.activeView.kind === "home"}
-          <div class="w-full h-full overflow-y-auto overflow-x-hidden scroll-y">
-            <HomeView />
+        <div
+          class="w-full h-full overflow-y-auto overflow-x-hidden scroll-y"
+          class:hidden={player.activeView.kind !== "home"}
+        >
+          <HomeView />
+        </div>
+
+        {#if collectionMounted}
+          <div
+            class="w-full h-full overflow-y-auto overflow-x-hidden scroll-y"
+            class:hidden={player.activeView.kind !== "collection"}
+          >
+            <CollectionView />
           </div>
-        {:else if player.activeView.kind === "search"}
+        {/if}
+
+        {#if player.activeView.kind === "search"}
           <div class="w-full h-full overflow-y-auto overflow-x-hidden scroll-y">
             <SearchView />
-          </div>
-        {:else if player.activeView.kind === "collection"}
-          <div class="w-full h-full overflow-y-auto overflow-x-hidden scroll-y">
-            <CollectionView />
           </div>
         {/if}
       </main>

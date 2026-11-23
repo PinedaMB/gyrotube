@@ -359,7 +359,7 @@ class PlayerStore {
     if (!clean || !isTauriRuntime()) return;
     try {
       this.spinStatus = await api.spinJoinRemote(clean);
-      this.showToast("SPIN · Connecting…");
+      this.showToast(this.isSpanish() ? "SPIN · Conectando…" : "SPIN · Connecting…");
     } catch (err) {
       this.showToast(String(err));
     }
@@ -373,7 +373,9 @@ class PlayerStore {
       onMoveQueue: (from, to) => this.moveQueueItem(from, to),
       onEnqueueTrack: (track, guestName) => {
         this.enqueueTrack(track);
-        this.showToast(`${guestName} added ${track.title}`);
+        this.showToast(
+          this.isSpanish() ? `${guestName} agregó ${track.title}` : `${guestName} added ${track.title}`,
+        );
       },
       onRemoteSync: (payload, error) => {
         if (error) {
@@ -463,14 +465,19 @@ class PlayerStore {
     void this.persistSession();
   }
 
-  private formatErrorMessage(raw: string): string {
-    const msg = raw.trim();
-    const lower = msg.toLowerCase();
-    const isEs =
+  private isSpanish(): boolean {
+    return (
       this.language === "Es" ||
       (this.language === "Auto" &&
         typeof navigator !== "undefined" &&
-        (navigator.language || "").toLowerCase().startsWith("es"));
+        (navigator.language || "").toLowerCase().startsWith("es"))
+    );
+  }
+
+  private formatErrorMessage(raw: string): string {
+    const msg = raw.trim();
+    const lower = msg.toLowerCase();
+    const isEs = this.isSpanish();
 
     if (
       this.isOffline ||
@@ -1459,7 +1466,9 @@ class PlayerStore {
 
   public enqueueTrack(track: Track): void {
     this.queue = [...this.queue, track];
-    this.showToast(`Added to queue: ${track.title}`);
+    this.showToast(
+      this.isSpanish() ? `Añadida a la cola: ${track.title}` : `Added to queue: ${track.title}`,
+    );
     if (this.currentIndex == null) {
       void this.playIndex(0);
     } else {
@@ -1475,7 +1484,11 @@ class PlayerStore {
       const radio = await api.getRadioTracks(current.id);
       const unique = radio.filter((t) => t.id !== current.id);
       if (unique.length === 0) {
-        this.showToast("No related radio tracks found");
+        this.showToast(
+          this.isSpanish()
+            ? "No se encontraron canciones para la radio"
+            : "No related radio tracks found",
+        );
         return;
       }
       this.queue = [current, ...unique];
@@ -1485,7 +1498,11 @@ class PlayerStore {
       this.sourceName = `Radio · ${current.title}`;
       void this.persistSession();
       void this.syncSpinSnapshot();
-      this.showToast(`Radio started · ${unique.length} songs queued`);
+      this.showToast(
+        this.isSpanish()
+          ? `Radio iniciada · ${unique.length} canciones en cola`
+          : `Radio started · ${unique.length} songs queued`,
+      );
     } catch (err) {
       this.showToast(String(err));
     }
@@ -1520,7 +1537,7 @@ class PlayerStore {
       this.shuffle = false;
       void this.persistSession();
       void this.syncSpinSnapshot();
-      this.showToast("Queue cleared");
+      this.showToast(this.isSpanish() ? "Cola limpiada" : "Queue cleared");
       return;
     }
     this.queue = [];
@@ -1934,7 +1951,11 @@ class PlayerStore {
       if (this.downloadedPlaylistKeys.has(playlistId)) {
         this.enqueueOfflineDownloads([track]);
       }
-      this.showToast(`Added "${track.title}" to playlist`);
+      this.showToast(
+        this.isSpanish()
+          ? `Se agregó "${track.title}" a la playlist`
+          : `Added "${track.title}" to playlist`,
+      );
     }
   }
 

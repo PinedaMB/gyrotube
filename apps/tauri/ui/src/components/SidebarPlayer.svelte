@@ -73,7 +73,7 @@
       return;
     }
     sleepRemainingSecs = minutes * 60;
-    player.showToast(`Sleep timer set for ${minutes} min`);
+    player.showToast(t("toast.sleep_set", { minutes }));
     sleepInterval = window.setInterval(() => {
       if (sleepRemainingSecs == null) return;
       sleepRemainingSecs -= 1;
@@ -82,7 +82,7 @@
         sleepInterval = undefined;
         sleepRemainingSecs = null;
         if (player.isPlaying) void player.togglePlay();
-        player.showToast("Sleep timer ended — playback paused");
+        player.showToast(t("toast.sleep_ended"));
       }
     }, 1000);
   }

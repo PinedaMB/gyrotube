@@ -267,5 +267,9 @@
   "settings.export_done": "Library exported",
   "settings.import_done": "Library imported (+{favorites} favorites, +{playlists} playlists)",
   "settings.import_nothing": "Everything in this backup is already in your library",
-  "settings.import_invalid": "Invalid backup file"
+  "settings.import_invalid": "Invalid backup file",
+  "toast.added_many_to_queue": "Added {count} songs to queue",
+  "toast.radio_empty": "No related radio tracks found",
+  "toast.sleep_set": "Sleep timer set for {minutes} min",
+  "toast.sleep_ended": "Sleep timer ended — playback paused"
 }
