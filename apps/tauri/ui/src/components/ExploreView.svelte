@@ -85,6 +85,7 @@
           class="icon-btn relative"
           class:active={countryChanged}
           title={t("home.reload")}
+          aria-label={t("home.reload")}
           onclick={() => {
             void player.loadHome(true);
             void player.loadGenres(true);

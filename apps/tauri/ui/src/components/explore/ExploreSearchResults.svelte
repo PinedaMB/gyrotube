@@ -47,6 +47,7 @@
   ] as tab (tab.id)}
     <button
       type="button"
+      aria-pressed={filter === tab.id}
       class="px-3.5 py-1.5 rounded-full text-[13px] font-semibold border transition-colors {filter === tab.id
         ? 'bg-[var(--accent-soft)] border-[var(--accent-border)] text-[var(--accent-bright)]'
         : 'bg-[var(--surface)] border-[var(--border)] hover:bg-[var(--surface-hover)]'}"
@@ -61,17 +62,26 @@
   <div class="grid grid-cols-1 md:grid-cols-[300px_minmax(0,1fr)] gap-5 mb-6">
     {#if topArtist}
       <section class="min-w-0">
-        <h3 class="m-0 mb-2.5 text-[17px] font-extrabold">{t("explore.top_result")}</h3>
+        <h2 class="m-0 mb-2.5 text-[17px] font-extrabold">{t("explore.top_result")}</h2>
         <div
           class="p-[18px] rounded-2xl border border-[var(--border)] hover:border-[var(--accent-border)] hover:shadow-[0_10px_26px_rgba(0,0,0,0.28)] flex flex-col gap-3 cursor-pointer transition-all"
           style="background: linear-gradient(145deg, var(--accent-soft), var(--surface) 60%);"
           role="button"
           tabindex="0"
           onclick={() => player.openArtist(topArtist.id, topArtist.name)}
-          onkeydown={(e) => e.key === "Enter" && player.openArtist(topArtist.id, topArtist.name)}
+          onkeydown={(e) => {
+            if (e.target !== e.currentTarget) return;
+            if (e.key === "Enter") player.openArtist(topArtist.id, topArtist.name);
+            else if (e.key === " ") e.preventDefault();
+          }}
+          onkeyup={(e) => {
+            if (e.target === e.currentTarget && e.key === " ") {
+              player.openArtist(topArtist.id, topArtist.name);
+            }
+          }}
         >
-          <CoverImage class="top-avatar" src={topArtist.avatar_url} alt={topArtist.name} fallbackIcon="👤" />
-          <h2 class="m-0 text-[22px] font-extrabold truncate">{topArtist.name}</h2>
+          <CoverImage class="top-avatar" src={topArtist.avatar_url} alt="" fallbackIcon="👤" />
+          <h3 class="m-0 text-[22px] font-extrabold truncate">{topArtist.name}</h3>
           <div class="flex items-center justify-between gap-2.5">
             <div class="flex items-center gap-2 text-[12px] min-w-0">
               <span class="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-[var(--surface-hover)] shrink-0">
@@ -85,6 +95,7 @@
               type="button"
               class="play-circle !w-[42px] !h-[42px] shrink-0"
               title={t("home.play")}
+              aria-label={`${t("home.play")} ${topArtist.name}`}
               onclick={(e) => {
                 e.stopPropagation();
                 if (topFourSongs[0]) {
@@ -92,7 +103,7 @@
                 }
               }}
             >
-              <Play size={17} fill="currentColor" class="translate-x-[1px]" />
+              <Play size={17} fill="currentColor" class="translate-x-[1px]" aria-hidden="true" />
             </button>
           </div>
         </div>
@@ -102,7 +113,7 @@
     {#if topFourSongs.length > 0}
       <section class="min-w-0">
         <div class="flex items-center justify-between mb-2.5">
-          <h3 class="m-0 text-[17px] font-extrabold">{t("explore.songs")}</h3>
+          <h2 class="m-0 text-[17px] font-extrabold">{t("explore.songs")}</h2>
           {#if results.tracks.length > 4}
             <button
               type="button"

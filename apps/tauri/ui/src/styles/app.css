@@ -204,6 +204,11 @@
     font: inherit;
     color: inherit;
   }
+
+  :where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+    outline: 2px solid var(--accent-bright);
+    outline-offset: 2px;
+  }
 }
 
 @layer components {

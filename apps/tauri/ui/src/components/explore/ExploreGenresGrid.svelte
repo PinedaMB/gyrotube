@@ -38,6 +38,21 @@
       requestAnimationFrame(syncScrollButtons);
     }
   });
+  let scrollerMaskStyle = $derived.by(() => {
+    if (canPrev && canNext) {
+      const grad = "linear-gradient(to right, transparent 0%, black 28px, black calc(100% - 28px), transparent 100%)";
+      return `-webkit-mask-image: ${grad}; mask-image: ${grad};`;
+    }
+    if (canNext) {
+      const grad = "linear-gradient(to right, black 0%, black calc(100% - 28px), transparent 100%)";
+      return `-webkit-mask-image: ${grad}; mask-image: ${grad};`;
+    }
+    if (canPrev) {
+      const grad = "linear-gradient(to right, transparent 0%, black 28px, black 100%)";
+      return `-webkit-mask-image: ${grad}; mask-image: ${grad};`;
+    }
+    return "";
+  });
 </script>
 
 {#if showHeader}
@@ -62,6 +77,7 @@
         <button
           type="button"
           class="pill-btn !py-1 !px-3 !text-[12px]"
+          aria-expanded={expanded}
           onclick={() => (expanded = !expanded)}
         >
           {expanded ? t("artist.show_less") : t("artist.more")}
@@ -72,18 +88,20 @@
             class="w-8 h-8 rounded-full inline-flex items-center justify-center border border-[var(--border)] bg-[var(--surface)] hover:bg-[var(--surface-hover)] text-[var(--text)] transition-colors disabled:opacity-30"
             disabled={!canPrev}
             title={t("carousel.prev")}
+            aria-label={t("carousel.prev")}
             onclick={() => scrollByPage(-1)}
           >
-            <ChevronLeft size={16} />
+            <ChevronLeft size={16} aria-hidden="true" />
           </button>
           <button
             type="button"
             class="w-8 h-8 rounded-full inline-flex items-center justify-center border border-[var(--border)] bg-[var(--surface)] hover:bg-[var(--surface-hover)] text-[var(--text)] transition-colors disabled:opacity-30"
             disabled={!canNext}
             title={t("carousel.next")}
+            aria-label={t("carousel.next")}
             onclick={() => scrollByPage(1)}
           >
-            <ChevronRight size={16} />
+            <ChevronRight size={16} aria-hidden="true" />
           </button>
         {/if}
       </div>
@@ -108,13 +126,14 @@
       <div
         bind:this={scrollerEl}
         onscroll={syncScrollButtons}
-        class="genre-scroller grid grid-flow-col grid-rows-4 auto-cols-[minmax(164px,196px)] sm:auto-cols-[minmax(180px,212px)] gap-2.5 overflow-x-auto pb-1 scroll-smooth"
+        style={scrollerMaskStyle}
+        class="genre-scroller grid grid-flow-col grid-rows-4 auto-cols-[minmax(164px,196px)] sm:auto-cols-[minmax(180px,212px)] gap-2.5 overflow-x-auto pb-1 scroll-smooth snap-x snap-proximity"
       >
         {#each genres as g (g.id)}
           {@const c = genreColor(g)}
           <button
             type="button"
-            class="group h-12 rounded-lg overflow-hidden bg-[var(--card-bg)] hover:bg-[var(--surface-hover)] border border-[var(--border)] hover:border-[var(--border-strong)] flex items-center text-left transition-colors"
+            class="group h-12 rounded-lg overflow-hidden bg-[var(--card-bg)] hover:bg-[var(--surface-hover)] border border-[var(--border)] hover:border-[var(--border-strong)] flex items-center text-left transition-colors snap-start"
             style="box-shadow: var(--card-shadow);"
             onclick={() => void player.runSearch(g.name)}
           >

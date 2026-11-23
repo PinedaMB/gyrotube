@@ -145,7 +145,16 @@
           role="button"
           tabindex="0"
           onclick={() => void player.runSearch(genre.name)}
-          onkeydown={(e) => e.target === e.currentTarget && e.key === "Enter" && void player.runSearch(genre.name)}
+          onkeydown={(e) => {
+            if (e.target !== e.currentTarget) return;
+            if (e.key === "Enter") void player.runSearch(genre.name);
+            else if (e.key === " ") e.preventDefault();
+          }}
+          onkeyup={(e) => {
+            if (e.target === e.currentTarget && e.key === " ") {
+              void player.runSearch(genre.name);
+            }
+          }}
         >
           <!-- Background playlist artwork (lazy loaded) -->
           {#if bgUrl}
@@ -218,8 +227,10 @@
               <ArrowRight size={13} />
             </span>
             <button
+              type="button"
               class="w-11 h-11 md:w-9 md:h-9 rounded-full inline-flex items-center justify-center bg-black/45 hover:bg-black/65 border border-white/20 text-white shadow-md transition-all active:scale-95"
               title="{t('home.play')} {genre.name}"
+              aria-label="{t('home.play')} {genre.name}"
               disabled={loadingStationId === genre.id}
               onclick={(e) => {
                 e.stopPropagation();
