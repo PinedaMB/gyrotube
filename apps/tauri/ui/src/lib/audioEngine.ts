@@ -25,6 +25,7 @@ export class DualDeckAudioEngine {
   private fadeStep: (() => void) | null = null;
   private loading = false;
   private opGen = 0;
+  private disposingTimers = new Map<HTMLAudioElement, number>();
   private callbacks: AudioCallbacks;
 
   constructor(callbacks: AudioCallbacks) {
@@ -98,9 +99,12 @@ export class DualDeckAudioEngine {
     return audio;
   }
 
-  private disposeAudio(audio: HTMLAudioElement): void {
-    // Mute and zero volume synchronously before pausing so residual PCM buffers
-    // in WebView / GStreamer audio sinks never leak when stopping or switching tracks.
+  private hardDisposeAudio(audio: HTMLAudioElement): void {
+    const timer = this.disposingTimers.get(audio);
+    if (timer !== undefined) {
+      window.clearInterval(timer);
+      this.disposingTimers.delete(audio);
+    }
     audio.muted = true;
     audio.volume = 0;
     audio.pause();
@@ -108,11 +112,50 @@ export class DualDeckAudioEngine {
     audio.load();
   }
 
-  private resetDeck(index: 0 | 1): HTMLAudioElement {
+  private flushDisposing(): void {
+    for (const audio of [...this.disposingTimers.keys()]) {
+      this.hardDisposeAudio(audio);
+    }
+  }
+
+  private disposeAudio(audio: HTMLAudioElement, immediate = false): void {
+    if (immediate || audio.paused || audio.ended || !audio.src || audio.muted || audio.volume <= 0.01) {
+      this.hardDisposeAudio(audio);
+      return;
+    }
+
+    // 1) Smooth 30ms ease-out fade to 0.0 (avoids abrupt click when skipping).
+    // 2) Keep the detached <audio> running at volume=0 (with muted=false) for
+    //    ~180ms before calling pause(). On Android WebView (Chromium AudioRendererMixer
+    //    + AudioTrack/AudioFlinger), pausing immediately freezes ~80-120ms of the
+    //    previous track's PCM inside the hardware ring buffer, which then drains
+    //    audibly the moment the next cold track wakes the sink. Pumping ~180ms of
+    //    zero-amplitude PCM flushes the ring buffer completely with silence first.
+    const startVol = audio.volume;
+    const fadeMs = 30;
+    const silenceFlushMs = 180;
+    const totalMs = fadeMs + silenceFlushMs;
+    const startedAt = performance.now();
+    const timer = window.setInterval(() => {
+      const elapsed = performance.now() - startedAt;
+      if (elapsed < fadeMs) {
+        const t = elapsed / fadeMs;
+        audio.volume = Math.max(0, startVol * (1 - t) * (1 - t));
+      } else {
+        audio.volume = 0;
+      }
+      if (elapsed >= totalMs) {
+        this.hardDisposeAudio(audio);
+      }
+    }, 10);
+    this.disposingTimers.set(audio, timer);
+  }
+
+  private resetDeck(index: 0 | 1, immediate = false): HTMLAudioElement {
     const old = this.decks[index];
     const fresh = this.createDeck(index);
     this.decks[index] = fresh;
-    this.disposeAudio(old);
+    this.disposeAudio(old, immediate);
     return fresh;
   }
 
@@ -162,11 +205,13 @@ export class DualDeckAudioEngine {
     // the previous track when starting playback on a cold load.
     const incomingIndex: 0 | 1 = canCrossfade ? (outgoingIndex === 0 ? 1 : 0) : outgoingIndex;
     if (!canCrossfade) {
-      // Silence & tear down both decks before starting the new track
-      this.resetDeck(0);
-      this.resetDeck(1);
+      // Ensure any previous fading-out deck is fully torn down before starting
+      // the new track (avoids Android AudioFocus conflict on fast warm switches)
+      this.flushDisposing();
+      this.resetDeck(0, true);
+      this.resetDeck(1, true);
     } else {
-      this.resetDeck(incomingIndex);
+      this.resetDeck(incomingIndex, true);
     }
     const incoming = this.decks[incomingIndex];
 
