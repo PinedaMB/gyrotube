@@ -50,18 +50,20 @@
   let hasBanner = $derived(Boolean(details?.header_url));
 </script>
 
-<section class="relative w-full min-h-[340px] sm:min-h-[440px] flex flex-col justify-between overflow-hidden">
+<section
+  class="relative w-full flex flex-col justify-between overflow-hidden {hasBanner
+    ? 'min-h-[270px] sm:min-h-[500px] md:min-h-[560px] lg:min-h-[620px]'
+    : 'min-h-[200px] sm:min-h-[240px]'}"
+>
   {#if details?.header_url}
-    <!-- Edge-to-edge full-width banner dissolving smoothly at the bottom into the page background -->
-    <div
-      class="absolute inset-0 pointer-events-none bg-[#16151d]"
-      style="-webkit-mask-image: linear-gradient(180deg, #000 0%, #000 54%, rgba(0,0,0,0.72) 72%, rgba(0,0,0,0.25) 88%, transparent 100%);
-             mask-image: linear-gradient(180deg, #000 0%, #000 54%, rgba(0,0,0,0.72) 72%, rgba(0,0,0,0.25) 88%, transparent 100%);"
-    >
+    <!-- Edge-to-edge full-width banner: mask directly on <img> so mobile h-auto never shows a hard bottom edge -->
+    <div class="absolute inset-0 pointer-events-none">
       <img
-        class="w-full h-full object-cover object-[50%_22%] transition-opacity duration-500 {bannerLoaded
+        class="w-full h-auto sm:h-full object-contain sm:object-cover object-top sm:object-[50%_15%] transition-opacity duration-500 {bannerLoaded
           ? 'opacity-100'
           : 'opacity-0'}"
+        style="-webkit-mask-image: linear-gradient(180deg, #000 0%, #000 56%, rgba(0,0,0,0.72) 75%, rgba(0,0,0,0.22) 90%, transparent 100%);
+               mask-image: linear-gradient(180deg, #000 0%, #000 56%, rgba(0,0,0,0.72) 75%, rgba(0,0,0,0.22) 90%, transparent 100%);"
         src={details.header_url}
         alt=""
         loading="lazy"
@@ -74,11 +76,11 @@
     <!-- Soft bottom readability gradient over banner -->
     <div
       class="absolute inset-0 pointer-events-none"
-      style="background: linear-gradient(180deg, rgba(12, 12, 15, 0.14) 0%, rgba(12, 12, 15, 0.16) 36%, rgba(12, 12, 15, 0.68) 70%, rgba(12, 12, 15, 0.28) 90%, transparent 100%);"
+      style="background: linear-gradient(180deg, rgba(12, 12, 15, 0.08) 0%, rgba(12, 12, 15, 0.14) 42%, rgba(12, 12, 15, 0.62) 74%, rgba(12, 12, 15, 0.22) 92%, transparent 100%);"
     ></div>
   {/if}
 
-  <div class="relative z-10 w-full max-w-[1280px] mx-auto px-6 pt-[max(1rem,env(safe-area-inset-top))] md:pt-4 pb-8 flex-1 flex flex-col justify-between">
+  <div class="relative z-10 w-full max-w-[1280px] mx-auto px-6 pt-[max(1rem,env(safe-area-inset-top))] md:pt-4 pb-8 sm:pb-10 flex-1 flex flex-col justify-between">
     <div>
       <button
         class="w-9 h-9 rounded-full inline-flex items-center justify-center transition-all active:scale-95 {hasBanner
@@ -91,7 +93,7 @@
       </button>
     </div>
 
-    <div class="mt-14 sm:mt-24 max-w-2xl space-y-2.5">
+    <div class="{hasBanner ? 'mt-20 sm:mt-44 md:mt-52 lg:mt-60' : 'mt-8 sm:mt-10'} max-w-2xl space-y-2.5">
       <h1
         class="text-[38px] sm:text-[50px] font-black tracking-[-0.035em] leading-[1.04] {hasBanner
           ? 'text-white drop-shadow-[0_2px_14px_rgba(0,0,0,0.55)]'
@@ -111,7 +113,7 @@
       {/if}
 
       {#if details?.description}
-        <div class="pt-0.5 max-w-xl">
+        <div class="hidden sm:block pt-0.5 max-w-xl">
           <p
             class="text-[13.5px] leading-relaxed {hasBanner
               ? 'text-white/85 drop-shadow-sm'

@@ -7,11 +7,13 @@
     Globe,
     HardDrive,
     History,
+    Info,
     Monitor,
     Moon,
     Music2,
     Palette,
     Radio,
+    ShieldCheck,
     Sliders,
     Sparkles,
     Sun,
@@ -139,7 +141,7 @@
   ];
 </script>
 
-<div class="page-clamp !max-w-[780px] space-y-6 pb-12">
+<div class="page-clamp !max-w-[780px] space-y-6 !pb-28">
   <!-- Header -->
   <header class="flex items-center justify-between gap-3">
     <div class="flex items-center gap-3 min-w-0">
@@ -560,6 +562,50 @@
             onchange={(e) => void handleImportFile(e)}
           />
         </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- About -->
+  <section class="space-y-2.5">
+    <h2 class="text-[11px] font-bold uppercase tracking-[0.09em] text-[var(--text-muted)] flex items-center gap-1.5 px-1">
+      <Info size={12} class="text-[var(--accent-bright)]" />
+      {t("settings.about")}
+    </h2>
+    <div
+      class="rounded-2xl bg-[var(--surface)] border border-[var(--border)] divide-y divide-[var(--border)] overflow-hidden"
+      style="box-shadow: var(--card-shadow);"
+    >
+      <div class="p-4 flex items-center gap-3.5">
+        <img
+          src="/gyrotube.svg"
+          alt="GyroTube"
+          class="w-12 h-12 shrink-0 drop-shadow-[0_4px_12px_rgba(16,185,129,0.3)]"
+        />
+        <div class="min-w-0 flex-1">
+          <div class="flex items-center gap-2 flex-wrap">
+            <span class="text-[16px] font-extrabold tracking-tight">GyroTube</span>
+            <span class="px-2 py-0.5 rounded-full text-[10.5px] font-bold numeric bg-[var(--accent-soft)] text-[var(--accent-bright)] border border-[var(--accent-border)]/40">
+              v1.0.0
+            </span>
+          </div>
+          <p class="text-[12.5px] text-[var(--text-muted)] mt-0.5 leading-snug">
+            {t("settings.about_desc")}
+          </p>
+        </div>
+      </div>
+
+      <div class="px-4 py-3 flex items-center justify-between gap-4 text-[13px]">
+        <span class="text-[var(--text-muted)] font-medium">{t("settings.about_engine")}</span>
+        <span class="font-semibold text-right">{t("settings.about_engine_val")}</span>
+      </div>
+
+      <div class="px-4 py-3 flex items-center justify-between gap-4 text-[13px]">
+        <span class="text-[var(--text-muted)] font-medium inline-flex items-center gap-1.5">
+          <ShieldCheck size={14} class="text-[var(--accent-bright)]" />
+          {t("settings.about_privacy")}
+        </span>
+        <span class="font-semibold text-right">{t("settings.about_privacy_val")}</span>
       </div>
     </div>
   </section>
