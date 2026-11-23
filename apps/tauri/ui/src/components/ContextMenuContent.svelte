@@ -342,7 +342,7 @@
     class="ctx-item"
     onclick={() => {
       contextMenu.close();
-      player.settingsOpen = true;
+      player.openSettings();
     }}
   >
     <Settings size={15} />

@@ -55,6 +55,9 @@ export function hashToView(rawHash: string): {
   if (head === "collection") {
     return { view: { kind: "collection" }, tab: "collection", playerOpen };
   }
+  if (head === "settings") {
+    return { view: { kind: "settings" }, tab: "home", playerOpen };
+  }
   if (head === "artist" && segments[1]) {
     const artistId = decodeURIComponent(segments[1]);
     const artistName = params.get("name") || "Artist";

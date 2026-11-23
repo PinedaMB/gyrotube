@@ -70,7 +70,6 @@ class PlayerStore {
   relatedLoading = $state(false);
   spinOpen = $state(false);
   partyMode = $state(false);
-  settingsOpen = $state(false);
   playlistDraftTrack = $state<Track | null>(null);
 
   // Playback state
@@ -993,10 +992,6 @@ class PlayerStore {
       this.partyMode = false;
       return true;
     }
-    if (this.settingsOpen) {
-      this.settingsOpen = false;
-      return true;
-    }
     if (this.spinOpen) {
       this.spinOpen = false;
       return true;
@@ -1112,6 +1107,14 @@ class PlayerStore {
 
   public openAlbum(id: string, title: string, coverUrl?: string | null, isPlaylist = false): void {
     this.commitRoute({ kind: "album", id, title, coverUrl, isPlaylist }, this.activeTab);
+  }
+
+  public openSettings(): void {
+    if (this.activeView.kind === "settings") {
+      this.goBack();
+      return;
+    }
+    this.commitRoute({ kind: "settings" }, this.activeTab);
   }
 
   public setChartCountry(country: string | null): void {

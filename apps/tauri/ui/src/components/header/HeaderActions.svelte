@@ -55,10 +55,10 @@
   <button
     type="button"
     class="icon-btn max-md:!w-9 max-md:!h-9"
-    class:active={player.settingsOpen}
+    class:active={player.activeView.kind === "settings"}
     title={t("header.settings")}
     aria-label={t("header.settings")}
-    onclick={() => (player.settingsOpen = true)}
+    onclick={() => player.openSettings()}
   >
     <Settings size={18} />
   </button>

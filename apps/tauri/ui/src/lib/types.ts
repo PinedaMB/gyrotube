@@ -117,6 +117,7 @@ export type ActiveView =
   | { kind: "explore" }
   | { kind: "search"; query?: string }
   | { kind: "collection" }
+  | { kind: "settings" }
   | { kind: "artist"; artistId: string; artistName: string }
   | { kind: "album"; id: string; title: string; coverUrl?: string | null; isPlaylist?: boolean };
 

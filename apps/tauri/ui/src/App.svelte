@@ -284,6 +284,14 @@
             <SearchView />
           </div>
         {/if}
+
+        {#if player.activeView.kind === "settings"}
+          <div class="w-full h-full overflow-y-auto overflow-x-hidden scroll-y">
+            {#await import("./components/SettingsView.svelte") then { default: SettingsView }}
+              <SettingsView />
+            {/await}
+          </div>
+        {/if}
       </main>
     </div>
 
@@ -315,12 +323,6 @@
       <div transition:fade={{ duration: 220 }}>
         <PartyMode />
       </div>
-    {/await}
-  {/if}
-
-  {#if player.settingsOpen}
-    {#await import("./components/SettingsModal.svelte") then { default: SettingsModal }}
-      <SettingsModal />
     {/await}
   {/if}
 
