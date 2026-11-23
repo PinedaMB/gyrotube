@@ -1,19 +1,29 @@
 <script lang="ts">
   import {
     ArrowLeft,
+    AudioLines,
     Download,
+    FolderArchive,
     Globe,
     HardDrive,
+    History,
     Monitor,
     Moon,
+    Music2,
+    Palette,
+    Radio,
     Sliders,
+    Sparkles,
     Sun,
+    SunMoon,
     Trash2,
     Upload,
+    Volume2,
   } from "lucide-svelte";
   import { api, isTauriRuntime } from "../lib/api";
   import { EQ_LABELS, type EqPresetId } from "../lib/equalizer";
   import { t } from "../lib/i18n.svelte";
+  import { device } from "../lib/stores/device.svelte";
   import { player } from "../lib/stores/player.svelte";
   import type { AppLanguage, ThemeMode } from "../lib/types";
   import SegmentedControl, { type SegmentedOption } from "./SegmentedControl.svelte";
@@ -32,6 +42,11 @@
   let cacheMb = $derived((cacheBytes / (1024 * 1024)).toFixed(1));
   let downloadsMb = $derived((downloadsBytes / (1024 * 1024)).toFixed(1));
   let downloadedCount = $derived(player.downloadedTrackIds.size);
+  let downloadsSongLabel = $derived(
+    downloadedCount === 1
+      ? t("collection.song_one")
+      : t("collection.song_many", { count: downloadedCount }),
+  );
   let cachePct = $derived(Math.min(100, (cacheBytes / (1024 * 1024 * 1024)) * 100));
   let crossfadePct = $derived(Math.round((player.crossfadeSecs / 10) * 100));
 
@@ -118,32 +133,49 @@
   ];
 </script>
 
-<div class="page-clamp !max-w-[780px] space-y-6 pb-10">
-  <header class="flex items-center gap-3">
-    <button
-      type="button"
-      class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[12.5px] font-semibold text-[var(--text-muted)] hover:text-[var(--text)] bg-[var(--surface)] hover:bg-[var(--surface-hover)] border border-[var(--border)] transition-all active:scale-95"
-      title={t("nav.back")}
-      onclick={() => player.goBack()}
-    >
-      <ArrowLeft size={15} />
-      {t("nav.back")}
-    </button>
-    <h1 class="text-[24px] sm:text-[28px] font-extrabold tracking-[-0.025em] leading-tight">
-      {t("settings.title")}
-    </h1>
+<div class="page-clamp !max-w-[780px] space-y-6 pb-12">
+  <!-- Header -->
+  <header class="flex items-center justify-between gap-3">
+    <div class="flex items-center gap-3 min-w-0">
+      <button
+        type="button"
+        class="w-9 h-9 rounded-full inline-flex items-center justify-center text-[var(--text-muted)] hover:text-[var(--text)] bg-[var(--surface)] hover:bg-[var(--surface-hover)] border border-[var(--border)] transition-all active:scale-95 shrink-0"
+        title={t("nav.back")}
+        aria-label={t("nav.back")}
+        onclick={() => player.goBack()}
+      >
+        <ArrowLeft size={16} />
+      </button>
+      <div class="min-w-0">
+        <h1 class="text-[24px] sm:text-[28px] font-extrabold tracking-[-0.025em] leading-tight">
+          {t("settings.title")}
+        </h1>
+      </div>
+    </div>
+    <span class="px-2.5 py-1 rounded-full text-[11px] font-bold numeric bg-[var(--surface)] border border-[var(--border)] text-[var(--text-muted)] shrink-0">
+      GyroTube v1.0.0
+    </span>
   </header>
 
   <!-- Appearance & Language -->
   <section class="space-y-2.5">
-    <h2 class="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">
+    <h2 class="text-[11px] font-bold uppercase tracking-[0.09em] text-[var(--text-muted)] flex items-center gap-1.5 px-1">
+      <Palette size={12} class="text-[var(--accent-bright)]" />
       {t("settings.appearance")}
     </h2>
-    <div class="rounded-2xl bg-[var(--surface)] border border-[var(--border)] divide-y divide-[var(--border)]">
-      <div class="p-4 flex flex-wrap items-center justify-between gap-3">
-        <div class="min-w-0">
-          <div class="text-[14px] font-semibold">{t("settings.theme")}</div>
-          <div class="text-[12px] text-[var(--text-muted)]">{t("settings.theme_sub")}</div>
+    <div
+      class="rounded-2xl bg-[var(--surface)] border border-[var(--border)] divide-y divide-[var(--border)] overflow-hidden"
+      style="box-shadow: var(--card-shadow);"
+    >
+      <div class="p-4 flex flex-wrap items-center justify-between gap-3 transition-colors hover:bg-[var(--surface-hover)]/35">
+        <div class="flex items-center gap-3 min-w-0">
+          <span class="w-9 h-9 rounded-xl bg-[var(--bg)]/60 border border-[var(--border)] inline-flex items-center justify-center text-[var(--accent-bright)] shrink-0">
+            <SunMoon size={16} />
+          </span>
+          <div class="min-w-0">
+            <div class="text-[14px] font-semibold leading-snug">{t("settings.theme")}</div>
+            <div class="text-[12px] text-[var(--text-muted)]">{t("settings.theme_sub")}</div>
+          </div>
         </div>
         <SegmentedControl
           options={themeOptions}
@@ -153,13 +185,15 @@
         />
       </div>
 
-      <div class="p-4 flex flex-wrap items-center justify-between gap-3">
-        <div class="min-w-0">
-          <div class="text-[14px] font-semibold flex items-center gap-1.5">
-            <Globe size={14} class="text-[var(--accent-bright)]" />
-            {t("settings.language")}
+      <div class="p-4 flex flex-wrap items-center justify-between gap-3 transition-colors hover:bg-[var(--surface-hover)]/35">
+        <div class="flex items-center gap-3 min-w-0">
+          <span class="w-9 h-9 rounded-xl bg-[var(--bg)]/60 border border-[var(--border)] inline-flex items-center justify-center text-[var(--accent-bright)] shrink-0">
+            <Globe size={16} />
+          </span>
+          <div class="min-w-0">
+            <div class="text-[14px] font-semibold leading-snug">{t("settings.language")}</div>
+            <div class="text-[12px] text-[var(--text-muted)]">{t("settings.language_sub")}</div>
           </div>
-          <div class="text-[12px] text-[var(--text-muted)]">{t("settings.language_sub")}</div>
         </div>
         <SegmentedControl
           options={languageOptions}
@@ -173,21 +207,30 @@
 
   <!-- Playback -->
   <section class="space-y-2.5">
-    <h2 class="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">
+    <h2 class="text-[11px] font-bold uppercase tracking-[0.09em] text-[var(--text-muted)] flex items-center gap-1.5 px-1">
+      <Music2 size={12} class="text-[var(--accent-bright)]" />
       {t("settings.playback")}
     </h2>
-    <div class="rounded-2xl bg-[var(--surface)] border border-[var(--border)] divide-y divide-[var(--border)]">
-      <div class="p-4 flex items-center justify-between gap-4">
-        <div class="min-w-0">
-          <div class="text-[14px] font-semibold">{t("settings.crossfade")}</div>
-          <div class="text-[12px] text-[var(--text-muted)] numeric">
-            {player.crossfadeSecs === 0
-              ? t("settings.crossfade_off")
-              : t("settings.crossfade_secs", { secs: player.crossfadeSecs })}
+    <div
+      class="rounded-2xl bg-[var(--surface)] border border-[var(--border)] divide-y divide-[var(--border)] overflow-hidden"
+      style="box-shadow: var(--card-shadow);"
+    >
+      <div class="p-4 flex flex-wrap sm:flex-nowrap items-center justify-between gap-4 transition-colors hover:bg-[var(--surface-hover)]/35">
+        <div class="flex items-center gap-3 min-w-0">
+          <span class="w-9 h-9 rounded-xl bg-[var(--bg)]/60 border border-[var(--border)] inline-flex items-center justify-center text-[var(--accent-bright)] shrink-0">
+            <AudioLines size={16} />
+          </span>
+          <div class="min-w-0">
+            <div class="text-[14px] font-semibold leading-snug">{t("settings.crossfade")}</div>
+            <div class="text-[12px] text-[var(--text-muted)] numeric">
+              {player.crossfadeSecs === 0
+                ? t("settings.crossfade_off")
+                : t("settings.crossfade_secs", { secs: player.crossfadeSecs })}
+            </div>
           </div>
         </div>
         <input
-          class="w-36 sm:w-44 !h-1.5"
+          class="w-full sm:w-44 !h-1.5 shrink-0"
           type="range"
           min="0"
           max="10"
@@ -199,10 +242,15 @@
         />
       </div>
 
-      <div class="p-4 flex items-center justify-between gap-4">
-        <div class="min-w-0">
-          <div class="text-[14px] font-semibold">{t("settings.autoplay")}</div>
-          <div class="text-[12px] text-[var(--text-muted)]">{t("settings.autoplay_sub")}</div>
+      <div class="p-4 flex items-center justify-between gap-4 transition-colors hover:bg-[var(--surface-hover)]/35">
+        <div class="flex items-center gap-3 min-w-0">
+          <span class="w-9 h-9 rounded-xl bg-[var(--bg)]/60 border border-[var(--border)] inline-flex items-center justify-center text-[var(--accent-bright)] shrink-0">
+            <Sparkles size={16} />
+          </span>
+          <div class="min-w-0">
+            <div class="text-[14px] font-semibold leading-snug">{t("settings.autoplay")}</div>
+            <div class="text-[12px] text-[var(--text-muted)]">{t("settings.autoplay_sub")}</div>
+          </div>
         </div>
         <button
           type="button"
@@ -222,42 +270,57 @@
         </button>
       </div>
 
-      <div class="p-4 flex items-center justify-between gap-4">
-        <div class="min-w-0">
-          <div class="text-[14px] font-semibold">{t("settings.background")}</div>
-          <div class="text-[12px] text-[var(--text-muted)]">{t("settings.background_sub")}</div>
+      {#if !device.isAndroid}
+        <div class="p-4 flex items-center justify-between gap-4 transition-colors hover:bg-[var(--surface-hover)]/35">
+          <div class="flex items-center gap-3 min-w-0">
+            <span class="w-9 h-9 rounded-xl bg-[var(--bg)]/60 border border-[var(--border)] inline-flex items-center justify-center text-[var(--accent-bright)] shrink-0">
+              <Radio size={16} />
+            </span>
+            <div class="min-w-0">
+              <div class="text-[14px] font-semibold leading-snug">{t("settings.background")}</div>
+              <div class="text-[12px] text-[var(--text-muted)]">{t("settings.background_sub")}</div>
+            </div>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={player.backgroundPlayback}
+            aria-label={t("settings.background")}
+            class="w-11 h-6 rounded-full p-0.5 transition-colors shrink-0 {player.backgroundPlayback
+              ? 'bg-[var(--accent)]'
+              : 'bg-[var(--control-track)]'}"
+            onclick={() => player.setBackgroundPlayback(!player.backgroundPlayback)}
+          >
+            <span
+              class="block w-5 h-5 rounded-full bg-white shadow transition-transform {player.backgroundPlayback
+                ? 'translate-x-5'
+                : 'translate-x-0'}"
+            ></span>
+          </button>
         </div>
-        <button
-          type="button"
-          role="switch"
-          aria-checked={player.backgroundPlayback}
-          aria-label={t("settings.background")}
-          class="w-11 h-6 rounded-full p-0.5 transition-colors shrink-0 {player.backgroundPlayback
-            ? 'bg-[var(--accent)]'
-            : 'bg-[var(--control-track)]'}"
-          onclick={() => player.setBackgroundPlayback(!player.backgroundPlayback)}
-        >
-          <span
-            class="block w-5 h-5 rounded-full bg-white shadow transition-transform {player.backgroundPlayback
-              ? 'translate-x-5'
-              : 'translate-x-0'}"
-          ></span>
-        </button>
-      </div>
+      {/if}
     </div>
   </section>
 
   <!-- Equalizer & Normalization -->
   <section class="space-y-2.5">
-    <h2 class="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)] flex items-center gap-1.5">
-      <Sliders size={12} />
+    <h2 class="text-[11px] font-bold uppercase tracking-[0.09em] text-[var(--text-muted)] flex items-center gap-1.5 px-1">
+      <Sliders size={12} class="text-[var(--accent-bright)]" />
       {t("eq.title")}
     </h2>
-    <div class="rounded-2xl bg-[var(--surface)] border border-[var(--border)] divide-y divide-[var(--border)]">
-      <div class="p-4 flex items-center justify-between gap-4">
-        <div class="min-w-0">
-          <div class="text-[14px] font-semibold">{t("eq.enable")}</div>
-          <div class="text-[12px] text-[var(--text-muted)]">{t("eq.enable_sub")}</div>
+    <div
+      class="rounded-2xl bg-[var(--surface)] border border-[var(--border)] divide-y divide-[var(--border)] overflow-hidden"
+      style="box-shadow: var(--card-shadow);"
+    >
+      <div class="p-4 flex items-center justify-between gap-4 transition-colors hover:bg-[var(--surface-hover)]/35">
+        <div class="flex items-center gap-3 min-w-0">
+          <span class="w-9 h-9 rounded-xl bg-[var(--bg)]/60 border border-[var(--border)] inline-flex items-center justify-center text-[var(--accent-bright)] shrink-0">
+            <Sliders size={16} />
+          </span>
+          <div class="min-w-0">
+            <div class="text-[14px] font-semibold leading-snug">{t("eq.enable")}</div>
+            <div class="text-[12px] text-[var(--text-muted)]">{t("eq.enable_sub")}</div>
+          </div>
         </div>
         <button
           type="button"
@@ -278,14 +341,14 @@
       </div>
 
       {#if player.eqSettings.enabled}
-        <div class="p-4 space-y-4">
+        <div class="p-4 space-y-4 bg-[var(--bg)]/25">
           <div class="flex flex-wrap gap-1.5">
             {#each eqPresetList as preset (preset.id)}
               <button
                 type="button"
                 class="px-3 py-1 rounded-full text-[12px] font-semibold border transition-colors {player.eqSettings.preset === preset.id
                   ? 'bg-[var(--accent-soft)] text-[var(--accent-bright)] border-[var(--accent-border)]'
-                  : 'bg-[var(--bg)]/50 border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text)]'}"
+                  : 'bg-[var(--surface)] border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text)]'}"
                 onclick={() => player.setEqPreset(preset.id)}
               >
                 {t(preset.key)}
@@ -321,10 +384,15 @@
         </div>
       {/if}
 
-      <div class="p-4 flex items-center justify-between gap-4">
-        <div class="min-w-0">
-          <div class="text-[14px] font-semibold">{t("eq.normalize")}</div>
-          <div class="text-[12px] text-[var(--text-muted)]">{t("eq.normalize_sub")}</div>
+      <div class="p-4 flex items-center justify-between gap-4 transition-colors hover:bg-[var(--surface-hover)]/35">
+        <div class="flex items-center gap-3 min-w-0">
+          <span class="w-9 h-9 rounded-xl bg-[var(--bg)]/60 border border-[var(--border)] inline-flex items-center justify-center text-[var(--accent-bright)] shrink-0">
+            <Volume2 size={16} />
+          </span>
+          <div class="min-w-0">
+            <div class="text-[14px] font-semibold leading-snug">{t("eq.normalize")}</div>
+            <div class="text-[12px] text-[var(--text-muted)]">{t("eq.normalize_sub")}</div>
+          </div>
         </div>
         <button
           type="button"
@@ -348,24 +416,30 @@
 
   <!-- Storage & Backup -->
   <section class="space-y-2.5">
-    <h2 class="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">
+    <h2 class="text-[11px] font-bold uppercase tracking-[0.09em] text-[var(--text-muted)] flex items-center gap-1.5 px-1">
+      <HardDrive size={12} class="text-[var(--accent-bright)]" />
       {t("settings.storage")}
     </h2>
-    <div class="rounded-2xl bg-[var(--surface)] border border-[var(--border)] divide-y divide-[var(--border)]">
-      <div class="p-4 flex items-center justify-between gap-4">
-        <div class="min-w-0 flex-1 space-y-1.5">
-          <div class="flex items-center gap-2 text-[14px] font-semibold">
-            <HardDrive size={15} class="text-[var(--accent-bright)]" />
-            {t("settings.cache")}
-          </div>
-          <div class="text-[12px] text-[var(--text-muted)] numeric">
-            {t("settings.cache_sub", { mb: cacheMb })}
-          </div>
-          <div class="h-1.5 w-full max-w-[260px] rounded-full bg-[var(--control-track)] overflow-hidden">
-            <div
-              class="h-full rounded-full bg-[var(--accent-bright)] transition-[width] duration-300"
-              style="width: {cachePct}%"
-            ></div>
+    <div
+      class="rounded-2xl bg-[var(--surface)] border border-[var(--border)] divide-y divide-[var(--border)] overflow-hidden"
+      style="box-shadow: var(--card-shadow);"
+    >
+      <div class="p-4 flex items-center justify-between gap-4 transition-colors hover:bg-[var(--surface-hover)]/35">
+        <div class="flex items-center gap-3 min-w-0 flex-1">
+          <span class="w-9 h-9 rounded-xl bg-[var(--bg)]/60 border border-[var(--border)] inline-flex items-center justify-center text-[var(--accent-bright)] shrink-0">
+            <HardDrive size={16} />
+          </span>
+          <div class="min-w-0 flex-1 space-y-1.5">
+            <div class="text-[14px] font-semibold leading-snug">{t("settings.cache")}</div>
+            <div class="text-[12px] text-[var(--text-muted)] numeric">
+              {t("settings.cache_sub", { mb: cacheMb })}
+            </div>
+            <div class="h-1.5 w-full max-w-[260px] rounded-full bg-[var(--control-track)] overflow-hidden">
+              <div
+                class="h-full rounded-full bg-[var(--accent-bright)] transition-[width] duration-300"
+                style="width: {cachePct}%"
+              ></div>
+            </div>
           </div>
         </div>
         <button
@@ -379,16 +453,18 @@
         </button>
       </div>
 
-      <div class="p-4 flex items-center justify-between gap-4">
-        <div class="min-w-0 flex-1 space-y-1">
-          <div class="flex items-center gap-2 text-[14px] font-semibold">
-            <Download size={15} class="text-[var(--accent-bright)]" />
-            {t("settings.downloads")}
-          </div>
-          <div class="text-[12px] text-[var(--text-muted)] numeric">
-            {downloadedCount === 0 && downloadsBytes === 0
-              ? t("settings.downloads_empty")
-              : t("settings.downloads_sub", { mb: downloadsMb, count: downloadedCount })}
+      <div class="p-4 flex items-center justify-between gap-4 transition-colors hover:bg-[var(--surface-hover)]/35">
+        <div class="flex items-center gap-3 min-w-0 flex-1">
+          <span class="w-9 h-9 rounded-xl bg-[var(--bg)]/60 border border-[var(--border)] inline-flex items-center justify-center text-[var(--accent-bright)] shrink-0">
+            <Download size={16} />
+          </span>
+          <div class="min-w-0 flex-1">
+            <div class="text-[14px] font-semibold leading-snug">{t("settings.downloads")}</div>
+            <div class="text-[12px] text-[var(--text-muted)] numeric">
+              {downloadedCount === 0 && downloadsBytes === 0
+                ? t("settings.downloads_empty")
+                : `${downloadsMb} MB · ${downloadsSongLabel}`}
+            </div>
           </div>
         </div>
         <button
@@ -402,13 +478,18 @@
         </button>
       </div>
 
-      <div class="p-4 flex items-center justify-between gap-4">
-        <div class="min-w-0">
-          <div class="text-[14px] font-semibold">{t("settings.search_history")}</div>
-          <div class="text-[12px] text-[var(--text-muted)] numeric">
-            {player.searchHistory.length === 1
-              ? t("settings.search_history_one")
-              : t("settings.search_history_many", { count: player.searchHistory.length })}
+      <div class="p-4 flex items-center justify-between gap-4 transition-colors hover:bg-[var(--surface-hover)]/35">
+        <div class="flex items-center gap-3 min-w-0">
+          <span class="w-9 h-9 rounded-xl bg-[var(--bg)]/60 border border-[var(--border)] inline-flex items-center justify-center text-[var(--accent-bright)] shrink-0">
+            <History size={16} />
+          </span>
+          <div class="min-w-0">
+            <div class="text-[14px] font-semibold leading-snug">{t("settings.search_history")}</div>
+            <div class="text-[12px] text-[var(--text-muted)] numeric">
+              {player.searchHistory.length === 1
+                ? t("settings.search_history_one")
+                : t("settings.search_history_many", { count: player.searchHistory.length })}
+            </div>
           </div>
         </div>
         <button
@@ -417,14 +498,20 @@
           disabled={player.searchHistory.length === 0}
           onclick={() => player.clearSearchHistory()}
         >
+          <Trash2 size={13} />
           {t("settings.clear")}
         </button>
       </div>
 
-      <div class="p-4 flex flex-wrap items-center justify-between gap-3">
-        <div class="min-w-0 flex-1">
-          <div class="text-[14px] font-semibold">{t("settings.backup")}</div>
-          <div class="text-[12px] text-[var(--text-muted)]">{t("settings.backup_sub")}</div>
+      <div class="p-4 flex flex-wrap items-center justify-between gap-3 transition-colors hover:bg-[var(--surface-hover)]/35">
+        <div class="flex items-center gap-3 min-w-0 flex-1">
+          <span class="w-9 h-9 rounded-xl bg-[var(--bg)]/60 border border-[var(--border)] inline-flex items-center justify-center text-[var(--accent-bright)] shrink-0">
+            <FolderArchive size={16} />
+          </span>
+          <div class="min-w-0 flex-1">
+            <div class="text-[14px] font-semibold leading-snug">{t("settings.backup")}</div>
+            <div class="text-[12px] text-[var(--text-muted)]">{t("settings.backup_sub")}</div>
+          </div>
         </div>
         <div class="flex items-center gap-2 shrink-0">
           <button type="button" class="pill-btn" onclick={exportLibrary}>

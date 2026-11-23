@@ -7,6 +7,7 @@
 
   let collapsed = $derived(player.navCollapsed);
   let createModalOpen = $state(false);
+  let isSettings = $derived(player.activeView.kind === "settings");
 </script>
 
 <!-- Desktop / tablet left navigation sidebar -->
@@ -20,7 +21,7 @@
     <button
       class="w-full flex items-center gap-3 rounded-xl px-3 py-2.5 text-[13.5px] font-semibold transition-all active:scale-[0.98] {collapsed
         ? 'justify-center px-0'
-        : ''} {player.activeTab === 'home'
+        : ''} {!isSettings && player.activeTab === 'home'
         ? 'bg-[var(--accent-soft)] text-[var(--accent-bright)] shadow-sm'
         : 'text-[var(--text-muted)] hover:bg-[var(--surface)] hover:text-[var(--text)]'}"
       title={t("nav.home")}
@@ -35,7 +36,7 @@
     <button
       class="w-full flex items-center gap-3 rounded-xl px-3 py-2.5 text-[13.5px] font-semibold transition-all active:scale-[0.98] {collapsed
         ? 'justify-center px-0'
-        : ''} {player.activeTab === 'explore'
+        : ''} {!isSettings && player.activeTab === 'explore'
         ? 'bg-[var(--accent-soft)] text-[var(--accent-bright)] shadow-sm'
         : 'text-[var(--text-muted)] hover:bg-[var(--surface)] hover:text-[var(--text)]'}"
       title={t("nav.explore")}
@@ -50,7 +51,7 @@
     <button
       class="w-full flex items-center gap-3 rounded-xl px-3 py-2.5 text-[13.5px] font-semibold transition-all active:scale-[0.98] {collapsed
         ? 'justify-center px-0'
-        : ''} {player.activeTab === 'collection'
+        : ''} {!isSettings && player.activeTab === 'collection'
         ? 'bg-[var(--accent-soft)] text-[var(--accent-bright)] shadow-sm'
         : 'text-[var(--text-muted)] hover:bg-[var(--surface)] hover:text-[var(--text)]'}"
       title={t("nav.collection")}
@@ -143,10 +144,14 @@
         }}
       >
         <span
-          class="w-7 h-7 rounded-lg inline-flex items-center justify-center text-white shrink-0"
+          class="w-7 h-7 rounded-lg inline-flex items-center justify-center text-white shrink-0 overflow-hidden"
           style="background: {pl.color_hex || '#10b981'};"
         >
-          <PlaylistIcon name={pl.icon_name} size={13} />
+          {#if pl.cover_path}
+            <img src={pl.cover_path} alt={pl.name} class="w-full h-full object-cover" />
+          {:else}
+            <PlaylistIcon name={pl.icon_name} size={13} />
+          {/if}
         </span>
         {#if !collapsed}
           <span class="min-w-0 flex-1">
@@ -167,7 +172,7 @@
   open={createModalOpen}
   editing={null}
   onClose={() => (createModalOpen = false)}
-  onSave={({ name, description, colorHex, iconName }) => {
-    player.createUserPlaylist(name, description, colorHex, iconName);
+  onSave={({ name, description, colorHex, iconName, coverPath, tracks }) => {
+    player.createUserPlaylist(name, description, colorHex, iconName, tracks ?? [], coverPath ?? null);
   }}
 />
