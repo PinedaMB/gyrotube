@@ -1,9 +1,10 @@
 <script lang="ts">
-  import { Check, LocateFixed, Music, Share2, X } from "lucide-svelte";
+  import { Check, LocateFixed, Music, Pause, Play, Share2, SkipBack, SkipForward, X } from "lucide-svelte";
   import { cubicOut } from "svelte/easing";
   import { fade, scale } from "svelte/transition";
   import { t } from "../../lib/i18n.svelte";
   import { player } from "../../lib/stores/player.svelte";
+  import { formatDuration } from "../../lib/types";
   import CoverImage from "../CoverImage.svelte";
   import LyricsCardModal from "./LyricsCardModal.svelte";
 
@@ -168,6 +169,19 @@
     if (delta > 2) return 0.24;
     if (delta === -1) return 0.34;
     return 0.2;
+  }
+
+  let progressPct = $derived(
+    player.durationSecs > 0
+      ? Math.max(0, Math.min(100, (player.positionSecs / player.durationSecs) * 100))
+      : 0,
+  );
+
+  function handleProgressSeek(e: MouseEvent) {
+    if (!player.currentTrack || player.durationSecs <= 0) return;
+    const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
+    const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    player.seek(ratio * player.durationSecs);
   }
 </script>
 
@@ -413,6 +427,76 @@
       <p class="text-[13px]">
         {player.currentTrack ? t("lyrics.none_track") : t("lyrics.none_idle")}
       </p>
+    </div>
+  {/if}
+
+  {#if player.currentTrack && !selecting}
+    <div class="shrink-0 pt-2.5 pb-0.5 border-t border-[var(--border)] space-y-2">
+      <!-- Compact interactive seek bar -->
+      <div class="flex items-center gap-2">
+        <span class="text-[10.5px] font-semibold text-[var(--text-muted)] numeric w-8 text-right shrink-0">
+          {formatDuration(player.positionSecs)}
+        </span>
+        <div
+          class="flex-1 h-1.5 rounded-full bg-[var(--control-track)] cursor-pointer overflow-hidden"
+          role="slider"
+          tabindex="0"
+          aria-label="Seek"
+          aria-valuemin={0}
+          aria-valuemax={Math.round(player.durationSecs)}
+          aria-valuenow={Math.round(player.positionSecs)}
+          onclick={handleProgressSeek}
+          onkeydown={(e) => {
+            if (e.key === "ArrowRight") player.seek(player.positionSecs + 5);
+            else if (e.key === "ArrowLeft") player.seek(Math.max(0, player.positionSecs - 5));
+          }}
+        >
+          <div
+            class="h-full rounded-full bg-[var(--accent-bright)] transition-[width] duration-150 ease-linear"
+            style="width: {progressPct}%;"
+          ></div>
+        </div>
+        <span class="text-[10.5px] font-semibold text-[var(--text-muted)] numeric w-8 shrink-0">
+          {formatDuration(player.durationSecs)}
+        </span>
+      </div>
+
+      <!-- Prev / Play-Pause / Next -->
+      <div class="flex items-center justify-center gap-4">
+        <button
+          type="button"
+          class="icon-btn !w-9 !h-9 text-[var(--text-muted)] hover:text-[var(--text)]"
+          title={t("player.previous")}
+          aria-label={t("player.previous")}
+          onclick={() => void player.prev()}
+        >
+          <SkipBack size={18} fill="currentColor" />
+        </button>
+
+        <button
+          type="button"
+          class="w-10 h-10 rounded-full inline-flex items-center justify-center bg-[var(--accent)] hover:bg-[var(--accent-bright)] text-white shadow-[0_6px_18px_rgba(16,185,129,0.38)] transition-all active:scale-95"
+          title={player.isPlaying ? t("player.paused") : t("home.play")}
+          aria-label={player.isPlaying ? t("player.paused") : t("home.play")}
+          onclick={() => void player.togglePlay()}
+        >
+          {#if player.isPlaying}
+            <Pause size={18} fill="currentColor" />
+          {:else}
+            <Play size={18} fill="currentColor" class="translate-x-[1px]" />
+          {/if}
+        </button>
+
+        <button
+          type="button"
+          class="icon-btn !w-9 !h-9 text-[var(--text-muted)] hover:text-[var(--text)]"
+          title={t("player.next")}
+          aria-label={t("player.next")}
+          onclick={() => void player.next()}
+        >
+          <SkipForward size={18} fill="currentColor" />
+        </button>
+      </div>
     </div>
   {/if}
 </div>

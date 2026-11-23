@@ -1533,16 +1533,23 @@ impl Backend {
         #[derive(serde::Deserialize)]
         #[serde(rename_all = "camelCase")]
         struct LrcLibResp {
+            #[serde(default)]
+            track_name: Option<String>,
+            #[serde(default)]
+            artist_name: Option<String>,
+            #[serde(default)]
+            duration: Option<f64>,
             synced_lyrics: Option<String>,
             plain_lyrics: Option<String>,
         }
 
         let artist_q = track
             .artist
-            .split(',')
+            .split([',', '•', '·', '&'])
             .next()
             .unwrap_or(&track.artist)
             .trim();
+        let clean_title = strip_lyrics_query_noise(&track.title);
         let mut params = vec![
             ("artist_name", artist_q.to_string()),
             ("track_name", track.title.clone()),
@@ -1577,43 +1584,82 @@ impl Backend {
             }
         }
 
-        // 4. Official YTM static lyrics (exact video_id — strictly preferred over fuzzy LRCLIB search)
-        if let Some(plain) = ytm_plain {
-            return Ok(LyricsData::Plain(plain));
-        }
-
-        // 5. LRCLIB exact plain match
-        if let Some(plain) = lrclib_exact_plain {
-            return Ok(LyricsData::Plain(plain));
-        }
-
-        // 6. Fallback ytmapi-rs static lyrics
-        if let Ok(plain) = self.fetch_lyrics(&track.id).await {
-            return Ok(LyricsData::Plain(plain));
-        }
-
-        // 7. Last resort: LRCLIB free search
+        // 4. LRCLIB search (prioritizes synced lyrics BEFORE falling back to static text,
+        //    validating title/artist similarity and duration ±8s so we never return a wrong song)
+        let mut lrclib_search_plain: Option<String> = None;
+        let search_query = format!("{artist_q} {clean_title}");
         if let Ok(resp) = self
             .http
             .get("https://lrclib.net/api/search")
-            .query(&[("q", format!("{} {}", artist_q, track.title))])
+            .query(&[("q", search_query.trim())])
             .header(reqwest::header::USER_AGENT, "GyroTube/1.0")
             .send()
             .await
             && resp.status().is_success()
             && let Ok(list) = resp.json::<Vec<LrcLibResp>>().await
         {
+            let expected_title = normalize_lyrics_match(&clean_title);
+            let expected_artist = normalize_lyrics_match(artist_q);
+            let mut best_synced: Option<(f64, Vec<crate::models::SyncedLyricLine>)> = None;
+
             for item in list {
+                let item_title = normalize_lyrics_match(item.track_name.as_deref().unwrap_or(""));
+                let item_artist = normalize_lyrics_match(item.artist_name.as_deref().unwrap_or(""));
+                let title_ok = expected_title.is_empty()
+                    || item_title == expected_title
+                    || item_title.contains(&expected_title)
+                    || expected_title.contains(&item_title);
+                let artist_ok = expected_artist.is_empty()
+                    || item_artist.contains(&expected_artist)
+                    || expected_artist.contains(&item_artist);
+                if !title_ok || !artist_ok {
+                    continue;
+                }
+                let dur_diff = match (track.duration_secs, item.duration) {
+                    (Some(exp), Some(got)) if exp > 0 && got > 0.0 => (exp as f64 - got).abs(),
+                    _ => 0.0,
+                };
+                if dur_diff > 8.0 {
+                    continue;
+                }
                 if let Some(synced) = item.synced_lyrics.filter(|s| !s.trim().is_empty()) {
                     let lines = parse_lrc(&synced);
-                    if !lines.is_empty() {
-                        return Ok(LyricsData::Synced(lines));
+                    if !lines.is_empty()
+                        && best_synced
+                            .as_ref()
+                            .is_none_or(|(best_diff, _)| dur_diff < *best_diff)
+                    {
+                        best_synced = Some((dur_diff, lines));
                     }
-                }
-                if let Some(plain) = item.plain_lyrics.filter(|s| !s.trim().is_empty()) {
-                    return Ok(LyricsData::Plain(plain));
+                } else if lrclib_search_plain.is_none()
+                    && let Some(plain) = item.plain_lyrics.filter(|s| !s.trim().is_empty())
+                {
+                    lrclib_search_plain = Some(plain);
                 }
             }
+            if let Some((_, lines)) = best_synced {
+                return Ok(LyricsData::Synced(lines));
+            }
+        }
+
+        // 5. Official YTM static lyrics (exact video_id)
+        if let Some(plain) = ytm_plain {
+            return Ok(LyricsData::Plain(plain));
+        }
+
+        // 6. LRCLIB exact plain match
+        if let Some(plain) = lrclib_exact_plain {
+            return Ok(LyricsData::Plain(plain));
+        }
+
+        // 7. Fallback ytmapi-rs static lyrics
+        if let Ok(plain) = self.fetch_lyrics(&track.id).await {
+            return Ok(LyricsData::Plain(plain));
+        }
+
+        // 8. Last resort: validated LRCLIB search plain lyrics
+        if let Some(plain) = lrclib_search_plain {
+            return Ok(LyricsData::Plain(plain));
         }
 
         Err(String::from("No hay letras disponibles para esta pista."))
@@ -1670,6 +1716,50 @@ impl Backend {
         }
         details.item.track.cover_large_url
     }
+}
+
+fn strip_lyrics_query_noise(title: &str) -> String {
+    let mut out = title.trim().to_string();
+    for (open, close) in [('(', ')'), ('[', ']')] {
+        while let Some(start) = out.find(open) {
+            let Some(rel_end) = out[start..].find(close) else {
+                break;
+            };
+            let end = start + rel_end;
+            let inner = out[start + 1..end].to_lowercase();
+            let is_noise = inner.starts_with("feat")
+                || inner.starts_with("ft.")
+                || inner.starts_with("ft ")
+                || inner.starts_with("con ")
+                || inner.starts_with("with ")
+                || inner.contains("remaster")
+                || inner.contains("single version")
+                || inner.contains("album version")
+                || inner.contains("official");
+            if is_noise {
+                out.replace_range(start..=end, " ");
+            } else {
+                break;
+            }
+        }
+    }
+    if let Some(pos) = out.to_lowercase().find(" feat.") {
+        out.truncate(pos);
+    } else if let Some(pos) = out.to_lowercase().find(" ft.") {
+        out.truncate(pos);
+    }
+    out.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn normalize_lyrics_match(s: &str) -> String {
+    strip_lyrics_query_noise(s)
+        .to_lowercase()
+        .chars()
+        .filter(|c| c.is_alphanumeric() || c.is_whitespace())
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 fn load_home_cache(path: &std::path::Path) -> Option<(Instant, HomeFeed)> {
