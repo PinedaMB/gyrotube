@@ -548,233 +548,25 @@ fn hex_val(b: u8) -> Option<u8> {
     }
 }
 
-// Pure-Rust QR Code generator (Byte mode, ECC Level L, Versions 1..=5)
 pub fn generate_qr_svg(data: &str) -> Option<String> {
-    let bytes = data.as_bytes();
-    // (version, size, data_codewords, ec_codewords, align_pos)
-    const SPECS: &[(usize, usize, usize, usize, Option<usize>)] = &[
-        (1, 21, 19, 7, None),
-        (2, 25, 34, 10, Some(18)),
-        (3, 29, 55, 15, Some(22)),
-        (4, 33, 80, 20, Some(26)),
-        (5, 37, 108, 26, Some(30)),
-    ];
-
-    let &(_ver, size, data_cw, ec_cw, align_pos) = SPECS
-        .iter()
-        .find(|&&(_, _, dcw, _, _)| bytes.len() + 2 <= dcw)?;
-
-    let mut bits: Vec<u8> = Vec::with_capacity(data_cw * 8);
-    push_bits(&mut bits, 0b0100, 4); // Byte mode
-    push_bits(&mut bits, bytes.len() as u32, 8);
-    for &b in bytes {
-        push_bits(&mut bits, b as u32, 8);
-    }
-    let max_bits = data_cw * 8;
-    let term = (max_bits - bits.len()).min(4);
-    push_bits(&mut bits, 0, term);
-    while !bits.len().is_multiple_of(8) {
-        bits.push(0);
-    }
-    let mut codewords: Vec<u8> = bits
-        .chunks_exact(8)
-        .map(|c| c.iter().fold(0u8, |acc, &bit| (acc << 1) | bit))
-        .collect();
-    let pad = [0xECu8, 0x11u8];
-    let mut pi = 0;
-    while codewords.len() < data_cw {
-        codewords.push(pad[pi % 2]);
-        pi += 1;
-    }
-
-    let ec = rs_encode(&codewords, ec_cw);
-    codewords.extend_from_slice(&ec);
-
-    let mut grid = vec![vec![0i8; size]; size]; // 0 = empty, 1 = light, 2 = dark, <0 = reserved
-    place_finder(&mut grid, 0, 0);
-    place_finder(&mut grid, 0, size - 7);
-    place_finder(&mut grid, size - 7, 0);
-    if let Some(ap) = align_pos {
-        place_alignment(&mut grid, ap, ap);
-    }
-    for i in 8..(size - 8) {
-        let dark = if i % 2 == 0 { -2 } else { -1 };
-        grid[6][i] = dark;
-        grid[i][6] = dark;
-    }
-    grid[size - 8][8] = -2; // Dark module
-
-    // Reserve format info
-    for i in 0..9 {
-        if i != 6 {
-            if grid[8][i] == 0 {
-                grid[8][i] = -1;
-            }
-            if grid[i][8] == 0 {
-                grid[i][8] = -1;
-            }
-        }
-    }
-    for i in (size - 8)..size {
-        if grid[8][i] == 0 {
-            grid[8][i] = -1;
-        }
-        if grid[i][8] == 0 {
-            grid[i][8] = -1;
-        }
-    }
-
-    // Place data bits (zig-zag)
-    let all_bits: Vec<u8> = codewords
-        .iter()
-        .flat_map(|&b| (0..8).rev().map(move |k| (b >> k) & 1))
-        .collect();
-    let mut bi = 0usize;
-    let mut col = (size as isize) - 1;
-    let mut up = true;
-    while col > 0 {
-        if col == 6 {
-            col -= 1;
-        }
-        for step in 0..size {
-            let r = if up { size - 1 - step } else { step };
-            for dx in 0..2 {
-                let c = (col - dx) as usize;
-                if grid[r][c] == 0 {
-                    let bit = all_bits.get(bi).copied().unwrap_or(0);
-                    bi += 1;
-                    grid[r][c] = if bit == 1 { 2 } else { 1 };
-                }
-            }
-        }
-        up = !up;
-        col -= 2;
-    }
-
-    // Mask 0 ((r + c) % 2 == 0) + Format info for Level L, Mask 0: 0x77c4
-    const FORMAT_L_M0: u16 = 0x77c4;
-    let mut dark_grid = vec![vec![false; size]; size];
-    for r in 0..size {
-        for c in 0..size {
-            dark_grid[r][c] = match grid[r][c] {
-                -2 => true,
-                -1 => false,
-                2 => ((r + c) % 2) != 0,
-                1 => ((r + c) % 2) == 0,
-                _ => false,
-            };
-        }
-    }
-    for i in 0..15 {
-        let bit = ((FORMAT_L_M0 >> i) & 1) == 1;
-        let (r1, c1) = match i {
-            0..=5 => (i, 8),
-            6 => (7, 8),
-            7 => (8, 8),
-            8 => (8, 7),
-            _ => (8, 14 - i),
-        };
-        dark_grid[r1][c1] = bit;
-        let (r2, c2) = if i < 8 {
-            (8, size - 1 - i)
-        } else {
-            (size - 15 + i, 8)
-        };
-        dark_grid[r2][c2] = bit;
-    }
-
+    let code = qrcode::QrCode::new(data).ok()?;
+    let width = code.width();
     let quiet = 4usize;
-    let total = size + quiet * 2;
+    let total = width + quiet * 2;
+    let colors = code.to_colors();
     let mut path = String::new();
-    for (r, row) in dark_grid.iter().enumerate() {
-        for (c, &is_dark) in row.iter().enumerate() {
-            if is_dark {
-                path.push_str(&format!("M{} {}h1v1h-1z", c + quiet, r + quiet));
+    for y in 0..width {
+        for x in 0..width {
+            if matches!(colors[y * width + x], qrcode::Color::Dark) {
+                let px = x + quiet;
+                let py = y + quiet;
+                path.push_str(&format!("M{px} {py}h1v1h-1z"));
             }
         }
     }
-    let px = total * 16;
     Some(format!(
-        "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{px}\" height=\"{px}\" viewBox=\"0 0 {total} {total}\" shape-rendering=\"crispEdges\"><rect width=\"{total}\" height=\"{total}\" fill=\"#ffffff\"/><path d=\"{path}\" fill=\"#111111\"/></svg>"
+        r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {total} {total}" shape-rendering="crispEdges"><rect width="100%" height="100%" fill="#ffffff"/><path d="{path}" fill="#000000"/></svg>"##
     ))
-}
-
-fn push_bits(out: &mut Vec<u8>, val: u32, count: usize) {
-    for i in (0..count).rev() {
-        out.push(((val >> i) & 1) as u8);
-    }
-}
-
-fn place_finder(grid: &mut [Vec<i8>], r0: usize, c0: usize) {
-    let n = grid.len() as isize;
-    for dr in -1..=7 {
-        for dc in -1..=7 {
-            let r = r0 as isize + dr;
-            let c = c0 as isize + dc;
-            if r >= 0 && r < n && c >= 0 && c < n {
-                let dark = (0..=6).contains(&dr)
-                    && (0..=6).contains(&dc)
-                    && (dr == 0 || dr == 6 || dc == 0 || dc == 6 || ((2..=4).contains(&dr) && (2..=4).contains(&dc)));
-                grid[r as usize][c as usize] = if dark { -2 } else { -1 };
-            }
-        }
-    }
-}
-
-fn place_alignment(grid: &mut [Vec<i8>], cr: usize, cc: usize) {
-    for dr in -2isize..=2 {
-        for dc in -2isize..=2 {
-            let dark = dr.abs() == 2 || dc.abs() == 2 || (dr == 0 && dc == 0);
-            grid[(cr as isize + dr) as usize][(cc as isize + dc) as usize] = if dark { -2 } else { -1 };
-        }
-    }
-}
-
-fn rs_encode(data: &[u8], ec_len: usize) -> Vec<u8> {
-    let mut exp = [0u8; 512];
-    let mut log = [0u8; 256];
-    let mut x = 1u16;
-    for i in 0..255 {
-        exp[i] = x as u8;
-        log[x as usize] = i as u8;
-        x <<= 1;
-        if x >= 256 {
-            x ^= 0x11d;
-        }
-    }
-    for i in 255..512 {
-        exp[i] = exp[i - 255];
-    }
-    let gf_mul = |a: u8, b: u8| -> u8 {
-        if a == 0 || b == 0 {
-            0
-        } else {
-            exp[(log[a as usize] as usize) + (log[b as usize] as usize)]
-        }
-    };
-
-    let mut gen_poly = vec![1u8];
-    for i in 0..ec_len {
-        let root = exp[i];
-        let mut next = vec![0u8; gen_poly.len() + 1];
-        for (j, &coef) in gen_poly.iter().enumerate() {
-            next[j] ^= coef;
-            next[j + 1] ^= gf_mul(coef, root);
-        }
-        gen_poly = next;
-    }
-
-    let mut msg = vec![0u8; data.len() + ec_len];
-    msg[..data.len()].copy_from_slice(data);
-    for i in 0..data.len() {
-        let factor = msg[i];
-        if factor != 0 {
-            for (j, &g) in gen_poly.iter().enumerate() {
-                msg[i + j] ^= gf_mul(g, factor);
-            }
-        }
-    }
-    msg[data.len()..].to_vec()
 }
 
 const JAM_HTML: &str = include_str!("../assets/spin.html");
@@ -845,7 +637,7 @@ mod tests {
                 expected.len()
             );
         }
-        assert!(generate_qr_svg(&"x".repeat(107)).is_none());
+        assert!(generate_qr_svg(&"x".repeat(107)).is_some());
     }
 
     #[test]

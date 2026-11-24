@@ -223,10 +223,7 @@ pub fn format_duration(secs: u32) -> String {
 pub fn clean_track_title(title: &str) -> String {
     let mut out = title.trim().to_string();
     for (open, close) in [('(', ')'), ('[', ']')] {
-        loop {
-            let Some(start) = out.rfind(open) else {
-                break;
-            };
+        while let Some(start) = out.rfind(open) {
             let Some(end_rel) = out[start..].find(close) else {
                 break;
             };

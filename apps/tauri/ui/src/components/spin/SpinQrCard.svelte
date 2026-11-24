@@ -62,7 +62,11 @@
 
   {#if qrSvg}
     <div class="qr-box w-[184px] h-[184px] p-2.5 rounded-2xl bg-white border border-[var(--border)] shadow-[0_8px_24px_rgba(15,23,42,0.16)]">
-      {@html qrSvg}
+      <img
+        src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(qrSvg)}`}
+        alt={kicker}
+        class="w-full h-full block"
+      />
     </div>
   {/if}
 

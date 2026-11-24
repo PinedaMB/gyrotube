@@ -3,6 +3,11 @@
   import { cubicOut } from "svelte/easing";
   import { fade, scale } from "svelte/transition";
   import { t } from "../../lib/i18n.svelte";
+  import {
+    computeLyricOpacity,
+    isWaitingForFirstLyric,
+    parsePlainStanzas,
+  } from "../../lib/lyricsFormat";
   import { player } from "../../lib/stores/player.svelte";
   import { formatDuration } from "../../lib/types";
   import CoverImage from "../CoverImage.svelte";
@@ -18,59 +23,20 @@
   let selectedIndices = $state<number[]>([]);
   let cardModalOpen = $state(false);
 
-  const SECTION_HEADER_RE = /^\[[^\]]{1,40}\]$/;
-
-  interface PlainStanzaLine {
-    text: string;
-    isHeader: boolean;
-    selectableIdx: number | null;
-  }
-
-  let plainParsed = $derived.by(() => {
-    if (player.lyrics.type !== "Plain") {
-      return { stanzas: [] as PlainStanzaLine[][], selectable: [] as string[] };
-    }
-    const selectable: string[] = [];
-    const rawBlocks = player.lyrics.text
-      .trim()
-      .split(/\r?\n\s*\r?\n+/)
-      .map((block) =>
-        block
-          .split(/\r?\n/)
-          .map((l) => l.trim())
-          .filter((l) => l.length > 0),
-      )
-      .filter((lines) => lines.length > 0);
-
-    const stanzas: PlainStanzaLine[][] = rawBlocks.map((block) =>
-      block.map((text) => {
-        const isHeader = SECTION_HEADER_RE.test(text);
-        if (isHeader) {
-          return { text: text.slice(1, -1).trim(), isHeader: true, selectableIdx: null };
-        }
-        const selectableIdx = selectable.length;
-        selectable.push(text);
-        return { text, isHeader: false, selectableIdx };
-      }),
-    );
-
-    return { stanzas, selectable };
-  });
+  let plainParsed = $derived(
+    player.lyrics.type === "Plain"
+      ? parsePlainStanzas(player.lyrics.text)
+      : { stanzas: [], selectable: [] },
+  );
 
   let hasLyrics = $derived(
     (player.lyrics.type === "Synced" && player.lyrics.lines.length > 0) ||
       (player.lyrics.type === "Plain" && plainParsed.selectable.length > 0),
   );
 
-  let waitingForFirstLyric = $derived.by(() => {
-    if (player.lyrics.type !== "Synced" || player.lyrics.lines.length === 0) return false;
-    const first = player.lyrics.lines[0];
-    return (
-      player.activeLyricIndex == null &&
-      first.time_secs >= 3 &&
-      player.positionSecs < first.time_secs
-    );
-  });
+  let waitingForFirstLyric = $derived(
+    isWaitingForFirstLyric(player.lyrics, player.activeLyricIndex, player.positionSecs),
+  );
 
   let selectedLineTexts = $derived.by(() => {
     const sorted = [...selectedIndices].sort((a, b) => a - b);
@@ -154,21 +120,7 @@
     if (selecting) {
       return selectedIndices.includes(idx) ? 1.0 : 0.42;
     }
-    const active = player.activeLyricIndex;
-    if (active == null) {
-      // Before first line starts, keep the opening lines gently readable
-      if (idx === 0) return 0.82;
-      if (idx === 1) return 0.56;
-      return 0.34;
-    }
-    if (idx === active) return 1.0;
-    const delta = idx - active;
-    // Upcoming lines stay clearer so you can read ahead; already-sung lines recede softly
-    if (delta === 1) return 0.58;
-    if (delta === 2) return 0.38;
-    if (delta > 2) return 0.24;
-    if (delta === -1) return 0.34;
-    return 0.2;
+    return computeLyricOpacity(idx, player.activeLyricIndex);
   }
 
   let progressPct = $derived(

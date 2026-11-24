@@ -383,10 +383,10 @@ impl AudioStreamer {
                 let mut active_remote = remote_clone.clone();
                 let mut ios_refreshed = !active_url.contains("c=IOS");
                 loop {
-                    if let Some(total) = known_total {
-                        if written >= total {
-                            break;
-                        }
+                    if let Some(total) = known_total
+                        && written >= total
+                    {
+                        break;
                     }
                     let start = written;
                     let end = match known_total {
@@ -921,17 +921,49 @@ fn stream_session_key(path: &str) -> Option<&str> {
     Some(raw_key.rsplit_once('.').map_or(raw_key, |(key, _)| key))
 }
 
+fn allowed_cors_origin(origin: Option<&str>) -> Option<&str> {
+    let origin = origin?.trim();
+    if origin == "tauri://localhost"
+        || origin == "http://tauri.localhost"
+        || origin == "https://tauri.localhost"
+        || origin.starts_with("http://localhost:")
+        || origin.starts_with("http://127.0.0.1:")
+    {
+        Some(origin)
+    } else {
+        None
+    }
+}
+
+fn build_cors_headers(origin: Option<&str>) -> String {
+    let mut out = String::new();
+    if let Some(allowed) = allowed_cors_origin(origin) {
+        out.push_str(&format!("Access-Control-Allow-Origin: {allowed}\r\nVary: Origin\r\n"));
+    }
+    out.push_str("Access-Control-Allow-Methods: GET, HEAD, OPTIONS\r\nAccess-Control-Allow-Headers: Range\r\nAccess-Control-Expose-Headers: Content-Range, Content-Length, Accept-Ranges\r\n");
+    out
+}
+
 async fn handle_client(
     socket: TcpStream,
     sessions: Arc<RwLock<HashMap<String, Arc<StreamSession>>>>,
     proxies: Arc<RwLock<HashMap<String, ProxyTarget>>>,
     client: reqwest::Client,
 ) -> Result<(), std::io::Error> {
+    const MAX_HEADERS: usize = 64;
+    const MAX_HEADER_LINE_BYTES: usize = 8 * 1024;
+
     let (read_half, mut write_half) = socket.into_split();
     let mut reader = BufReader::new(read_half);
 
     let mut request_line = String::new();
-    if reader.read_line(&mut request_line).await? == 0 {
+    let req_read = tokio::time::timeout(
+        Duration::from_secs(5),
+        reader.read_line(&mut request_line),
+    )
+    .await
+    .map_err(|_| std::io::Error::new(std::io::ErrorKind::TimedOut, "Header read timeout"))??;
+    if req_read == 0 || request_line.len() > MAX_HEADER_LINE_BYTES {
         return Ok(());
     }
 
@@ -943,20 +975,31 @@ async fn handle_client(
     let path = parts[1];
 
     let mut range_header: Option<String> = None;
-    loop {
+    let mut origin_header: Option<String> = None;
+    for _ in 0..MAX_HEADERS {
         let mut line = String::new();
-        let n = reader.read_line(&mut line).await?;
+        let n = tokio::time::timeout(Duration::from_secs(5), reader.read_line(&mut line))
+            .await
+            .map_err(|_| std::io::Error::new(std::io::ErrorKind::TimedOut, "Header read timeout"))??;
         if n == 0 || line == "\r\n" || line == "\n" {
             break;
         }
+        if line.len() > MAX_HEADER_LINE_BYTES {
+            return Ok(());
+        }
         if let Some((k, v)) = line.split_once(':') {
-            if k.trim().eq_ignore_ascii_case("range") {
+            let key = k.trim();
+            if key.eq_ignore_ascii_case("range") {
                 range_header = Some(v.trim().to_string());
+            } else if key.eq_ignore_ascii_case("origin") {
+                origin_header = Some(v.trim().to_string());
             }
         }
     }
 
-    const CORS_HEADERS: &str = "Access-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET, HEAD, OPTIONS\r\nAccess-Control-Allow-Headers: Range\r\nAccess-Control-Expose-Headers: Content-Range, Content-Length, Accept-Ranges\r\n";
+    let cors_headers = build_cors_headers(origin_header.as_deref());
+    #[allow(non_snake_case)]
+    let CORS_HEADERS = cors_headers.as_str();
 
     if method.eq_ignore_ascii_case("OPTIONS") {
         let hdr = format!(
@@ -1162,10 +1205,10 @@ async fn handle_client(
     let mut buf = vec![0u8; 32 * 1024];
 
     loop {
-        if let Some(end_inc) = end_pos_inclusive {
-            if pos > end_inc {
-                break;
-            }
+        if let Some(end_inc) = end_pos_inclusive
+            && pos > end_inc
+        {
+            break;
         }
 
         let (written, done) = {
@@ -1208,22 +1251,18 @@ fn parse_total_bytes_from_headers(
     if let Some(cr) = headers
         .get(reqwest::header::CONTENT_RANGE)
         .and_then(|v| v.to_str().ok())
+        && let Some((_, total_str)) = cr.rsplit_once('/')
+        && let Ok(total) = total_str.trim().parse::<u64>()
     {
-        if let Some((_, total_str)) = cr.rsplit_once('/') {
-            if let Ok(total) = total_str.trim().parse::<u64>() {
-                return Some(total);
-            }
-        }
+        return Some(total);
     }
-    if !is_partial {
-        if let Some(cl) = headers
+    if !is_partial
+        && let Some(cl) = headers
             .get(reqwest::header::CONTENT_LENGTH)
             .and_then(|v| v.to_str().ok())
-        {
-            if let Ok(total) = cl.trim().parse::<u64>() {
-                return Some(total);
-            }
-        }
+        && let Ok(total) = cl.trim().parse::<u64>()
+    {
+        return Some(total);
     }
     None
 }
@@ -1294,10 +1333,10 @@ mod tests {
                         if n == 0 || line == "\r\n" || line == "\n" {
                             break;
                         }
-                        if let Some((k, v)) = line.split_once(':') {
-                            if k.trim().eq_ignore_ascii_case("range") {
-                                range_hdr = Some(v.trim().to_string());
-                            }
+                        if let Some((k, v)) = line.split_once(':')
+                            && k.trim().eq_ignore_ascii_case("range")
+                        {
+                            range_hdr = Some(v.trim().to_string());
                         }
                     }
 

@@ -15,6 +15,11 @@
   import { cubicOut } from "svelte/easing";
   import { scale } from "svelte/transition";
   import { t } from "../lib/i18n.svelte";
+  import {
+    computeLyricOpacity,
+    isWaitingForFirstLyric,
+    parsePlainStanzas,
+  } from "../lib/lyricsFormat";
   import { player } from "../lib/stores/player.svelte";
   import { formatDuration } from "../lib/types";
   import CoverImage from "./CoverImage.svelte";
@@ -55,53 +60,16 @@
     autoScrollPaused = false;
   }
 
-  const SECTION_HEADER_RE = /^\[[^\]]{1,40}\]$/;
+  let waitingForFirstLyric = $derived(
+    isWaitingForFirstLyric(player.lyrics, player.activeLyricIndex, player.positionSecs),
+  );
 
-  let waitingForFirstLyric = $derived.by(() => {
-    if (player.lyrics.type !== "Synced" || player.lyrics.lines.length === 0) return false;
-    const first = player.lyrics.lines[0];
-    return (
-      player.activeLyricIndex == null &&
-      first.time_secs >= 3 &&
-      player.positionSecs < first.time_secs
-    );
-  });
-
-  let plainStanzas = $derived.by(() => {
-    if (player.lyrics.type !== "Plain") return [];
-    return player.lyrics.text
-      .trim()
-      .split(/\r?\n\s*\r?\n+/)
-      .map((block) =>
-        block
-          .split(/\r?\n/)
-          .map((l) => l.trim())
-          .filter((l) => l.length > 0)
-          .map((text) => {
-            const isHeader = SECTION_HEADER_RE.test(text);
-            return {
-              text: isHeader ? text.slice(1, -1).trim() : text,
-              isHeader,
-            };
-          }),
-      )
-      .filter((stanza) => stanza.length > 0);
-  });
+  let plainStanzas = $derived(
+    player.lyrics.type === "Plain" ? parsePlainStanzas(player.lyrics.text).stanzas : [],
+  );
 
   function lineOpacity(idx: number): number {
-    const active = player.activeLyricIndex;
-    if (active == null) {
-      if (idx === 0) return 0.85;
-      if (idx === 1) return 0.58;
-      return 0.34;
-    }
-    if (idx === active) return 1.0;
-    const delta = idx - active;
-    if (delta === 1) return 0.58;
-    if (delta === 2) return 0.38;
-    if (delta > 2) return 0.24;
-    if (delta === -1) return 0.34;
-    return 0.2;
+    return computeLyricOpacity(idx, player.activeLyricIndex);
   }
 
   function handleProgressClick(e: MouseEvent) {

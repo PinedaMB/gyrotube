@@ -16,6 +16,20 @@ import {
 } from "../listeningStats";
 import { hashToView, isSameView, type RouteState, viewToHash } from "../router";
 import { parseYtmUrl } from "../ytmUrl";
+import {
+  readDownloadedPlaylistKeys,
+  readHiddenTrackIds,
+  readPinnedPlaylistIds,
+  readRecentPlayedAt,
+  readRecentSearches,
+  readSpinDisplayName,
+  writeDownloadedPlaylistKeys,
+  writeHiddenTrackIds,
+  writePinnedPlaylistIds,
+  writeRecentPlayedAt,
+  writeRecentSearches,
+  writeSpinDisplayName,
+} from "./localPrefs";
 import { contextMenu } from "./contextMenu.svelte";
 import { device } from "./device.svelte";
 import { bindTauriPlayerEvents } from "./nativeEvents";
@@ -115,10 +129,10 @@ class PlayerStore {
   recentTracks = $state<Track[]>([]);
   userPlaylists = $state<UserPlaylist[]>([]);
   searchHistory = $state<string[]>([]);
-  recentSearches = $state<RecentSearchEntry[]>(PlayerStore.readRecentSearches());
-  pinnedPlaylistIds = $state<string[]>(PlayerStore.readPinnedPlaylistIds());
-  recentPlayedAt = $state<Record<string, number>>(PlayerStore.readRecentPlayedAt());
-  hiddenTrackIds = $state<Set<string>>(PlayerStore.readHiddenTrackIds());
+  recentSearches = $state<RecentSearchEntry[]>(readRecentSearches());
+  pinnedPlaylistIds = $state<string[]>(readPinnedPlaylistIds());
+  recentPlayedAt = $state<Record<string, number>>(readRecentPlayedAt());
+  hiddenTrackIds = $state<Set<string>>(readHiddenTrackIds());
   followedArtists = $state<Artist[]>([]);
 
   // Video mode (hybrid synced <video muted> alongside master audio deck)
@@ -159,11 +173,7 @@ class PlayerStore {
     remote_qr_svg: null,
     remote_guest_count: 0,
   });
-  spinDisplayName = $state<string>(
-    typeof localStorage !== "undefined"
-      ? (localStorage.getItem("gyrotube.spin_display_name_v1") ?? "")
-      : "",
-  );
+  spinDisplayName = $state<string>(readSpinDisplayName());
   spinRemoteConn = $state<{
     status: "idle" | "connecting" | "connected" | "reconnecting";
     hostName: string;
@@ -177,7 +187,7 @@ class PlayerStore {
   // Network & offline downloads (Spotify-style auto-sync per playlist)
   isOffline = $state(typeof navigator !== "undefined" ? !navigator.onLine : false);
   downloadedTrackIds = $state<Set<string>>(new Set());
-  downloadedPlaylistKeys = $state<Set<string>>(PlayerStore.readDownloadedPlaylistKeys());
+  downloadedPlaylistKeys = $state<Set<string>>(readDownloadedPlaylistKeys());
   downloadingTrackIds = $state<Set<string>>(new Set());
   offlineCoverBaseUrl = $state<string | null>(null);
   downloadingPlaylistKey = $state<string | null>(null);
@@ -185,114 +195,24 @@ class PlayerStore {
   private downloadQueue: Track[] = [];
   private downloadWorkerRunning = false;
 
-  private static readRecentSearches(): RecentSearchEntry[] {
-    if (typeof localStorage === "undefined") return [];
-    try {
-      const raw = localStorage.getItem("gyrotube.recent_searches_v1");
-      if (!raw) return [];
-      const parsed = JSON.parse(raw);
-      return Array.isArray(parsed) ? (parsed as RecentSearchEntry[]).slice(0, 10) : [];
-    } catch {
-      return [];
-    }
-  }
-
   private persistRecentSearches(): void {
-    if (typeof localStorage === "undefined") return;
-    try {
-      localStorage.setItem("gyrotube.recent_searches_v1", JSON.stringify(this.recentSearches));
-    } catch {
-      // ignore
-    }
-  }
-
-  private static readPinnedPlaylistIds(): string[] {
-    if (typeof localStorage === "undefined") return [];
-    try {
-      const raw = localStorage.getItem("gyrotube.pinned_playlists_v1");
-      if (!raw) return [];
-      const parsed = JSON.parse(raw);
-      return Array.isArray(parsed)
-        ? parsed.filter((x): x is string => typeof x === "string").slice(0, 4)
-        : [];
-    } catch {
-      return [];
-    }
+    writeRecentSearches(this.recentSearches);
   }
 
   private persistPinnedPlaylistIds(): void {
-    if (typeof localStorage === "undefined") return;
-    try {
-      localStorage.setItem("gyrotube.pinned_playlists_v1", JSON.stringify(this.pinnedPlaylistIds));
-    } catch {
-      // ignore
-    }
-  }
-
-  private static readRecentPlayedAt(): Record<string, number> {
-    if (typeof localStorage === "undefined") return {};
-    try {
-      const raw = localStorage.getItem("gyrotube.recent_played_at_v1");
-      if (!raw) return {};
-      const parsed = JSON.parse(raw);
-      return parsed && typeof parsed === "object" ? (parsed as Record<string, number>) : {};
-    } catch {
-      return {};
-    }
+    writePinnedPlaylistIds(this.pinnedPlaylistIds);
   }
 
   private persistRecentPlayedAt(): void {
-    if (typeof localStorage === "undefined") return;
-    try {
-      localStorage.setItem("gyrotube.recent_played_at_v1", JSON.stringify(this.recentPlayedAt));
-    } catch {
-      // ignore
-    }
-  }
-
-  private static readHiddenTrackIds(): Set<string> {
-    if (typeof localStorage === "undefined") return new Set();
-    try {
-      const raw = localStorage.getItem("gyrotube.hidden_tracks_v1");
-      if (!raw) return new Set();
-      const parsed = JSON.parse(raw);
-      return Array.isArray(parsed) ? new Set(parsed.filter((x): x is string => typeof x === "string")) : new Set();
-    } catch {
-      return new Set();
-    }
+    writeRecentPlayedAt(this.recentPlayedAt);
   }
 
   private persistHiddenTrackIds(): void {
-    if (typeof localStorage === "undefined") return;
-    try {
-      localStorage.setItem("gyrotube.hidden_tracks_v1", JSON.stringify([...this.hiddenTrackIds]));
-    } catch {
-      // ignore
-    }
-  }
-
-  private static readDownloadedPlaylistKeys(): Set<string> {
-    if (typeof localStorage === "undefined") return new Set();
-    try {
-      const raw = localStorage.getItem("gyrotube.downloaded_playlists_v1");
-      if (!raw) return new Set();
-      const arr = JSON.parse(raw);
-      return Array.isArray(arr) ? new Set(arr.filter((x): x is string => typeof x === "string")) : new Set();
-    } catch {
-      return new Set();
-    }
+    writeHiddenTrackIds(this.hiddenTrackIds);
   }
 
   private persistDownloadedPlaylistKeys(): void {
-    if (typeof localStorage === "undefined") return;
-    try {
-      localStorage.setItem(
-        "gyrotube.downloaded_playlists_v1",
-        JSON.stringify([...this.downloadedPlaylistKeys]),
-      );
-    } catch {
-      // ignore storage quota errors
-    }
+    writeDownloadedPlaylistKeys(this.downloadedPlaylistKeys);
   }
 
   // Equalizer & Listening stats (local-only)
@@ -505,13 +425,7 @@ class PlayerStore {
   public setSpinDisplayName(name: string): void {
     const clean = name.slice(0, 28);
     this.spinDisplayName = clean;
-    if (typeof localStorage !== "undefined") {
-      try {
-        localStorage.setItem("gyrotube.spin_display_name_v1", clean);
-      } catch {
-        // ignore
-      }
-    }
+    writeSpinDisplayName(clean);
     if (this.spinStatus.local_active || this.spinStatus.remote_role === "host") {
       void this.syncSpinSnapshot();
     }
@@ -1009,8 +923,16 @@ class PlayerStore {
           Array.isArray((item as UserPlaylist).tracks) &&
           !existing.has((item as UserPlaylist).id)
         ) {
-          existing.add((item as UserPlaylist).id);
-          toAdd.push(item as UserPlaylist);
+          const pl = item as UserPlaylist;
+          const rawCover = typeof pl.cover_path === "string" ? pl.cover_path.trim() : null;
+          const safeCover =
+            rawCover &&
+            (/^data:image\/(?:jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(rawCover) ||
+              rawCover.startsWith("https://"))
+              ? rawCover
+              : null;
+          existing.add(pl.id);
+          toAdd.push({ ...pl, cover_path: safeCover });
         }
       }
       if (toAdd.length > 0) {
