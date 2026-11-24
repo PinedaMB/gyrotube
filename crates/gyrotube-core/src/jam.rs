@@ -40,7 +40,11 @@ pub struct JamSnapshot {
 
 #[derive(Debug, Clone)]
 pub enum JamCommand {
-    AddTrack(String, String),
+    AddTrack {
+        video_id: String,
+        guest_name: String,
+        track: Option<Track>,
+    },
     TogglePlayPause,
     NextTrack,
     PrevTrack,
@@ -169,19 +173,28 @@ async fn handle_connection(
     cmd_tx: async_channel::Sender<JamRequest>,
     session_id: u64,
 ) {
-    let mut buf = vec![0u8; 16384];
-    let n = match tokio::time::timeout(std::time::Duration::from_secs(5), stream.read(&mut buf)).await {
-        Ok(Ok(n)) if n > 0 => n,
-        _ => return,
-    };
+    let mut req_buf = Vec::with_capacity(2048);
+    let mut header_end = None;
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
+    while req_buf.len() < 16384 {
+        let mut chunk = [0u8; 4096];
+        match tokio::time::timeout_at(deadline, stream.read(&mut chunk)).await {
+            Ok(Ok(n)) if n > 0 => {
+                req_buf.extend_from_slice(&chunk[..n]);
+                if let Some(pos) = req_buf.windows(4).position(|w| w == b"\r\n\r\n") {
+                    header_end = Some(pos + 4);
+                    break;
+                }
+            }
+            _ => break,
+        }
+    }
+    if req_buf.is_empty() {
+        return;
+    }
 
-    let req_bytes = &buf[..n];
-    let header_end = req_bytes
-        .windows(4)
-        .position(|w| w == b"\r\n\r\n")
-        .map(|p| p + 4)
-        .unwrap_or(req_bytes.len());
-    let header_str = String::from_utf8_lossy(&req_bytes[..header_end]);
+    let header_end = header_end.unwrap_or(req_buf.len());
+    let header_str = String::from_utf8_lossy(&req_buf[..header_end]);
     let mut lines = header_str.lines();
     let first_line = lines.next().unwrap_or("");
     let mut parts = first_line.split_whitespace();
@@ -200,7 +213,7 @@ async fn handle_connection(
         }
     }
 
-    let mut body = req_bytes[header_end..].to_vec();
+    let mut body = req_buf[header_end..].to_vec();
     while body.len() < content_length {
         let mut chunk = vec![0u8; content_length - body.len()];
         match tokio::time::timeout(std::time::Duration::from_secs(3), stream.read(&mut chunk)).await {
@@ -301,13 +314,60 @@ async fn handle_connection(
             #[derive(Deserialize)]
             struct AddReq {
                 id: String,
+                #[serde(default)]
+                title: Option<String>,
+                #[serde(default)]
+                artist: Option<String>,
+                #[serde(default)]
+                artist_id: Option<String>,
+                #[serde(default)]
+                album: Option<String>,
+                #[serde(default)]
+                album_id: Option<String>,
+                #[serde(default)]
+                duration_secs: Option<u32>,
+                #[serde(default)]
+                view_count: Option<u64>,
+                #[serde(default)]
+                cover_url: Option<String>,
+                #[serde(default)]
+                cover_large_url: Option<String>,
+                #[serde(default)]
+                is_video: bool,
             }
             match serde_json::from_slice::<AddReq>(&body) {
-                Ok(request) if !request.id.is_empty() => {
+                Ok(request) if !request.id.trim().is_empty() => {
+                    let video_id = request.id.trim().to_string();
+                    let track = request
+                        .title
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|t| !t.is_empty())
+                        .map(|title| Track {
+                            is_music: false,
+                            is_video: request.is_video,
+                            id: video_id.clone(),
+                            title: title.to_string(),
+                            artist: request.artist.unwrap_or_default(),
+                            artist_id: request.artist_id,
+                            album: request.album,
+                            album_id: request.album_id,
+                            duration_secs: request.duration_secs,
+                            view_count: request.view_count,
+                            cover_url: request.cover_url,
+                            cover_large_url: request.cover_large_url,
+                        });
+                    if let Ok(mut snap) = snapshot.write() {
+                        snap.added_count = snap.added_count.saturating_add(1);
+                    }
                     let _ = cmd_tx
                         .send(JamRequest {
                             source: JamSource::Lan(session_id),
-                            command: JamCommand::AddTrack(request.id, guest_ip),
+                            command: JamCommand::AddTrack {
+                                video_id,
+                                guest_name: guest_ip,
+                                track,
+                            },
                         })
                         .await;
                     send_response(
@@ -499,6 +559,8 @@ async fn send_response(stream: &mut TcpStream, status: &str, content_type: &str,
     );
     let _ = stream.write_all(header.as_bytes()).await;
     let _ = stream.write_all(body).await;
+    let _ = stream.flush().await;
+    let _ = stream.shutdown().await;
 }
 
 fn query_param(query: &str, key: &str) -> Option<String> {
@@ -683,5 +745,68 @@ mod tests {
         let resp_str = String::from_utf8_lossy(&resp);
         assert!(resp_str.starts_with("HTTP/1.1 206 Partial Content"));
         assert!(resp_str.ends_with("\r\n\r\nABCD"));
+    }
+
+    #[tokio::test]
+    async fn accepts_multiple_queue_add_requests_with_full_track_metadata() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let snapshot = Arc::new(RwLock::new(JamSnapshot::default()));
+        let (cmd_tx, cmd_rx) = async_channel::unbounded();
+        let backend = Backend::new();
+
+        let srv_snap = Arc::clone(&snapshot);
+        let server = tokio::spawn(async move {
+            for _ in 0..2 {
+                let (stream, peer) = listener.accept().await.unwrap();
+                handle_connection(
+                    stream,
+                    peer,
+                    backend.clone(),
+                    Arc::clone(&srv_snap),
+                    cmd_tx.clone(),
+                    42,
+                )
+                .await;
+            }
+        });
+
+        for (id, title) in [("vid-1", "First Song"), ("vid-2", "Second Song")] {
+            let body = serde_json::json!({
+                "id": id,
+                "title": title,
+                "artist": "Test Artist",
+                "verified_catalog_audio": true,
+            })
+            .to_string();
+            let header = format!(
+                "POST /api/queue/add HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n",
+                body.len()
+            );
+            let mut client = TcpStream::connect(addr).await.unwrap();
+            // Send headers and body in separate writes to test chunked HTTP parsing
+            client.write_all(header.as_bytes()).await.unwrap();
+            client.write_all(body.as_bytes()).await.unwrap();
+            let mut resp = Vec::new();
+            client.read_to_end(&mut resp).await.unwrap();
+            let resp_str = String::from_utf8_lossy(&resp);
+            assert!(resp_str.starts_with("HTTP/1.1 202 Accepted"), "{resp_str}");
+        }
+
+        server.await.unwrap();
+        assert_eq!(snapshot.read().unwrap().added_count, 2);
+
+        for (expected_id, expected_title) in [("vid-1", "First Song"), ("vid-2", "Second Song")] {
+            let req = cmd_rx.recv().await.unwrap();
+            assert!(req.source.is_current(Some(42), None));
+            assert!(matches!(
+                req.command,
+                JamCommand::AddTrack {
+                    ref video_id,
+                    track: Some(ref track),
+                    ..
+                } if video_id == expected_id && track.title == expected_title && !track.is_music
+            ));
+        }
     }
 }

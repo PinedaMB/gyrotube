@@ -469,7 +469,7 @@ class PlayerStore {
       onPrev: () => void this.prev(),
       onMoveQueue: (from, to) => this.moveQueueItem(from, to),
       onEnqueueTrack: (track, guestName) => {
-        this.enqueueTrack(track);
+        this.enqueueTrack(track, true);
         this.showToast(t("toast.spin_guest_added", { guest: guestName, title: track.title }));
       },
       onRemoteSync: (payload, error) => {
@@ -1817,13 +1817,15 @@ class PlayerStore {
     void this.syncSpinSnapshot();
   }
 
-  public enqueueTrack(track: Track): void {
+  public enqueueTrack(track: Track, silent = false): void {
     if (this.spinStatus.remote_role === "guest") {
       this.sendRemoteAddTrack(track);
       return;
     }
     this.queue = [...this.queue, track];
-    this.showToast(t("toast.added_to_queue", { title: track.title }));
+    if (!silent) {
+      this.showToast(t("toast.added_to_queue", { title: track.title }));
+    }
     if (this.currentIndex == null) {
       void this.playIndex(0);
     } else {

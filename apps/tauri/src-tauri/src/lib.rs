@@ -82,9 +82,15 @@ pub fn run() {
                         continue;
                     }
                     let event = match req.command {
-                        JamCommand::AddTrack(video_id, guest_name) => {
-                            SpinCommandEvent::AddTrack { video_id, guest_name }
-                        }
+                        JamCommand::AddTrack {
+                            video_id,
+                            guest_name,
+                            track,
+                        } => SpinCommandEvent::AddTrack {
+                            video_id,
+                            guest_name,
+                            track,
+                        },
                         JamCommand::TogglePlayPause => SpinCommandEvent::TogglePlayPause,
                         JamCommand::NextTrack => SpinCommandEvent::NextTrack,
                         JamCommand::PrevTrack => SpinCommandEvent::PrevTrack,

@@ -6,6 +6,19 @@
 
   let busy = $state(false);
 
+  $effect(() => {
+    if (!player.spinOpen || !player.spinStatus.local_active || !isTauriRuntime()) return;
+    const timer = window.setInterval(() => {
+      void api
+        .spinStatus()
+        .then((status) => {
+          player.spinStatus = status;
+        })
+        .catch(() => {});
+    }, 3000);
+    return () => window.clearInterval(timer);
+  });
+
   async function toggleLocal() {
     if (!isTauriRuntime() || busy) return;
     busy = true;

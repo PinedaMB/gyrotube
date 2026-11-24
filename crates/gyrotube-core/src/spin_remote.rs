@@ -354,13 +354,28 @@ async fn serve_guest(
             loop {
                 let event = read_frame::<RemoteGuestEvent>(&mut recv).await?;
                 let command = match event {
-                    RemoteGuestEvent::AddTrack(track) => JamCommand::AddTrack(track.id, "remoto".into()),
-                    RemoteGuestEvent::AddTrackNamed { track, guest_name } => {
+                    RemoteGuestEvent::AddTrack(mut track) => {
+                        track.is_music = false;
+                        JamCommand::AddTrack {
+                            video_id: track.id.clone(),
+                            guest_name: "remoto".into(),
+                            track: Some(track),
+                        }
+                    }
+                    RemoteGuestEvent::AddTrackNamed {
+                        mut track,
+                        guest_name,
+                    } => {
+                        track.is_music = false;
                         let name = guest_name
                             .map(|s| s.trim().chars().take(28).collect::<String>())
                             .filter(|s| !s.is_empty())
                             .unwrap_or_else(|| "remoto".into());
-                        JamCommand::AddTrack(track.id, name)
+                        JamCommand::AddTrack {
+                            video_id: track.id.clone(),
+                            guest_name: name,
+                            track: Some(track),
+                        }
                     }
                     RemoteGuestEvent::Control(action) => {
                         let allowed = state_for_cmds
@@ -698,7 +713,11 @@ mod tests {
             let add_req = requests.recv().await?;
             assert!(matches!(
                 add_req.command,
-                JamCommand::AddTrack(ref id, ref who) if id == "dQw4w9WgXcQ" && who == "Ana"
+                JamCommand::AddTrack {
+                    ref video_id,
+                    ref guest_name,
+                    track: Some(ref track),
+                } if video_id == "dQw4w9WgXcQ" && guest_name == "Ana" && track.title == sample_track.title && !track.is_music
             ));
 
             // Enabling allow_controls immediately updates guests and unlocks remote controls.

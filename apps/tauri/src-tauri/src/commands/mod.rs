@@ -71,7 +71,11 @@ impl AppCoreState {
 #[serde(tag = "kind")]
 pub enum SpinCommandEvent {
     #[serde(rename = "add_track")]
-    AddTrack { video_id: String, guest_name: String },
+    AddTrack {
+        video_id: String,
+        guest_name: String,
+        track: Option<gyrotube_core::models::Track>,
+    },
     #[serde(rename = "toggle_play_pause")]
     TogglePlayPause,
     #[serde(rename = "next_track")]
