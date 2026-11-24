@@ -18,9 +18,29 @@
   let debounceTimer: number | undefined;
   let suggestionRequest = 0;
   let searchInput = $state<HTMLInputElement | null>(null);
+  let listboxEl = $state<HTMLDivElement | null>(null);
+
+  type NavEntry =
+    | { kind: "term"; term: string }
+    | { kind: "artist"; artist: Artist }
+    | { kind: "track"; track: Track }
+    | { kind: "album"; album: Album };
 
   let showingHistory = $derived(query.trim().length === 0);
   let listItems = $derived(showingHistory ? [] : suggestions.terms);
+  let artistsOffset = $derived(listItems.length);
+  let tracksOffset = $derived(artistsOffset + suggestions.artists.length);
+  let albumsOffset = $derived(tracksOffset + suggestions.tracks.length);
+  let navEntries = $derived<NavEntry[]>(
+    showingHistory
+      ? []
+      : [
+          ...suggestions.terms.map((term): NavEntry => ({ kind: "term", term })),
+          ...suggestions.artists.map((artist): NavEntry => ({ kind: "artist", artist })),
+          ...suggestions.tracks.map((track): NavEntry => ({ kind: "track", track })),
+          ...suggestions.albums.map((album): NavEntry => ({ kind: "album", album })),
+        ],
+  );
   let hasRichEntities = $derived(
     !showingHistory &&
       (suggestions.artists.length > 0 ||
@@ -28,7 +48,7 @@
         suggestions.albums.length > 0),
   );
   let hasPopoverContent = $derived(
-    showingHistory ? player.recentSearches.length > 0 : listItems.length > 0 || hasRichEntities,
+    showingHistory ? player.recentSearches.length > 0 : navEntries.length > 0,
   );
 
   function pickSuggestedArtist(artist: Artist) {
@@ -75,6 +95,13 @@
       popoverOpen = false;
       selectedIdx = -1;
     }
+  });
+
+  $effect(() => {
+    if (!popoverOpen || selectedIdx < 0 || !listboxEl) return;
+    listboxEl
+      .querySelector<HTMLElement>('[aria-selected="true"]')
+      ?.scrollIntoView({ block: "nearest" });
   });
 
   onMount(() => {
@@ -142,7 +169,7 @@
 
   function handleKeydown(e: KeyboardEvent) {
     if (e.isComposing) return;
-    const navLen = showingHistory ? player.recentSearches.length : listItems.length;
+    const navLen = showingHistory ? player.recentSearches.length : navEntries.length;
     if (!popoverOpen || navLen === 0) {
       if (e.key === "Enter") submitSearch(query);
       else if (e.key === "Escape") searchInput?.blur();
@@ -154,9 +181,12 @@
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
       selectedIdx = ((selectedIdx < 0 ? 0 : selectedIdx) - 1 + navLen) % navLen;
-    } else if (e.key === "Tab" && !e.shiftKey && !showingHistory && listItems[selectedIdx]) {
-      e.preventDefault();
-      fillSuggestion(listItems[selectedIdx]);
+    } else if (e.key === "Tab" && !e.shiftKey && !showingHistory) {
+      const picked = navEntries[selectedIdx];
+      if (picked?.kind === "term") {
+        e.preventDefault();
+        fillSuggestion(picked.term);
+      }
     } else if (e.key === "Enter") {
       e.preventDefault();
       if (showingHistory) {
@@ -164,7 +194,18 @@
         if (entry) openRecentEntry(entry);
         else submitSearch(query);
       } else {
-        submitSearch(listItems[selectedIdx] ?? query);
+        const picked = navEntries[selectedIdx];
+        if (!picked) {
+          submitSearch(query);
+        } else if (picked.kind === "term") {
+          submitSearch(picked.term);
+        } else if (picked.kind === "artist") {
+          pickSuggestedArtist(picked.artist);
+        } else if (picked.kind === "track") {
+          pickSuggestedTrack(picked.track);
+        } else {
+          pickSuggestedAlbum(picked.album);
+        }
       }
     } else if (e.key === "Escape") {
       popoverOpen = false;
@@ -257,7 +298,10 @@
         {/if}
       </div>
 
-      <div class="px-1.5 space-y-0.5 max-h-[min(420px,55dvh)] md:max-h-[420px] overflow-y-auto overscroll-contain scroll-y">
+      <div
+        bind:this={listboxEl}
+        class="px-1.5 space-y-0.5 max-h-[min(420px,55dvh)] md:max-h-[420px] overflow-y-auto overscroll-contain scroll-y"
+      >
         {#if showingHistory}
           {#each player.recentSearches as entry, i (entry.key)}
             <div
@@ -391,10 +435,16 @@
             <div class="my-1.5 mx-2 border-t border-[var(--border)]"></div>
           {/if}
 
-          {#each suggestions.artists as artist (artist.id)}
+          {#each suggestions.artists as artist, i (artist.id)}
+            {@const idx = artistsOffset + i}
             <button
               type="button"
-              class="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-xl hover:bg-[var(--surface-hover)] text-left transition-colors"
+              role="option"
+              aria-selected={idx === selectedIdx}
+              class="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-xl text-left transition-colors {idx === selectedIdx
+                ? 'bg-[var(--accent-soft)] text-[var(--accent-bright)]'
+                : 'hover:bg-[var(--surface-hover)]'}"
+              onmouseenter={() => (selectedIdx = idx)}
               onmousedown={(e) => e.preventDefault()}
               onclick={() => pickSuggestedArtist(artist)}
             >
@@ -411,10 +461,16 @@
             </button>
           {/each}
 
-          {#each suggestions.tracks as track (track.id)}
+          {#each suggestions.tracks as track, i (track.id)}
+            {@const idx = tracksOffset + i}
             <button
               type="button"
-              class="group w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-xl hover:bg-[var(--surface-hover)] text-left transition-colors"
+              role="option"
+              aria-selected={idx === selectedIdx}
+              class="group w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-xl text-left transition-colors {idx === selectedIdx
+                ? 'bg-[var(--accent-soft)] text-[var(--accent-bright)]'
+                : 'hover:bg-[var(--surface-hover)]'}"
+              onmouseenter={() => (selectedIdx = idx)}
               onmousedown={(e) => e.preventDefault()}
               onclick={() => pickSuggestedTrack(track)}
             >
@@ -427,14 +483,26 @@
                 <div class="text-[13px] font-bold truncate">{track.title}</div>
                 <div class="text-[11px] text-[var(--text-muted)] truncate">{track.artist}</div>
               </div>
-              <Play size={14} fill="currentColor" class="text-[var(--accent-bright)] opacity-0 group-hover:opacity-100 shrink-0 mr-1 transition-opacity" />
+              <Play
+                size={14}
+                fill="currentColor"
+                class="text-[var(--accent-bright)] shrink-0 mr-1 transition-opacity {idx === selectedIdx
+                  ? 'opacity-100'
+                  : 'opacity-0 group-hover:opacity-100'}"
+              />
             </button>
           {/each}
 
-          {#each suggestions.albums as album (album.id)}
+          {#each suggestions.albums as album, i (album.id)}
+            {@const idx = albumsOffset + i}
             <button
               type="button"
-              class="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-xl hover:bg-[var(--surface-hover)] text-left transition-colors"
+              role="option"
+              aria-selected={idx === selectedIdx}
+              class="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-xl text-left transition-colors {idx === selectedIdx
+                ? 'bg-[var(--accent-soft)] text-[var(--accent-bright)]'
+                : 'hover:bg-[var(--surface-hover)]'}"
+              onmouseenter={() => (selectedIdx = idx)}
               onmousedown={(e) => e.preventDefault()}
               onclick={() => pickSuggestedAlbum(album)}
             >
