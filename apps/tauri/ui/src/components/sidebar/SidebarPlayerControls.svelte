@@ -364,7 +364,7 @@
         step="0.5"
         value={displayPos}
         disabled={!player.currentTrack}
-        aria-label="Seek"
+        aria-label={t("a11y.seek")}
         style="background: linear-gradient(to right, var(--accent-bright) {progressPct}%, var(--control-track) {progressPct}%);"
         onpointerdown={() => {
           seeking = true;

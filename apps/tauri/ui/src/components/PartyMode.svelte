@@ -176,7 +176,7 @@
           class="h-1.5 w-full rounded-full bg-[var(--control-track)] cursor-pointer overflow-hidden group"
           role="slider"
           tabindex="0"
-          aria-label="Seek"
+          aria-label={t("a11y.seek")}
           aria-valuemin={0}
           aria-valuemax={Math.round(player.durationSecs)}
           aria-valuenow={Math.round(player.positionSecs)}
@@ -408,7 +408,7 @@
         class="h-2 w-full rounded-full bg-[var(--control-track)] cursor-pointer overflow-hidden"
         role="slider"
         tabindex="0"
-        aria-label="Seek"
+        aria-label={t("a11y.seek")}
         aria-valuemin={0}
         aria-valuemax={Math.round(player.durationSecs)}
         aria-valuenow={Math.round(player.positionSecs)}

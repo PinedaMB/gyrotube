@@ -1,5 +1,6 @@
 <script lang="ts">
   import { ChevronDown, ChevronUp, GripVertical, Music } from "lucide-svelte";
+  import { sg } from "./i18n";
   import { fmtTime, type JamTrackInfo } from "./types";
 
   interface Props {
@@ -20,17 +21,17 @@
   class="rounded-2xl bg-[var(--bg-elevated)] border border-[var(--border)] p-4 shadow-[0_12px_32px_rgba(0,0,0,0.28)] {visibleMobile
     ? 'block'
     : 'hidden lg:block'}"
-  aria-label="Cola de reproducción"
+  aria-label={sg("queue.aria")}
 >
   <div class="flex items-center justify-between gap-2 mb-3">
     <span class="text-[11px] font-bold uppercase tracking-[0.09em] text-[var(--text-muted)]">
-      Cola ({queue.length})
+      {sg("queue.header", { count: queue.length })}
     </span>
   </div>
 
   {#if queue.length === 0}
     <div class="py-8 text-center text-[13.5px] text-[var(--text-muted)]">
-      La cola está vacía
+      {sg("queue.empty")}
     </div>
   {:else}
     <div class="flex flex-col gap-1 lg:max-h-[420px] lg:overflow-y-auto scroll-thin pr-0.5">
@@ -115,7 +116,7 @@
                 type="button"
                 disabled={i === 0}
                 class="w-7 h-7 rounded-full flex items-center justify-center bg-white/[0.06] border border-white/[0.08] hover:bg-white/[0.14] transition-colors"
-                aria-label="Subir"
+                aria-label={sg("queue.move_up")}
                 onclick={() => onMove(i, i - 1)}
               >
                 <ChevronUp size={13} />
@@ -124,7 +125,7 @@
                 type="button"
                 disabled={i === queue.length - 1}
                 class="w-7 h-7 rounded-full flex items-center justify-center bg-white/[0.06] border border-white/[0.08] hover:bg-white/[0.14] transition-colors"
-                aria-label="Bajar"
+                aria-label={sg("queue.move_down")}
                 onclick={() => onMove(i, i + 1)}
               >
                 <ChevronDown size={13} />

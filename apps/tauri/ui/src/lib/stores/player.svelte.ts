@@ -1,5 +1,6 @@
 import { api, isTauriRuntime } from "../api";
 import { DualDeckAudioEngine, extractDominantRgb } from "../audioEngine";
+import { t } from "../i18n.svelte";
 import {
   EQ_PRESETS,
   loadEqSettings,
@@ -457,7 +458,7 @@ class PlayerStore {
     if (!clean || !isTauriRuntime()) return;
     try {
       await this.joinSpinRemote(clean);
-      this.showToast(this.isSpanish() ? "SPIN · Conectando…" : "SPIN · Connecting…");
+      this.showToast(t("toast.spin_connecting"));
     } catch (err) {
       this.showToast(String(err));
     }
@@ -471,9 +472,7 @@ class PlayerStore {
       onMoveQueue: (from, to) => this.moveQueueItem(from, to),
       onEnqueueTrack: (track, guestName) => {
         this.enqueueTrack(track);
-        this.showToast(
-          this.isSpanish() ? `${guestName} agregó ${track.title}` : `${guestName} added ${track.title}`,
-        );
+        this.showToast(t("toast.spin_guest_added", { guest: guestName, title: track.title }));
       },
       onRemoteSync: (payload, error) => {
         if (error) {
@@ -591,19 +590,9 @@ class PlayerStore {
     void this.persistSession();
   }
 
-  private isSpanish(): boolean {
-    return (
-      this.language === "Es" ||
-      (this.language === "Auto" &&
-        typeof navigator !== "undefined" &&
-        (navigator.language || "").toLowerCase().startsWith("es"))
-    );
-  }
-
   private formatErrorMessage(raw: string): string {
     const msg = raw.trim();
     const lower = msg.toLowerCase();
-    const isEs = this.isSpanish();
 
     if (
       this.isOffline ||
@@ -614,16 +603,16 @@ class PlayerStore {
       lower.includes("connection refused") ||
       lower.includes("connect error")
     ) {
-      return isEs ? "Sin conexión a internet" : "No internet connection";
+      return t("error.no_internet");
     }
     if (lower.includes("timed out") || lower.includes("timeout")) {
-      return isEs ? "Tiempo de espera agotado. Intenta de nuevo." : "Request timed out. Please try again.";
+      return t("error.timeout");
     }
     if (lower.includes("http 403") || lower.includes("http 410") || lower.includes("unavailable")) {
-      return isEs ? "Esta canción no está disponible en este momento" : "This track is currently unavailable";
+      return t("error.track_unavailable");
     }
     if (lower.includes("not supported") || lower.includes("audio error (code")) {
-      return isEs ? "No se pudo reproducir el audio de esta canción" : "Could not play audio for this track";
+      return t("error.audio_playback");
     }
     return msg.length > 140 ? `${msg.slice(0, 137)}…` : msg;
   }
@@ -1389,7 +1378,7 @@ class PlayerStore {
       return;
     }
     if (this.pinnedPlaylistIds.length >= 4) {
-      this.showToast(this.isSpanish() ? "Máximo 4 elementos fijados" : "Maximum 4 pinned items");
+      this.showToast(t("collection.pin_max"));
       return;
     }
     this.pinnedPlaylistIds = [id, ...this.pinnedPlaylistIds];
@@ -1406,14 +1395,12 @@ class PlayerStore {
       next.delete(track.id);
       this.hiddenTrackIds = next;
       this.persistHiddenTrackIds();
-      this.showToast(
-        this.isSpanish() ? `Visible de nuevo: ${track.title}` : `Unhidden: ${track.title}`,
-      );
+      this.showToast(t("ctx.track_unhidden", { title: track.title }));
     } else {
       next.add(track.id);
       this.hiddenTrackIds = next;
       this.persistHiddenTrackIds();
-      this.showToast(this.isSpanish() ? `Oculta: ${track.title}` : `Hidden: ${track.title}`);
+      this.showToast(t("ctx.track_hidden", { title: track.title }));
       if (this.currentTrack?.id === track.id && this.queue.length > 1) {
         void this.next(false);
       }
@@ -1716,11 +1703,7 @@ class PlayerStore {
 
   private sendRemoteControl(action: "play_pause" | "next" | "prev"): void {
     if (!this.spinRemoteConn.allowControls) {
-      this.showToast(
-        this.isSpanish()
-          ? "SPIN · El anfitrión tiene los controles desactivados"
-          : "SPIN · Host controls are disabled",
-      );
+      this.showToast(t("toast.spin_controls_disabled"));
       return;
     }
     void api.spinRemoteControl(action).catch((err) => this.showToast(String(err)));
@@ -1731,11 +1714,7 @@ class PlayerStore {
     void api
       .spinRemoteAddTrack(track, this.spinDisplayName)
       .then(() => {
-        this.showToast(
-          this.isSpanish()
-            ? `SPIN · "${track.title}" enviada a ${host}`
-            : `SPIN · Sent "${track.title}" to ${host}`,
-        );
+        this.showToast(t("toast.spin_sent_to_host", { title: track.title, host }));
       })
       .catch((err) => this.showToast(String(err)));
   }
@@ -1753,11 +1732,7 @@ class PlayerStore {
     const next = [...this.queue];
     next.splice(insertAt, 0, track);
     this.queue = next;
-    this.showToast(
-      this.isSpanish()
-        ? `Sonará a continuación: ${track.title}`
-        : `Playing next: ${track.title}`,
-    );
+    this.showToast(t("toast.playing_next", { title: track.title }));
     void this.persistSession();
     void this.syncSpinSnapshot();
   }
@@ -1768,9 +1743,7 @@ class PlayerStore {
       return;
     }
     this.queue = [...this.queue, track];
-    this.showToast(
-      this.isSpanish() ? `Añadida a la cola: ${track.title}` : `Added to queue: ${track.title}`,
-    );
+    this.showToast(t("toast.added_to_queue", { title: track.title }));
     if (this.currentIndex == null) {
       void this.playIndex(0);
     } else {
@@ -1786,11 +1759,7 @@ class PlayerStore {
       const radio = await api.getRadioTracks(current.id);
       const unique = radio.filter((t) => t.id !== current.id);
       if (unique.length === 0) {
-        this.showToast(
-          this.isSpanish()
-            ? "No se encontraron canciones para la radio"
-            : "No related radio tracks found",
-        );
+        this.showToast(t("toast.radio_empty"));
         return;
       }
       this.queue = [current, ...unique];
@@ -1800,11 +1769,7 @@ class PlayerStore {
       this.sourceName = `Radio · ${current.title}`;
       void this.persistSession();
       void this.syncSpinSnapshot();
-      this.showToast(
-        this.isSpanish()
-          ? `Radio iniciada · ${unique.length} canciones en cola`
-          : `Radio started · ${unique.length} songs queued`,
-      );
+      this.showToast(t("toast.radio_started", { count: unique.length }));
     } catch (err) {
       this.showToast(String(err));
     }
@@ -1839,7 +1804,7 @@ class PlayerStore {
       this.shuffle = false;
       void this.persistSession();
       void this.syncSpinSnapshot();
-      this.showToast(this.isSpanish() ? "Cola limpiada" : "Queue cleared");
+      this.showToast(t("toast.queue_cleared"));
       return;
     }
     this.queue = [];
@@ -2287,9 +2252,7 @@ class PlayerStore {
     });
     if (duplicateName) {
       this.showToast(
-        this.isSpanish()
-          ? `«${track.title}» ya está en ${duplicateName}`
-          : `“${track.title}” is already in ${duplicateName}`,
+        t("collection.duplicate_in_playlist", { title: track.title, playlist: duplicateName }),
       );
       return;
     }
@@ -2298,11 +2261,7 @@ class PlayerStore {
       if (this.downloadedPlaylistKeys.has(playlistId)) {
         this.enqueueOfflineDownloads([track]);
       }
-      this.showToast(
-        this.isSpanish()
-          ? `Se agregó "${track.title}" a la playlist`
-          : `Added "${track.title}" to playlist`,
-      );
+      this.showToast(t("toast.added_to_playlist", { title: track.title }));
     }
   }
 
@@ -2332,11 +2291,11 @@ class PlayerStore {
       return true;
     }
     if (parsed.kind === "album") {
-      this.openAlbum(parsed.id, this.isSpanish() ? "Álbum" : "Album");
+      this.openAlbum(parsed.id, t("album.badge_album"));
       return true;
     }
     if (parsed.kind === "artist") {
-      this.openArtist(parsed.id, this.isSpanish() ? "Artista" : "Artist");
+      this.openArtist(parsed.id, t("explore.artist_pill"));
       return true;
     }
     if (parsed.kind === "track") {
@@ -2439,9 +2398,7 @@ class PlayerStore {
   public resetListeningStats(): void {
     this.listeningStats = emptyStats();
     saveListeningStats(this.listeningStats);
-    this.showToast(
-      this.isSpanish() ? "Estadísticas reiniciadas" : "Listening stats reset",
-    );
+    this.showToast(t("stats.reset_done"));
   }
 
   public removeTrackFromPlaylist(playlistId: string, trackId: string): void {

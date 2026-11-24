@@ -193,7 +193,7 @@
       type="button"
       role="switch"
       aria-checked={player.autoplayRelated}
-      aria-label="Toggle autoplay"
+      aria-label={t("queue.autoplay")}
       class="w-10 h-6 rounded-full p-0.5 transition-colors shrink-0 {player.autoplayRelated
         ? 'bg-[var(--accent)]'
         : 'bg-[var(--control-track)]'}"

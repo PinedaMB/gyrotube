@@ -326,7 +326,7 @@
             max={Math.max(1, player.durationSecs)}
             step="0.5"
             value={displayPos}
-            aria-label="Seek"
+            aria-label={t("a11y.seek")}
             style="background: linear-gradient(to right, var(--accent-bright) {progressPct}%, rgba(255,255,255,0.28) {progressPct}%);"
             onpointerdown={() => {
               seeking = true;

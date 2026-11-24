@@ -193,7 +193,7 @@
     <button
       type="button"
       class="md:hidden icon-btn !w-8 !h-8 shrink-0 text-[var(--text-muted)]"
-      aria-label="Track actions"
+      aria-label={t("a11y.track_actions")}
       onclick={() => contextMenu.openTrackSheet(track, { onPlay, onRemove, removeLabel })}
     >
       <Ellipsis size={16} />
@@ -203,7 +203,7 @@
   {#if pickerOpen}
     <button
       type="button"
-      aria-label="Close playlist picker"
+      aria-label={t("common.close")}
       class="fixed inset-0 z-30 cursor-default bg-transparent"
       onclick={() => (pickerOpen = false)}
     ></button>
@@ -219,7 +219,7 @@
         <button
           type="button"
           class="w-5 h-5 rounded-full flex items-center justify-center text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-white/10 transition-colors"
-          aria-label="Close"
+          aria-label={t("common.close")}
           onclick={() => (pickerOpen = false)}
         >
           <X size={12} />

@@ -17,7 +17,7 @@
     : 'w-[240px]'}"
 >
   <!-- Primary navigation -->
-  <nav class="p-3 space-y-1" aria-label="Main navigation">
+  <nav class="p-3 space-y-1" aria-label={t("a11y.main_nav")}>
     <button
       class="w-full flex items-center gap-3 rounded-xl px-3 py-2.5 text-[13.5px] font-semibold transition-all active:scale-[0.98] {collapsed
         ? 'justify-center px-0'

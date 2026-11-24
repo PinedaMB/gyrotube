@@ -1,6 +1,7 @@
 <script lang="ts">
   import { Check, Music, Plus, Search, X } from "lucide-svelte";
   import SpinIcon from "../components/icons/SpinIcon.svelte";
+  import { sg } from "./i18n";
   import { fmtTime, type SearchTrack } from "./types";
 
   interface Props {
@@ -43,7 +44,7 @@
       hasSearched = true;
     } catch {
       if (gen !== searchGen) return;
-      searchError = "Error al buscar canciones";
+      searchError = sg("search.error");
       results = [];
       hasSearched = true;
     } finally {
@@ -93,7 +94,7 @@
       const next = { ...addingIds };
       delete next[track.id];
       addingIds = next;
-      onError("No se pudo enviar la canción");
+      onError(sg("search.send_error"));
     }
   }
 </script>
@@ -102,11 +103,11 @@
   class="rounded-2xl bg-[var(--bg-elevated)] border border-[var(--border)] p-4 sm:p-5 shadow-[0_12px_32px_rgba(0,0,0,0.28)] min-w-0 {visibleMobile
     ? 'block'
     : 'hidden lg:block'}"
-  aria-label="Buscar canciones"
+  aria-label={sg("search.aria")}
 >
   <div class="flex items-center justify-between gap-2 mb-3.5">
     <span class="text-[11px] font-bold uppercase tracking-[0.09em] text-[var(--text-muted)]">
-      Agregar a la cola
+      {sg("search.header")}
     </span>
     {#if searching}
       <span class="w-4 h-4 rounded-full border-2 border-white/20 border-t-[var(--accent-bright)] animate-spin"></span>
@@ -123,8 +124,8 @@
         type="search"
         autocomplete="off"
         value={query}
-        placeholder="Buscar canción, artista o álbum…"
-        aria-label="Buscar canción en YouTube Music"
+        placeholder={sg("search.placeholder")}
+        aria-label={sg("search.input_aria")}
         class="w-full h-11 pl-10 pr-9 rounded-full bg-black/25 border border-[var(--border-strong)] text-[14.5px] placeholder:text-[var(--text-muted)]/75 focus:outline-none focus:border-[var(--accent-bright)] transition-colors"
         oninput={(e) => onQueryInput((e.currentTarget as HTMLInputElement).value)}
       />
@@ -132,7 +133,7 @@
         <button
           type="button"
           class="absolute right-2 top-1/2 -translate-y-1/2 w-7 h-7 rounded-full flex items-center justify-center text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-white/10"
-          aria-label="Limpiar búsqueda"
+          aria-label={sg("search.clear")}
           onclick={() => onQueryInput("")}
         >
           <X size={14} />
@@ -143,7 +144,7 @@
       type="submit"
       class="h-11 px-5 rounded-full font-bold text-[14px] text-white bg-[var(--accent)] hover:bg-[var(--accent-bright)] shadow-[0_4px_14px_rgba(16,185,129,0.34)] transition-all active:scale-95 shrink-0"
     >
-      Buscar
+      {sg("search.submit")}
     </button>
   </form>
 
@@ -202,17 +203,17 @@
           >
             {#if addState === "added"}
               <Check size={14} />
-              <span>Agregada</span>
+              <span>{sg("search.added")}</span>
             {:else}
               <Plus size={14} />
-              <span>Agregar</span>
+              <span>{sg("search.add")}</span>
             {/if}
           </button>
         </div>
       {/each}
     {:else if hasSearched}
       <div class="py-12 text-center text-[14px] text-[var(--text-muted)]">
-        No se encontraron canciones
+        {sg("search.no_results")}
       </div>
     {:else}
       <div class="py-12 text-center space-y-2">
@@ -220,7 +221,7 @@
           <SpinIcon size={22} spinning={isPlaying} />
         </div>
         <p class="text-[14px] text-[var(--text-muted)]">
-          Escribe el nombre de una canción o artista para agregarla a la cola.
+          {sg("search.empty_hint")}
         </p>
       </div>
     {/if}

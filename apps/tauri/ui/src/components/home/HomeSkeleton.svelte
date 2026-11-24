@@ -1,4 +1,8 @@
-<div class="mt-6 space-y-7 animate-pulse" aria-busy="true" aria-label="Loading home">
+<script lang="ts">
+  import { t } from "../../lib/i18n.svelte";
+</script>
+
+<div class="mt-6 space-y-7 animate-pulse" aria-busy="true" aria-label={t("a11y.loading_home")}>
   <!-- Featured release hero skeleton -->
   <div class="rounded-2xl p-5 bg-[var(--surface)] border border-[var(--border)] flex flex-col sm:flex-row items-center gap-5">
     <div class="w-36 h-36 rounded-2xl bg-[var(--skeleton)] shrink-0"></div>

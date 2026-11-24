@@ -7,6 +7,7 @@
   import SpinNowPlaying from "./SpinNowPlaying.svelte";
   import SpinQueue from "./SpinQueue.svelte";
   import SpinSearch from "./SpinSearch.svelte";
+  import { sg } from "./i18n";
   import type { JamSnapshot } from "./types";
 
   let snapshot = $state<JamSnapshot | null>(null);
@@ -83,8 +84,8 @@
         }
         localAudioFailed(
           err.name === "NotAllowedError"
-            ? "Toca «Escuchar aquí» para iniciar el audio."
-            : "No se pudo reproducir el audio. Toca «Escuchar aquí» para reintentar.",
+            ? sg("audio.tap_to_start")
+            : sg("audio.play_failed"),
         );
       });
     }
@@ -118,7 +119,7 @@
       });
       window.setTimeout(() => void loadState(), 220);
     } catch {
-      showToast("No se pudo enviar el comando");
+      showToast(sg("control.failed"));
     }
   }
 
@@ -188,7 +189,7 @@
       <div class="inline-flex items-center gap-2 text-[12.5px] font-semibold px-3 py-1.5 rounded-full bg-[var(--bg-elevated)] border border-[var(--border-strong)] shrink-0">
         <span class="w-2 h-2 rounded-full bg-[var(--accent-bright)] shadow-[0_0_8px_var(--accent-bright)] animate-pulse"></span>
         <Users size={13} class="text-[var(--text-muted)]" />
-        <span class="numeric">{guestCount} {guestCount === 1 ? "invitado" : "invitados"}</span>
+        <span class="numeric">{guestCount} {guestCount === 1 ? sg("guest.one") : sg("guest.many")}</span>
       </div>
     </header>
 
@@ -220,7 +221,7 @@
           onloadedmetadata={syncLocalAudio}
           onerror={() => {
             if (listenHere && curAudioTrackId !== null) {
-              localAudioFailed("No se pudo cargar el audio. Toca «Escuchar aquí» para reintentar.");
+              localAudioFailed(sg("audio.load_failed"));
             }
           }}
         ></audio>
@@ -229,7 +230,7 @@
         <div
           class="grid lg:hidden grid-cols-2 gap-1 p-1 rounded-full bg-[var(--bg-elevated)] border border-[var(--border)]"
           role="tablist"
-          aria-label="Secciones de SPIN"
+          aria-label={sg("tab.sections")}
         >
           <button
             type="button"
@@ -241,7 +242,7 @@
             onclick={() => (mobileTab = "search")}
           >
             <Search size={14} />
-            <span>Buscar</span>
+            <span>{sg("tab.search")}</span>
           </button>
           <button
             type="button"
@@ -253,7 +254,7 @@
             onclick={() => (mobileTab = "queue")}
           >
             <ListMusic size={14} />
-            <span>Cola ({queue.length})</span>
+            <span>{sg("tab.queue", { count: queue.length })}</span>
           </button>
         </div>
 
@@ -270,7 +271,7 @@
         {isPlaying}
         visibleMobile={mobileTab === "search"}
         onAdded={(track) => {
-          showToast(`Agregada a la cola: ${track.title}`);
+          showToast(sg("toast.added", { title: track.title }));
           window.setTimeout(() => void loadState(), 550);
         }}
         onError={(msg) => showToast(msg)}
@@ -289,7 +290,7 @@
       <button
         type="button"
         class="w-6 h-6 rounded-full flex items-center justify-center bg-white/[0.08] hover:bg-white/[0.16]"
-        aria-label="Cerrar notificación"
+        aria-label={sg("toast.close")}
         onclick={() => (toastMessage = null)}
       >
         <X size={13} />

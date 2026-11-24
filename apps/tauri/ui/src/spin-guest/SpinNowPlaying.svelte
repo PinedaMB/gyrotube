@@ -13,6 +13,7 @@
   } from "lucide-svelte";
   import { cubicOut } from "svelte/easing";
   import { fade, scale } from "svelte/transition";
+  import { sg } from "./i18n";
   import { fmtTime, type JamTrackInfo } from "./types";
 
   interface Props {
@@ -49,11 +50,11 @@
 <section
   class="rounded-2xl border border-[var(--border)] p-4 sm:p-5 shadow-[0_14px_38px_rgba(0,0,0,0.34)] relative overflow-hidden"
   style="background: linear-gradient(160deg, rgba(16, 185, 129, 0.14) 0%, var(--bg-elevated) 58%);"
-  aria-label="Sonando ahora"
+  aria-label={sg("now.label")}
 >
   <div class="flex items-center justify-between gap-2 mb-3.5">
     <span class="text-[11px] font-bold uppercase tracking-[0.09em] text-[var(--text-muted)]">
-      Sonando ahora
+      {sg("now.label")}
     </span>
     {#if nowPlaying}
       <span
@@ -63,9 +64,9 @@
       >
         {#if isPlaying}
           <span class="w-1.5 h-1.5 rounded-full bg-[var(--accent-bright)] animate-pulse"></span>
-          Reproduciendo
+          {sg("now.playing")}
         {:else}
-          En pausa
+          {sg("now.paused")}
         {/if}
       </span>
     {/if}
@@ -92,10 +93,10 @@
 
     <div class="min-w-0 flex-1 w-full space-y-1">
       <h1 class="text-[16px] lg:text-[19px] font-extrabold leading-tight tracking-tight truncate">
-        {nowPlaying?.title ?? "Sin reproducción"}
+        {nowPlaying?.title ?? sg("now.idle_title")}
       </h1>
       <p class="text-[13.5px] lg:text-[14.5px] font-medium text-[var(--text-muted)] truncate">
-        {nowPlaying?.artist ?? "Busca una canción para empezar"}
+        {nowPlaying?.artist ?? sg("now.idle_sub")}
       </p>
       {#if nowPlaying?.album}
         <div class="inline-flex items-center gap-1.5 max-w-full px-2.5 py-0.5 rounded-full text-[11.5px] text-[var(--text-muted)] bg-white/[0.05] border border-white/[0.07]">
@@ -127,7 +128,7 @@
         <button
           type="button"
           class="w-10 h-10 rounded-full flex items-center justify-center bg-white/[0.07] border border-white/[0.12] hover:bg-white/[0.13] transition-colors active:scale-95"
-          aria-label="Anterior"
+          aria-label={sg("now.prev")}
           onclick={() => onControl("prev")}
         >
           <SkipBack size={18} fill="currentColor" />
@@ -135,21 +136,21 @@
         <button
           type="button"
           class="h-11 px-5 rounded-full inline-flex items-center justify-center gap-2 font-bold text-[14px] text-white bg-[var(--accent)] hover:bg-[var(--accent-bright)] shadow-[0_6px_20px_rgba(16,185,129,0.36)] transition-all active:scale-95"
-          aria-label={isPlaying ? "Pausar" : "Reproducir"}
+          aria-label={isPlaying ? sg("now.pause") : sg("now.play")}
           onclick={() => onControl("play_pause")}
         >
           {#if isPlaying}
             <Pause size={18} fill="currentColor" />
-            <span>Pausar</span>
+            <span>{sg("now.pause")}</span>
           {:else}
             <Play size={18} fill="currentColor" class="translate-x-[1px]" />
-            <span>Reproducir</span>
+            <span>{sg("now.play")}</span>
           {/if}
         </button>
         <button
           type="button"
           class="w-10 h-10 rounded-full flex items-center justify-center bg-white/[0.07] border border-white/[0.12] hover:bg-white/[0.13] transition-colors active:scale-95"
-          aria-label="Siguiente"
+          aria-label={sg("now.next")}
           onclick={() => onControl("next")}
         >
           <SkipForward size={18} fill="currentColor" />
@@ -167,10 +168,10 @@
       >
         {#if listenHere}
           <VolumeX size={15} />
-          <span>Silenciar aquí</span>
+          <span>{sg("now.mute_here")}</span>
         {:else}
           <Headphones size={15} />
-          <span>Escuchar aquí</span>
+          <span>{sg("now.listen_here")}</span>
         {/if}
       </button>
 
@@ -193,7 +194,7 @@
             max="1"
             step="0.02"
             value={localVolume}
-            aria-label="Volumen local"
+            aria-label={sg("now.local_volume")}
             oninput={(e) => onVolumeChange(Number((e.currentTarget as HTMLInputElement).value))}
           />
           <span class="text-[11px] font-semibold text-[var(--text-muted)] numeric w-8 text-right">

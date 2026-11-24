@@ -1,4 +1,8 @@
-<div class="space-y-6 animate-pulse" aria-busy="true" aria-label="Searching">
+<script lang="ts">
+  import { t } from "../../lib/i18n.svelte";
+</script>
+
+<div class="space-y-6 animate-pulse" aria-busy="true" aria-label={t("a11y.searching")}>
   <!-- Filter pills skeleton -->
   <div class="flex items-center gap-2">
     {#each [64, 92, 96, 86, 98] as w}

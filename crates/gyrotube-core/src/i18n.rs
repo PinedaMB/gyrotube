@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::sync::atomic::{AtomicU8, Ordering};
 
 use serde::{Deserialize, Serialize};
@@ -65,30 +64,6 @@ impl Lang {
 
 static ACTIVE_LANG: AtomicU8 = AtomicU8::new(0);
 
-/// Parses a flat JSON translation catalog (`{ "English key": "Translated value" }`)
-/// into a zero-allocation lookup table. Used when adding extra embedded locales in `locales/`.
-#[allow(dead_code)]
-fn parse_catalog(raw: &str) -> HashMap<String, &'static str> {
-    let parsed: HashMap<String, String> = serde_json::from_str(raw).unwrap_or_default();
-    parsed
-        .into_iter()
-        .map(|(k, v)| (k, Box::leak(v.into_boxed_str()) as &'static str))
-        .collect()
-}
-
-/// Returns the catalog for additional embedded languages (see `locales/README.md`).
-#[allow(dead_code)]
-fn catalog_for(_lang: Lang) -> Option<&'static HashMap<String, &'static str>> {
-    None
-}
-
-#[allow(dead_code)]
-fn lookup_catalog(lang: Lang, en_key: &'static str) -> &'static str {
-    catalog_for(lang)
-        .and_then(|map| map.get(en_key).copied())
-        .unwrap_or(en_key)
-}
-
 pub fn detect_lang_from_locale(locale: &str) -> Lang {
     let lower = locale.trim().to_ascii_lowercase();
     if lower.starts_with("es") {
@@ -154,15 +129,5 @@ mod tests {
         for &lang in AppLanguage::ALL {
             assert_eq!(AppLanguage::from_index(lang.to_index()), lang);
         }
-    }
-
-    #[test]
-    fn parses_json_catalog_and_falls_back_to_english() {
-        let map = parse_catalog(r#"{"Collection": "Sammlung"}"#);
-        assert_eq!(map.get("Collection").copied(), Some("Sammlung"));
-        assert_eq!(
-            lookup_catalog(Lang::En, "Untranslated fallback key"),
-            "Untranslated fallback key"
-        );
     }
 }

@@ -9,7 +9,7 @@
 <nav
   class="md:hidden relative z-30 shrink-0 min-h-14 grid grid-cols-3 bg-[var(--bg-elevated)] border-t border-[var(--border)] px-2"
   style="padding-bottom: env(safe-area-inset-bottom);"
-  aria-label="Mobile navigation"
+  aria-label={t("a11y.mobile_nav")}
 >
   <button
     class="flex flex-col items-center justify-center gap-0.5 text-[11px] font-semibold {!isSettings && player.activeTab === 'home'

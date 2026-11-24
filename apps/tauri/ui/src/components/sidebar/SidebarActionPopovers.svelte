@@ -135,7 +135,7 @@
   {#if openPopover !== null}
     <button
       type="button"
-      aria-label="Close popover"
+      aria-label={t("common.close")}
       class="fixed inset-0 z-20 cursor-default bg-transparent"
       onclick={() => (openPopover = null)}
     ></button>
