@@ -1861,7 +1861,7 @@ dependencies = [
 
 [[package]]
 name = "gyrotube-core"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "anyhow",
  "async-channel",
@@ -1883,7 +1883,7 @@ dependencies = [
 
 [[package]]
 name = "gyrotube-tauri"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "async-channel",
  "gyrotube-core",

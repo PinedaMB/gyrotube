@@ -22,6 +22,7 @@
   import { t } from "../lib/i18n.svelte";
   import { device } from "../lib/stores/device.svelte";
   import { player } from "../lib/stores/player.svelte";
+  import { updater } from "../lib/stores/updater.svelte";
   import type { AppLanguage, AudioQuality, ThemeMode } from "../lib/types";
   import SegmentedControl, { type SegmentedOption } from "./SegmentedControl.svelte";
   import SettingsAboutSection from "./settings/SettingsAboutSection.svelte";
@@ -148,7 +149,7 @@
       </div>
     </div>
     <span class="px-2.5 py-1 rounded-full text-[11px] font-bold numeric bg-[var(--surface)] border border-[var(--border)] text-[var(--text-muted)] shrink-0">
-      GyroTube v1.0.0
+      GyroTube v{updater.currentVersion}
     </span>
   </header>
 
