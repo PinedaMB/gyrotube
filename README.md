@@ -126,6 +126,13 @@
 
 ## 🛠️ Build & Documentation
 
+### macOS Installation Note
+Pre-built macOS `.dmg` releases are ad-hoc signed and not notarized with a paid Apple Developer account. If macOS Gatekeeper reports that **GyroTube is damaged and can't be opened**, drag **GyroTube.app** to **Applications**, then run in Terminal:
+
+```bash
+xattr -cr /Applications/GyroTube.app
+```
+
 ### Build from Source
 
 ```bash

@@ -45,11 +45,20 @@ jobs:
 
           RELEASE_ID="$(gh api "repos/${GITHUB_REPOSITORY}/releases" --jq ".[] | select(.tag_name == \"${TAG}\") | .id" | head -n 1 || true)"
           if [[ -z "${RELEASE_ID}" ]]; then
+            RELEASE_NOTES="$(printf '%s\n' \
+              'Cross-platform desktop installers (`.AppImage`, `.deb`, `.rpm`, `.msi`, `.exe`, `.dmg`) and Android APK (`aarch64`).' \
+              '' \
+              '### macOS Installation Note' \
+              'Because GyroTube is not notarized with a paid Apple Developer account, macOS Gatekeeper may report that the app is *"damaged and can'\''t be opened"* after downloading. After dragging **GyroTube.app** to **Applications**, open Terminal and run:' \
+              '' \
+              '```bash' \
+              'xattr -cr /Applications/GyroTube.app' \
+              '```')"
             gh release create "${TAG}" \
               --repo "${GITHUB_REPOSITORY}" \
               --draft \
               --title "GyroTube ${TAG}" \
-              --notes "Cross-platform desktop installers (\`.AppImage\`, \`.deb\`, \`.rpm\`, \`.msi\`, \`.exe\`, \`.dmg\`) and Android APK (\`aarch64\`)."
+              --notes "${RELEASE_NOTES}"
             RELEASE_ID="$(gh api "repos/${GITHUB_REPOSITORY}/releases" --jq ".[] | select(.tag_name == \"${TAG}\") | .id" | head -n 1)"
           fi
 
