@@ -33,7 +33,7 @@
   open={player.spinOpen}
   label={t("spin.title")}
   maxWidth={480}
-  onClose={() => (player.spinOpen = false)}
+  onClose={() => player.closeSpin()}
 >
       <!-- Header -->
       <div class="flex items-center justify-between px-6 py-4 border-b border-[var(--border)]">
@@ -56,7 +56,7 @@
           type="button"
           class="icon-btn"
           title={t("spin.close")}
-          onclick={() => (player.spinOpen = false)}
+          onclick={() => player.closeSpin()}
         >
           <X size={17} />
         </button>

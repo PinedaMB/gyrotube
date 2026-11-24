@@ -81,8 +81,6 @@ class PlayerStore {
   // Navigation & layout
   activeTab = $state<MainTab>("home");
   activeView = $state<ActiveView>({ kind: "home" });
-  collectionDetailOpen = $state(false);
-  pendingCollectionTarget = $state<{ kind: "favorites" } | { kind: "playlist"; id: string } | null>(null);
   sidebarOpen = $state(readInitialSidebarOpen());
   navCollapsed = $state(readNavCollapsed());
   sidebarTab = $state<"player" | "lyrics" | "queue" | "related">("player");
@@ -977,31 +975,41 @@ class PlayerStore {
     if (useMobilePlayerHistory) {
       this.sidebarOpen = initial.playerOpen;
     }
+    this.partyMode = initial.partyOpen;
+    this.spinOpen = initial.spinOpen;
     const initialState: RouteState = {
       view: initial.view,
       tab: initial.tab,
       depth: 0,
       playerOpen: useMobilePlayerHistory ? initial.playerOpen : false,
+      partyOpen: initial.partyOpen,
+      spinOpen: initial.spinOpen,
     };
     window.history.replaceState(
       initialState,
       "",
-      viewToHash(initial.view, Boolean(initialState.playerOpen)),
+      viewToHash(initial.view, {
+        playerOpen: Boolean(initialState.playerOpen),
+        partyOpen: Boolean(initialState.partyOpen),
+        spinOpen: Boolean(initialState.spinOpen),
+      }),
     );
 
     window.addEventListener("popstate", (event) => {
-      // On Android / desktop Back button, dismiss open modals before navigating away
-      if (this.dismissTopOverlay()) {
-        const keepPlayer = this.isMobilePlayerHistoryEnabled() && this.sidebarOpen;
+      // Dismiss transient context menus before navigating away
+      if (contextMenu.open) {
+        contextMenu.close();
         const plainView = $state.snapshot(this.activeView);
         const keep: RouteState = {
           view: plainView,
           tab: this.activeTab,
           depth: this.routeDepth + 1,
-          playerOpen: keepPlayer,
+          playerOpen: this.isMobilePlayerHistoryEnabled() && this.sidebarOpen,
+          partyOpen: this.partyMode,
+          spinOpen: this.spinOpen,
         };
         this.routeDepth = keep.depth;
-        window.history.pushState(keep, "", viewToHash(plainView, keepPlayer));
+        window.history.pushState(keep, "", viewToHash(plainView, keep));
         return;
       }
 
@@ -1017,6 +1025,8 @@ class PlayerStore {
       if (this.isMobilePlayerHistoryEnabled()) {
         this.sidebarOpen = Boolean(st?.playerOpen ?? parsed.playerOpen);
       }
+      this.partyMode = Boolean(st?.partyOpen ?? parsed.partyOpen);
+      this.spinOpen = Boolean(st?.spinOpen ?? parsed.spinOpen);
       if (nextView.kind === "search") {
         if (nextView.query) {
           if (this.searchQuery !== nextView.query || !this.searchResults) {
@@ -1038,19 +1048,40 @@ class PlayerStore {
     writeNavCollapsed(this.navCollapsed);
   }
 
+  private pushOverlayState(overlays: { playerOpen?: boolean; partyOpen?: boolean; spinOpen?: boolean }): void {
+    if (typeof window === "undefined") return;
+    this.routeDepth += 1;
+    const plainView = $state.snapshot(this.activeView);
+    const state: RouteState = {
+      view: plainView,
+      tab: this.activeTab,
+      depth: this.routeDepth,
+      playerOpen: overlays.playerOpen ?? (this.isMobilePlayerHistoryEnabled() && this.sidebarOpen),
+      partyOpen: overlays.partyOpen ?? this.partyMode,
+      spinOpen: overlays.spinOpen ?? this.spinOpen,
+    };
+    window.history.pushState(state, "", viewToHash(plainView, state));
+  }
+
+  private replaceOverlayState(): void {
+    if (typeof window === "undefined") return;
+    const plainView = $state.snapshot(this.activeView);
+    const state: RouteState = {
+      view: plainView,
+      tab: this.activeTab,
+      depth: this.routeDepth,
+      playerOpen: this.isMobilePlayerHistoryEnabled() && this.sidebarOpen,
+      partyOpen: this.partyMode,
+      spinOpen: this.spinOpen,
+    };
+    window.history.replaceState(state, "", viewToHash(plainView, state));
+  }
+
   public openPlayerSheet(): void {
     if (this.sidebarOpen) return;
     this.sidebarOpen = true;
     if (this.isMobilePlayerHistoryEnabled()) {
-      this.routeDepth += 1;
-      const plainView = $state.snapshot(this.activeView);
-      const state: RouteState = {
-        view: plainView,
-        tab: this.activeTab,
-        depth: this.routeDepth,
-        playerOpen: true,
-      };
-      window.history.pushState(state, "", viewToHash(plainView, true));
+      this.pushOverlayState({ playerOpen: true });
     } else {
       writeSidebarCollapsed(false);
       void this.persistSession();
@@ -1061,19 +1092,12 @@ class PlayerStore {
     if (!this.sidebarOpen) return;
     if (this.isMobilePlayerHistoryEnabled()) {
       const st = window.history.state as RouteState | null;
-      if (st?.playerOpen && this.routeDepth > 0) {
+      if (st?.playerOpen && !st?.partyOpen && !st?.spinOpen && this.routeDepth > 0) {
         window.history.back();
         return;
       }
       this.sidebarOpen = false;
-      const plainView = $state.snapshot(this.activeView);
-      const nextState: RouteState = {
-        view: plainView,
-        tab: this.activeTab,
-        depth: this.routeDepth,
-        playerOpen: false,
-      };
-      window.history.replaceState(nextState, "", viewToHash(plainView, false));
+      this.replaceOverlayState();
       return;
     }
     this.sidebarOpen = false;
@@ -1089,17 +1113,68 @@ class PlayerStore {
     }
   }
 
+  public openPartyMode(): void {
+    if (this.videoMode || this.partyMode) return;
+    this.partyMode = true;
+    this.pushOverlayState({ partyOpen: true });
+  }
+
+  public closePartyMode(): void {
+    if (!this.partyMode) return;
+    const st = typeof window !== "undefined" ? (window.history.state as RouteState | null) : null;
+    if (st?.partyOpen && this.routeDepth > 0) {
+      window.history.back();
+      return;
+    }
+    this.partyMode = false;
+    this.replaceOverlayState();
+  }
+
+  public togglePartyMode(): void {
+    if (this.partyMode) {
+      this.closePartyMode();
+    } else {
+      this.openPartyMode();
+    }
+  }
+
+  public openSpin(): void {
+    if (this.spinOpen) return;
+    this.spinOpen = true;
+    this.pushOverlayState({ spinOpen: true });
+    void this.refreshSpinStatus();
+  }
+
+  public closeSpin(): void {
+    if (!this.spinOpen) return;
+    const st = typeof window !== "undefined" ? (window.history.state as RouteState | null) : null;
+    if (st?.spinOpen && this.routeDepth > 0) {
+      window.history.back();
+      return;
+    }
+    this.spinOpen = false;
+    this.replaceOverlayState();
+  }
+
+  public toggleSpin(): void {
+    if (this.spinOpen) {
+      this.closeSpin();
+    } else {
+      this.openSpin();
+    }
+  }
+
   private dismissTopOverlay(): boolean {
     if (contextMenu.open) {
       contextMenu.close();
       return true;
     }
     if (this.partyMode) {
-      this.partyMode = false;
+      this.closePartyMode();
       return true;
     }
     if (this.spinOpen) {
-      this.spinOpen = false;
+      this.closeSpin();
       return true;
     }
     return false;
@@ -1112,11 +1187,12 @@ class PlayerStore {
     const useMobilePlayerHistory = this.isMobilePlayerHistoryEnabled();
     const currentState =
       typeof window !== "undefined" ? (window.history.state as RouteState | null) : null;
-    const replacePlayerEntry = useMobilePlayerHistory && Boolean(currentState?.playerOpen);
+    const replaceOverlayEntry =
+      (useMobilePlayerHistory && Boolean(currentState?.playerOpen)) ||
+      Boolean(currentState?.partyOpen) ||
+      Boolean(currentState?.spinOpen);
 
-    // Navigating from the open mobile player to the exact view already underneath:
-    // pop the `?player=1` entry so we don't duplicate the underlying view in history.
-    if (!changed && replacePlayerEntry && this.routeDepth > 0) {
+    if (!changed && replaceOverlayEntry && this.routeDepth > 0) {
       window.history.back();
       return;
     }
@@ -1124,27 +1200,25 @@ class PlayerStore {
     if (wasCompactPlayer) {
       this.sidebarOpen = false;
     }
+    this.partyMode = false;
+    this.spinOpen = false;
     this.activeTab = tab;
     this.activeView = view;
-    if (typeof window !== "undefined" && (changed || replacePlayerEntry)) {
+    if (typeof window !== "undefined" && (changed || replaceOverlayEntry)) {
       const plainView = $state.snapshot(view);
-      if (replacePlayerEntry) {
-        const state: RouteState = {
-          view: plainView,
-          tab,
-          depth: this.routeDepth,
-          playerOpen: false,
-        };
-        window.history.replaceState(state, "", viewToHash(plainView, false));
+      const state: RouteState = {
+        view: plainView,
+        tab,
+        depth: replaceOverlayEntry ? this.routeDepth : this.routeDepth + 1,
+        playerOpen: false,
+        partyOpen: false,
+        spinOpen: false,
+      };
+      if (replaceOverlayEntry) {
+        window.history.replaceState(state, "", viewToHash(plainView));
       } else {
-        this.routeDepth += 1;
-        const state: RouteState = {
-          view: plainView,
-          tab,
-          depth: this.routeDepth,
-          playerOpen: false,
-        };
-        window.history.pushState(state, "", viewToHash(plainView, false));
+        this.routeDepth = state.depth;
+        window.history.pushState(state, "", viewToHash(plainView));
       }
     }
   }
@@ -1154,13 +1228,19 @@ class PlayerStore {
       window.history.back();
       return;
     }
+    if (this.activeView.kind === "collection" && this.activeView.sub) {
+      this.navigateTab("collection");
+      return;
+    }
     this.navigateTab(this.activeTab === "home" ? "home" : "explore");
   }
 
   public openLocalPlaylist(target: "favorites" | string): void {
-    this.pendingCollectionTarget =
-      target === "favorites" ? { kind: "favorites" } : { kind: "playlist", id: target };
-    this.navigateTab("collection");
+    const sub =
+      target === "favorites"
+        ? ({ kind: "favorites" } as const)
+        : ({ kind: "playlist", id: target } as const);
+    this.commitRoute({ kind: "collection", sub }, "collection");
   }
 
   public navigateTab(tab: MainTab): void {

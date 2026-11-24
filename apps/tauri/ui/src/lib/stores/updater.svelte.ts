@@ -46,7 +46,12 @@ class UpdaterStore {
     this.status = "checking";
     this.errorMessage = null;
     try {
-      const res = await api.checkForUpdates();
+      const res = await Promise.race([
+        api.checkForUpdates(),
+        new Promise<never>((_, reject) =>
+          window.setTimeout(() => reject(new Error("Update check timed out")), 15000),
+        ),
+      ]);
       this.currentVersion = res.current_version || this.currentVersion;
       this.latestVersion = res.latest_version;
       this.canAutoInstall = res.can_auto_install;

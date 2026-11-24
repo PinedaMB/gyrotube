@@ -126,11 +126,15 @@ export type ThemeMode = "system" | "dark" | "light";
 export type AppLanguage = "Auto" | "Es" | "En";
 export type AudioQuality = "High" | "Normal" | "Low";
 export type MainTab = "home" | "explore" | "collection";
+export type CollectionSubView =
+  | { kind: "favorites" }
+  | { kind: "playlist"; id: string };
+
 export type ActiveView =
   | { kind: "home" }
   | { kind: "explore" }
   | { kind: "search"; query?: string }
-  | { kind: "collection" }
+  | { kind: "collection"; sub?: CollectionSubView }
   | { kind: "settings" }
   | { kind: "artist"; artistId: string; artistName: string }
   | { kind: "album"; id: string; title: string; coverUrl?: string | null; isPlaylist?: boolean };

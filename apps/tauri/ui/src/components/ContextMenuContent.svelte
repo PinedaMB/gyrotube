@@ -337,7 +337,7 @@
     class="ctx-item"
     onclick={() => {
       contextMenu.close();
-      if (!player.videoMode) player.partyMode = !player.partyMode;
+      player.togglePartyMode();
     }}
   >
     <PartyPopper size={15} />
@@ -349,7 +349,7 @@
     class="ctx-item"
     onclick={() => {
       contextMenu.close();
-      player.spinOpen = true;
+      player.openSpin();
       void player.refreshSpinStatus();
     }}
   >

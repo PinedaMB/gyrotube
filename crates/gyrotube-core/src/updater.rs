@@ -123,7 +123,7 @@ fn pick_platform_asset(assets: &[GithubAsset]) -> Option<String> {
 
 /// Checks GitHub Releases (`releases/latest`) for a newer version of GyroTube.
 pub async fn check_github_release(current_version: &str) -> Result<UpdateCheckResult, String> {
-    let client = reqwest::Client::builder()
+    let client = crate::tls::http_client_builder()
         .timeout(std::time::Duration::from_secs(10))
         .build()
         .map_err(|e| format!("Failed to build HTTP client: {e}"))?;

@@ -26,10 +26,7 @@
     class="icon-btn max-md:!w-9 max-md:!h-9 relative"
     class:active={player.spinOpen || spinLive}
     title={t("header.spin_mode")}
-    onclick={() => {
-      player.spinOpen = !player.spinOpen;
-      if (player.spinOpen) void player.refreshSpinStatus();
-    }}
+    onclick={() => player.toggleSpin()}
   >
     <SpinIcon size={19} spinning={spinLive} />
     {#if spinLive}
@@ -45,7 +42,7 @@
     class="icon-btn hidden sm:inline-flex"
     class:active={player.partyMode}
     title={t("header.party_mode")}
-    onclick={() => !player.videoMode && (player.partyMode = !player.partyMode)}
+    onclick={() => player.togglePartyMode()}
   >
     <PartyPopper size={18} />
   </button>

@@ -196,7 +196,7 @@
       <button
         type="button"
         class="flex items-center gap-2 min-w-0 flex-1 text-left"
-        onclick={() => (player.spinOpen = true)}
+        onclick={() => player.openSpin()}
       >
         <span
           class="w-2 h-2 rounded-full shrink-0 {player.spinRemoteConn.status === 'connected'

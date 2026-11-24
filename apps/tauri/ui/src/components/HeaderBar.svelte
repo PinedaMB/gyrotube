@@ -8,7 +8,7 @@
     player.activeView.kind === "album" ||
       player.activeView.kind === "artist" ||
       player.activeView.kind === "search" ||
-      (player.activeView.kind === "collection" && player.collectionDetailOpen),
+      (player.activeView.kind === "collection" && Boolean(player.activeView.sub)),
   );
 </script>
 

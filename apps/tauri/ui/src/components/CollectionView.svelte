@@ -16,23 +16,14 @@
     | { kind: "favorites" }
     | { kind: "playlist"; id: string };
 
-  let screen = $state<CollectionScreen>({ kind: "overview" });
+  let screen = $derived.by<CollectionScreen>(() => {
+    if (player.activeView.kind === "collection" && player.activeView.sub) {
+      return player.activeView.sub;
+    }
+    return { kind: "overview" };
+  });
   let modalOpen = $state(false);
   let editingPlaylist = $state<UserPlaylist | null>(null);
-
-  $effect(() => {
-    const target = player.pendingCollectionTarget;
-    if (!target) return;
-    screen = target;
-    player.pendingCollectionTarget = null;
-  });
-
-  $effect(() => {
-    player.collectionDetailOpen = screen.kind !== "overview";
-    return () => {
-      player.collectionDetailOpen = false;
-    };
-  });
 
   let activePlaylist = $derived.by(() => {
     const s = screen;
@@ -77,14 +68,14 @@
         data.tracks ?? [],
         data.coverPath ?? null,
       );
-      screen = { kind: "playlist", id: created.id };
+      player.openLocalPlaylist(created.id);
     }
   }
 
   function handleDeletePlaylist(pl: UserPlaylist) {
     player.deleteUserPlaylist(pl.id);
     if (screen.kind === "playlist" && screen.id === pl.id) {
-      screen = { kind: "overview" };
+      player.navigateTab("collection");
     }
   }
 </script>
@@ -92,13 +83,13 @@
 {#if screen.kind === "favorites"}
   <CollectionPlaylistDetail
     mode="favorites"
-    onBack={() => (screen = { kind: "overview" })}
+    onBack={() => player.goBack()}
   />
 {:else if screen.kind === "playlist" && activePlaylist}
   <CollectionPlaylistDetail
     mode="playlist"
     playlist={activePlaylist}
-    onBack={() => (screen = { kind: "overview" })}
+    onBack={() => player.goBack()}
     onEdit={openEditModal}
     onDelete={handleDeletePlaylist}
   />
@@ -118,8 +109,8 @@
     </div>
 
     <CollectionPlaylistsGrid
-      onOpenFavorites={() => (screen = { kind: "favorites" })}
-      onOpenPlaylist={(id) => (screen = { kind: "playlist", id })}
+      onOpenFavorites={() => player.openLocalPlaylist("favorites")}
+      onOpenPlaylist={(id) => player.openLocalPlaylist(id)}
       onEditPlaylist={openEditModal}
     />
 

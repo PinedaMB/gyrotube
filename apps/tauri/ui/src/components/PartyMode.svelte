@@ -103,7 +103,7 @@
     <button
       type="button"
       class="inline-flex items-center gap-1.5 px-3.5 sm:px-4 py-1.5 rounded-full text-[12.5px] sm:text-[13px] font-semibold bg-[var(--surface)] hover:bg-[var(--surface-hover)] border border-[var(--border)] transition-colors shrink-0"
-      onclick={() => (player.partyMode = false)}
+      onclick={() => player.closePartyMode()}
     >
       <X size={15} />
       {t("party.exit")}

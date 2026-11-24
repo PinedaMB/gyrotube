@@ -126,7 +126,7 @@
     onclick={() => {
       if (player.videoMode) return;
       openPopover = null;
-      player.partyMode = true;
+      player.openPartyMode();
     }}
   >
     <PartyPopper size={18} />

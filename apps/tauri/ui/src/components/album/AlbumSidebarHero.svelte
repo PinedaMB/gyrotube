@@ -77,7 +77,7 @@
   }
 </script>
 
-<aside class="lg:sticky lg:top-8 flex flex-col items-center text-center gap-4">
+<aside class="lg:sticky lg:top-8 flex flex-col items-center text-center gap-3 lg:gap-4">
   <div class="w-full flex items-center justify-start">
     <button
       class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[12.5px] font-semibold text-[var(--text-muted)] hover:text-[var(--text)] bg-[var(--surface)] hover:bg-[var(--surface-hover)] border border-[var(--border)] transition-all active:scale-95"
@@ -90,21 +90,21 @@
   </div>
 
   {#if artistLabel}
-    <span class="text-[13px] font-semibold text-[var(--text-muted)] truncate max-w-full">
+    <span class="text-[12.5px] sm:text-[13px] font-semibold text-[var(--text-muted)] truncate max-w-full">
       {artistLabel}
     </span>
   {/if}
 
   <CoverImage
-    class="album-cover !w-[248px] !h-[248px] !rounded-2xl border border-white/10 shadow-[0_22px_52px_rgba(0,0,0,0.52)]"
+    class="album-cover !w-44 !h-44 sm:!w-[216px] sm:!h-[216px] lg:!w-[248px] lg:!h-[248px] !rounded-2xl border border-white/10 shadow-[0_20px_48px_rgba(0,0,0,0.48)]"
     src={coverUrl}
     fallbackSrc={tracks[0]?.cover_large_url ?? tracks[0]?.cover_url}
     alt={title}
     eager={true}
   />
 
-  <div class="space-y-1.5 max-w-[300px]">
-    <h1 class="text-[24px] font-black tracking-[-0.025em] leading-tight">
+  <div class="space-y-1 max-w-[300px]">
+    <h1 class="text-[21px] sm:text-[24px] font-black tracking-[-0.025em] leading-tight">
       {title}
     </h1>
     <div class="flex items-center justify-center gap-2 text-[12.5px] font-medium text-[var(--text-muted)]">

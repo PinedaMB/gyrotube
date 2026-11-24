@@ -90,7 +90,7 @@
           onclick={saveQueueAsPlaylist}
         >
           <BookmarkPlus size={13} />
-          <span class="hidden sm:inline">{t("queue.save_as_playlist")}</span>
+          <span>{t("queue.save_short")}</span>
         </button>
       {/if}
       {#if player.queue.length > 1}

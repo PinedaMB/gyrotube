@@ -8,6 +8,7 @@
     Heart,
     Music,
     Plus,
+    RefreshCw,
     Search,
     Sparkles,
     X,
@@ -46,6 +47,7 @@
   let enhancing = $state(false);
   let enhancedTracks = $state<Track[]>([]);
   let lastEnhancedPlaylistId = $state<string | null>(null);
+  let enhanceSeedOffset = 0;
 
   $effect(() => {
     const pid = playlist?.id ?? null;
@@ -53,6 +55,7 @@
       lastEnhancedPlaylistId = pid;
       enhanced = false;
       enhancedTracks = [];
+      enhanceSeedOffset = 0;
     }
   });
 
@@ -63,31 +66,38 @@
     return enhancedTracks.filter((tr) => !existing.has(tr.id) && !player.isTrackHidden(tr.id));
   });
 
-  async function toggleEnhance() {
-    if (enhanced) {
-      enhanced = false;
-      enhancedTracks = [];
-      return;
-    }
+  async function fetchEnhancedSuggestions(rotateSeeds: boolean) {
     if (!isTauriRuntime() || player.isOffline || tracks.length === 0 || enhancing) return;
     enhancing = true;
     try {
-      const seeds = tracks.length > 2 ? [tracks[0], tracks[Math.floor(tracks.length / 2)]] : [tracks[0]];
+      if (rotateSeeds) {
+        enhanceSeedOffset = (enhanceSeedOffset + 1) % tracks.length;
+      }
+      const firstIdx = enhanceSeedOffset % tracks.length;
+      const secondIdx = (firstIdx + Math.max(1, Math.floor(tracks.length / 2))) % tracks.length;
+      const seeds = tracks.length > 1 && secondIdx !== firstIdx
+        ? [tracks[firstIdx], tracks[secondIdx]]
+        : [tracks[firstIdx]];
       const results = await Promise.all(
         seeds.map((s) => api.getRadioTracks(s.id).catch(() => [] as Track[])),
       );
       const existing = new Set(tracks.map((tr) => tr.id));
+      const previousIds = rotateSeeds ? new Set(enhancedTracks.map((tr) => tr.id)) : new Set<string>();
       const seen = new Set<string>();
-      const picked: Track[] = [];
+      const fresh: Track[] = [];
+      const fallback: Track[] = [];
       for (const list of results) {
         for (const tr of list) {
           if (existing.has(tr.id) || seen.has(tr.id) || player.isTrackHidden(tr.id)) continue;
           seen.add(tr.id);
-          picked.push(tr);
-          if (picked.length >= 6) break;
+          if (previousIds.has(tr.id)) {
+            fallback.push(tr);
+          } else {
+            fresh.push(tr);
+          }
         }
-        if (picked.length >= 6) break;
       }
+      const picked = [...fresh, ...fallback].slice(0, 6);
       if (picked.length === 0) {
         player.showToast(t("filter.no_matches"));
         return;
@@ -97,6 +107,15 @@
     } finally {
       enhancing = false;
     }
+  }
+
+  async function toggleEnhance() {
+    if (enhanced) {
+      enhanced = false;
+      enhancedTracks = [];
+      return;
+    }
+    await fetchEnhancedSuggestions(false);
   }
 
   let hasAnyDownloaded = $derived(tracks.some((tr) => player.isTrackDownloaded(tr.id)));
@@ -253,7 +272,7 @@
         </div>
       {/if}
 
-      <div class="flex flex-wrap items-center gap-1.5 ml-auto">
+      <div class="flex flex-wrap items-center gap-1.5 {tracks.length > 4 ? 'ml-auto' : 'w-full justify-between'}">
         {#if mode === "playlist" && playlist && !player.isOffline && tracks.length > 0}
           <button
             type="button"
@@ -384,11 +403,20 @@
 
         {#if visibleEnhanced.length > 0 && playlist}
           <div class="mt-5 pt-4 border-t border-[var(--border)] space-y-2">
-            <div class="flex items-center justify-between px-1">
+            <div class="flex items-center justify-between gap-2 px-1">
               <span class="inline-flex items-center gap-1.5 text-[11.5px] font-bold uppercase tracking-[0.08em] text-[var(--accent-bright)]">
                 <Sparkles size={12} />
                 {t("collection.enhance_active")} · {visibleEnhanced.length}
               </span>
+              <button
+                type="button"
+                disabled={enhancing || player.isOffline}
+                class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11.5px] font-semibold bg-[var(--surface)] hover:bg-[var(--surface-hover)] border border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text)] transition-colors disabled:opacity-50 active:scale-95"
+                onclick={() => void fetchEnhancedSuggestions(true)}
+              >
+                <RefreshCw size={12} class={enhancing ? "animate-spin" : ""} />
+                <span>{t("collection.enhance_refresh")}</span>
+              </button>
             </div>
             <div class="track-list">
               {#each visibleEnhanced as sug (sug.id)}
