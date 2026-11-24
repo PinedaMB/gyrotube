@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
+use gyrotube_core::i18n::set_language_preference;
 use gyrotube_core::models::{
     Artist, SessionState, Track, UserPlaylist, load_favorites, load_followed_artists,
     load_recent_tracks, load_search_history, load_session_state, load_user_playlists,
@@ -23,11 +24,15 @@ pub struct InitialAppData {
 }
 
 #[tauri::command]
-pub async fn load_initial_state(state: State<'_, AppCoreState>) -> Result<InitialAppData, String> {
+pub async fn load_initial_state(
+    app: tauri::AppHandle,
+    state: State<'_, AppCoreState>,
+) -> Result<InitialAppData, String> {
     let bg_flag = Arc::clone(&state.background_playback);
     let backend = state.backend.clone();
-    tokio::task::spawn_blocking(move || {
+    let data = tokio::task::spawn_blocking(move || {
         let session = load_session_state();
+        set_language_preference(session.language);
         bg_flag.store(session.background_playback, Ordering::Relaxed);
         backend.set_audio_quality(session.audio_quality);
         InitialAppData {
@@ -40,14 +45,19 @@ pub async fn load_initial_state(state: State<'_, AppCoreState>) -> Result<Initia
         }
     })
     .await
-    .map_err(|e| e.to_string())
+    .map_err(|e| e.to_string())?;
+    crate::refresh_tray_menu(&app);
+    Ok(data)
 }
 
 #[tauri::command]
 pub async fn save_session(
+    app: tauri::AppHandle,
     state: State<'_, AppCoreState>,
     session: SessionState,
 ) -> Result<(), String> {
+    set_language_preference(session.language);
+    crate::refresh_tray_menu(&app);
     state
         .background_playback
         .store(session.background_playback, Ordering::Relaxed);

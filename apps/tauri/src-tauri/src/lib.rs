@@ -4,14 +4,43 @@ mod commands;
 use std::sync::atomic::Ordering;
 
 use gyrotube_core::backend::Backend;
+use gyrotube_core::i18n::set_language_preference;
+#[cfg(desktop)]
+use gyrotube_core::i18n::tr;
 use gyrotube_core::jam::JamCommand;
-use gyrotube_core::models::init_storage_dirs;
+use gyrotube_core::models::{init_storage_dirs, load_session_state};
 use gyrotube_core::spin_remote::RemoteRole;
 #[cfg(desktop)]
 use tauri::WindowEvent;
 use tauri::{Emitter, Manager};
 
 use commands::{AppCoreState, SpinCommandEvent, SpinRemoteSyncEvent};
+
+#[cfg(desktop)]
+fn build_tray_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
+    use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
+
+    let show_i = MenuItem::with_id(app, "show", tr("Mostrar GyroTube", "Show GyroTube"), true, None::<&str>)?;
+    let play_i = MenuItem::with_id(app, "toggle_play", tr("Reproducir / Pausar", "Play / Pause"), true, None::<&str>)?;
+    let prev_i = MenuItem::with_id(app, "prev", tr("Anterior", "Previous"), true, None::<&str>)?;
+    let next_i = MenuItem::with_id(app, "next", tr("Siguiente", "Next"), true, None::<&str>)?;
+    let sep_i = PredefinedMenuItem::separator(app)?;
+    let quit_i = MenuItem::with_id(app, "quit", tr("Salir de GyroTube", "Quit GyroTube"), true, None::<&str>)?;
+
+    Menu::with_items(app, &[&show_i, &play_i, &prev_i, &next_i, &sep_i, &quit_i])
+}
+
+#[cfg(desktop)]
+pub(crate) fn refresh_tray_menu(app: &tauri::AppHandle) {
+    if let Some(tray) = app.tray_by_id("gyrotube-tray")
+        && let Ok(menu) = build_tray_menu(app)
+    {
+        let _ = tray.set_menu(Some(menu));
+    }
+}
+
+#[cfg(not(desktop))]
+pub(crate) fn refresh_tray_menu(_app: &tauri::AppHandle) {}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -24,6 +53,7 @@ pub fn run() {
             {
                 init_storage_dirs(data_dir, cache_dir);
             }
+            set_language_preference(load_session_state().language);
             Backend::trim_audio_cache_on_startup();
 
             // Construct core state AFTER init_storage_dirs so Android has valid writable dirs
@@ -93,20 +123,9 @@ pub fn run() {
 
             #[cfg(desktop)]
             {
-                use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
                 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 
-                let show_i = MenuItem::with_id(app, "show", "Show GyroTube", true, None::<&str>)?;
-                let play_i = MenuItem::with_id(app, "toggle_play", "Play / Pause", true, None::<&str>)?;
-                let prev_i = MenuItem::with_id(app, "prev", "Previous", true, None::<&str>)?;
-                let next_i = MenuItem::with_id(app, "next", "Next", true, None::<&str>)?;
-                let sep_i = PredefinedMenuItem::separator(app)?;
-                let quit_i = MenuItem::with_id(app, "quit", "Quit GyroTube", true, None::<&str>)?;
-
-                let menu = Menu::with_items(
-                    app,
-                    &[&show_i, &play_i, &prev_i, &next_i, &sep_i, &quit_i],
-                )?;
+                let menu = build_tray_menu(app.handle())?;
 
                 let mut tray_builder = TrayIconBuilder::with_id("gyrotube-tray")
                     .menu(&menu)
