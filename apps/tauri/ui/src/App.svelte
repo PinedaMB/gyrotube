@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { LogicalSize } from "@tauri-apps/api/dpi";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { WifiOff } from "lucide-svelte";
   import { onMount } from "svelte";
@@ -28,6 +29,15 @@
   let windowEdgeToEdge = $state(false);
 
   function handleGlobalKeydown(e: KeyboardEvent) {
+    if (isDesktopTauri && e.key === "F11") {
+      e.preventDefault();
+      const win = getCurrentWindow();
+      void win
+        .isFullscreen()
+        .then((fs) => win.setFullscreen(!fs))
+        .catch(() => {});
+      return;
+    }
     if (e.ctrlKey || e.metaKey || e.altKey) return;
     const target = e.target as HTMLElement | null;
     const tag = target?.tagName;
@@ -105,19 +115,62 @@
     };
 
     let unlistenResize: (() => void) | undefined;
+    let saveWindowTimer: number | undefined;
+    const WINDOW_STATE_KEY = "gyrotube.windowState";
     if (isDesktopTauri) {
       const win = getCurrentWindow();
-      const syncWindowFrame = () => {
-        void Promise.all([win.isMaximized(), win.isFullscreen()])
-          .then(([max, fs]) => {
+      let savedSize = { width: 1220, height: 760, maximized: false };
+      try {
+        const raw = localStorage.getItem(WINDOW_STATE_KEY);
+        if (raw) {
+          const parsed = JSON.parse(raw) as Partial<typeof savedSize>;
+          if (
+            typeof parsed.width === "number" &&
+            typeof parsed.height === "number" &&
+            parsed.width >= 360 &&
+            parsed.height >= 480
+          ) {
+            savedSize = {
+              width: Math.min(3840, Math.round(parsed.width)),
+              height: Math.min(2160, Math.round(parsed.height)),
+              maximized: Boolean(parsed.maximized),
+            };
+            void win.setSize(new LogicalSize(savedSize.width, savedSize.height)).catch(() => {});
+          }
+          if (savedSize.maximized) {
+            void win.maximize().catch(() => {});
+          }
+        }
+      } catch {
+        // ignore invalid stored window state
+      }
+
+      const syncWindowFrame = (persist: boolean) => {
+        void Promise.all([win.isMaximized(), win.isFullscreen(), win.innerSize(), win.scaleFactor()])
+          .then(([max, fs, size, scale]) => {
             windowEdgeToEdge = max || fs;
+            if (!persist || fs) return;
+            const factor = scale > 0 ? scale : 1;
+            const next = {
+              width: max ? savedSize.width : Math.max(360, Math.round(size.width / factor)),
+              height: max ? savedSize.height : Math.max(480, Math.round(size.height / factor)),
+              maximized: max,
+            };
+            savedSize = next;
+            try {
+              localStorage.setItem(WINDOW_STATE_KEY, JSON.stringify(next));
+            } catch {
+              // ignore storage quota errors
+            }
           })
           .catch(() => {});
       };
-      syncWindowFrame();
+      syncWindowFrame(false);
       void win
         .onResized(() => {
-          syncWindowFrame();
+          syncWindowFrame(false);
+          window.clearTimeout(saveWindowTimer);
+          saveWindowTimer = window.setTimeout(() => syncWindowFrame(true), 250);
         })
         .then((fn) => {
           unlistenResize = fn;
@@ -142,6 +195,7 @@
     window.addEventListener("offline", handleOffline);
     window.addEventListener("online", handleOnline);
     return () => {
+      window.clearTimeout(saveWindowTimer);
       unlistenResize?.();
       window.removeEventListener("offline", handleOffline);
       window.removeEventListener("online", handleOnline);
@@ -220,6 +274,16 @@
       "--ambient-rgb",
       rgb ? `${rgb[0]}, ${rgb[1]}, ${rgb[2]}` : "16, 185, 129",
     );
+  });
+
+  $effect(() => {
+    if (!isDesktopTauri) return;
+    const track = player.currentTrack;
+    const title =
+      track && player.isPlaying
+        ? `${track.title}${track.artist ? ` — ${track.artist}` : ""} · GyroTube`
+        : "GyroTube";
+    void getCurrentWindow().setTitle(title).catch(() => {});
   });
 </script>
 
