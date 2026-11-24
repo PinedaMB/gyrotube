@@ -3,6 +3,7 @@
   import { t } from "../../lib/i18n.svelte";
   import { player } from "../../lib/stores/player.svelte";
   import SpinIcon from "../icons/SpinIcon.svelte";
+  import WindowControls from "./WindowControls.svelte";
 
   let spinLive = $derived(
     player.spinStatus.local_active || player.spinStatus.remote_role !== "idle",
@@ -47,8 +48,6 @@
     <PartyPopper size={18} />
   </button>
 
-  <span class="hidden sm:block w-px h-5 bg-[var(--border-strong)] mx-1" aria-hidden="true"></span>
-
   <button
     type="button"
     class="icon-btn max-md:!w-9 max-md:!h-9"
@@ -71,4 +70,6 @@
   >
     <PanelRight size={18} />
   </button>
+
+  <WindowControls />
 </div>

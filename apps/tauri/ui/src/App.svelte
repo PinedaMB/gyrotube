@@ -1,8 +1,10 @@
 <script lang="ts">
+  import { getCurrentWindow } from "@tauri-apps/api/window";
   import { WifiOff } from "lucide-svelte";
   import { onMount } from "svelte";
   import { cubicOut } from "svelte/easing";
   import { fade, fly } from "svelte/transition";
+  import { isTauriRuntime } from "./lib/api";
   import CollectionView from "./components/CollectionView.svelte";
   import CollectionPlaylistModal from "./components/collection/CollectionPlaylistModal.svelte";
   import ContextMenu from "./components/ContextMenu.svelte";
@@ -22,6 +24,8 @@
   import { updater } from "./lib/stores/updater.svelte";
 
   let savedMuteVolume = 1;
+  const isDesktopTauri = isTauriRuntime() && !device.isAndroid;
+  let windowEdgeToEdge = $state(false);
 
   function handleGlobalKeydown(e: KeyboardEvent) {
     if (e.ctrlKey || e.metaKey || e.altKey) return;
@@ -99,6 +103,27 @@
     const handleOffline = () => {
       player.isOffline = true;
     };
+
+    let unlistenResize: (() => void) | undefined;
+    if (isDesktopTauri) {
+      const win = getCurrentWindow();
+      const syncWindowFrame = () => {
+        void Promise.all([win.isMaximized(), win.isFullscreen()])
+          .then(([max, fs]) => {
+            windowEdgeToEdge = max || fs;
+          })
+          .catch(() => {});
+      };
+      syncWindowFrame();
+      void win
+        .onResized(() => {
+          syncWindowFrame();
+        })
+        .then((fn) => {
+          unlistenResize = fn;
+        })
+        .catch(() => {});
+    }
     const handleOnline = () => {
       const wasOffline = player.isOffline;
       player.isOffline = false;
@@ -117,6 +142,7 @@
     window.addEventListener("offline", handleOffline);
     window.addEventListener("online", handleOnline);
     return () => {
+      unlistenResize?.();
       window.removeEventListener("offline", handleOffline);
       window.removeEventListener("online", handleOnline);
     };
@@ -199,7 +225,11 @@
 
 <svelte:window oncontextmenu={(e) => contextMenu.openAppMenu(e)} onkeydown={handleGlobalKeydown} />
 
-<div class="h-screen w-screen overflow-hidden flex flex-col bg-[var(--bg)] text-[var(--text)]">
+<div
+  class="h-screen w-screen overflow-hidden flex flex-col bg-[var(--bg)] text-[var(--text)] {isDesktopTauri && !windowEdgeToEdge
+    ? 'rounded-[14px] border border-[var(--border-strong)] shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]'
+    : ''}"
+>
   <HeaderBar />
 
   {#if player.isOffline && player.activeView.kind === "collection"}
