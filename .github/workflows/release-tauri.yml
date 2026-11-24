@@ -5,24 +5,75 @@ on:
     tags:
       - "v*"
   workflow_dispatch:
+    inputs:
+      tag:
+        description: "Optional tag name to publish a draft release (leave empty for dry-run build only)"
+        required: false
+        default: ""
 
 permissions:
   contents: write
 
 jobs:
+  prepare-release:
+    name: Prepare GitHub Release
+    runs-on: ubuntu-latest
+    outputs:
+      is_release: ${{ steps.meta.outputs.is_release }}
+      tag_name: ${{ steps.meta.outputs.tag_name }}
+      release_id: ${{ steps.meta.outputs.release_id }}
+    steps:
+      - name: Create or reuse draft release
+        id: meta
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          TAG=""
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            TAG="${GITHUB_REF_NAME}"
+          elif [[ -n "${INPUT_TAG}" ]]; then
+            TAG="${INPUT_TAG}"
+          fi
+
+          if [[ -z "${TAG}" ]]; then
+            echo "is_release=false" >> "$GITHUB_OUTPUT"
+            echo "tag_name=dev" >> "$GITHUB_OUTPUT"
+            echo "release_id=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          RELEASE_ID="$(gh api "repos/${GITHUB_REPOSITORY}/releases" --jq ".[] | select(.tag_name == \"${TAG}\") | .id" | head -n 1 || true)"
+          if [[ -z "${RELEASE_ID}" ]]; then
+            gh release create "${TAG}" \
+              --draft \
+              --title "GyroTube ${TAG}" \
+              --notes "Cross-platform desktop installers (\`.AppImage\`, \`.deb\`, \`.rpm\`, \`.msi\`, \`.exe\`, \`.dmg\`) and Android APK (\`aarch64\`)."
+            RELEASE_ID="$(gh api "repos/${GITHUB_REPOSITORY}/releases" --jq ".[] | select(.tag_name == \"${TAG}\") | .id" | head -n 1)"
+          fi
+
+          echo "is_release=true" >> "$GITHUB_OUTPUT"
+          echo "tag_name=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "release_id=${RELEASE_ID}" >> "$GITHUB_OUTPUT"
+
   desktop:
-    name: Build Desktop (${{ matrix.platform }})
+    name: Build Desktop (${{ matrix.label }})
+    needs: prepare-release
     strategy:
       fail-fast: false
       matrix:
         include:
-          - platform: ubuntu-22.04
+          - label: Linux x86_64
+            platform: ubuntu-22.04
             args: ""
-          - platform: windows-latest
+          - label: Windows x86_64
+            platform: windows-latest
             args: ""
-          - platform: macos-latest
+          - label: macOS Apple Silicon
+            platform: macos-latest
             args: "--target aarch64-apple-darwin"
-          - platform: macos-latest
+          - label: macOS Intel
+            platform: macos-latest
             args: "--target x86_64-apple-darwin"
 
     runs-on: ${{ matrix.platform }}
@@ -50,27 +101,36 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            libwebkit2gtk-4.1-dev libappindicator3-dev \
-            librsvg2-dev patchelf libssl-dev
+            libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
+            librsvg2-dev patchelf libssl-dev pkg-config
 
       - name: Install UI dependencies
         run: pnpm --dir apps/tauri/ui install --frozen-lockfile
 
-      - name: Build Tauri desktop bundles
+      - name: Build & upload Tauri desktop bundles
+        if: needs.prepare-release.outputs.is_release == 'true'
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NO_STRIP: "true"
         with:
           projectPath: apps/tauri
-          tagName: ${{ github.ref_name }}
-          releaseName: "GyroTube ${{ github.ref_name }}"
-          releaseBody: "Cross-platform desktop installers (.AppImage, .deb, .rpm, .msi, .exe, .dmg) and Android APK."
-          releaseDraft: true
-          prerelease: false
+          releaseId: ${{ needs.prepare-release.outputs.release_id }}
+          args: ${{ matrix.args }}
+
+      - name: Build Tauri desktop bundles (dry-run)
+        if: needs.prepare-release.outputs.is_release != 'true'
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NO_STRIP: "true"
+        with:
+          projectPath: apps/tauri
           args: ${{ matrix.args }}
 
   android:
     name: Build Android APK (aarch64)
+    needs: prepare-release
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -82,15 +142,10 @@ jobs:
 
       - uses: android-actions/setup-android@v3
 
-      - name: Install Android NDK & bindgen env
+      - name: Install Android NDK & Build-Tools
         run: |
-          sdkmanager "ndk;26.3.11579264" "platforms;android-34" "build-tools;34.0.0"
-          NDK_ROOT="${ANDROID_HOME}/ndk/26.3.11579264"
-          LLVM_PREBUILT="${NDK_ROOT}/toolchains/llvm/prebuilt/linux-x86_64"
-          CLANG_INC="$(find "${LLVM_PREBUILT}/lib/clang" -maxdepth 2 -name include -type d | head -n 1)"
-          echo "NDK_HOME=${NDK_ROOT}" >> "$GITHUB_ENV"
-          echo "LIBCLANG_PATH=${LLVM_PREBUILT}/lib64" >> "$GITHUB_ENV"
-          echo "BINDGEN_EXTRA_CLANG_ARGS_aarch64_linux_android=--sysroot=${LLVM_PREBUILT}/sysroot -isystem ${CLANG_INC}" >> "$GITHUB_ENV"
+          sdkmanager "ndk;27.2.12479018" "build-tools;36.0.0"
+          echo "NDK_HOME=${ANDROID_HOME}/ndk/27.2.12479018" >> "$GITHUB_ENV"
 
       - uses: pnpm/action-setup@v4
         with:
@@ -123,8 +178,67 @@ jobs:
         working-directory: apps/tauri
         run: cargo tauri android build --apk --target aarch64
 
+      - name: Align & sign Android APK
+        id: sign
+        env:
+          TAG: ${{ needs.prepare-release.outputs.tag_name }}
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASS: ${{ secrets.ANDROID_KEYSTORE_PASS }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASS: ${{ secrets.ANDROID_KEY_PASS }}
+        run: |
+          SRC_APK="apps/tauri/src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk"
+          if [[ ! -f "${SRC_APK}" ]]; then
+            echo "Error: unsigned APK not found at ${SRC_APK}" >&2
+            exit 1
+          fi
+
+          BUILD_TOOLS="$(ls -d "${ANDROID_HOME}/build-tools/"* | sort -V | tail -n 1)"
+          OUT_DIR="output/android"
+          mkdir -p "${OUT_DIR}"
+
+          KEYSTORE="/tmp/gyrotube-release.keystore"
+          if [[ -n "${KEYSTORE_B64}" ]]; then
+            echo "${KEYSTORE_B64}" | base64 --decode > "${KEYSTORE}"
+          else
+            KEYSTORE_PASS="gyrotube-ci"
+            KEY_ALIAS="gyrotube"
+            KEY_PASS="gyrotube-ci"
+            keytool -genkeypair -v \
+              -keystore "${KEYSTORE}" \
+              -storepass "${KEYSTORE_PASS}" \
+              -alias "${KEY_ALIAS}" \
+              -keypass "${KEY_PASS}" \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -dname "CN=GyroTube,O=PinedaMB,C=US"
+          fi
+
+          ALIGNED_APK="${OUT_DIR}/.aligned.apk"
+          FINAL_APK="${OUT_DIR}/GyroTube-${TAG}-android-aarch64.apk"
+
+          "${BUILD_TOOLS}/zipalign" -f -p 4 "${SRC_APK}" "${ALIGNED_APK}"
+          "${BUILD_TOOLS}/apksigner" sign \
+            --ks "${KEYSTORE}" \
+            --ks-pass "pass:${KEYSTORE_PASS}" \
+            --ks-key-alias "${KEY_ALIAS}" \
+            --key-pass "pass:${KEY_PASS}" \
+            --out "${FINAL_APK}" \
+            "${ALIGNED_APK}"
+          rm -f "${ALIGNED_APK}" "${FINAL_APK}.idsig" "${KEYSTORE}"
+
+          echo "apk_path=${FINAL_APK}" >> "$GITHUB_OUTPUT"
+          ls -lh "${FINAL_APK}"
+
       - name: Upload Android APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: gyrotube-android-apk
-          path: apps/tauri/src-tauri/gen/android/app/build/outputs/apk/universal/release/*.apk
+          path: ${{ steps.sign.outputs.apk_path }}
+
+      - name: Attach Android APK to GitHub Release
+        if: needs.prepare-release.outputs.is_release == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.prepare-release.outputs.tag_name }}
+          APK_PATH: ${{ steps.sign.outputs.apk_path }}
+        run: gh release upload "${TAG}" "${APK_PATH}" --clobber
