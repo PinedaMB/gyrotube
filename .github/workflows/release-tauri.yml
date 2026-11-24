@@ -147,7 +147,6 @@ jobs:
           for f in "${BUNDLE_DIR}"/appimage/*.AppImage; do
             cp -f "$f" "release-assets/GyroTube-${TAG}-${PREFIX}.AppImage"
             if [[ -f "${f}.sig" ]]; then
-              cp -f "${f}.sig" "release-assets/GyroTube-${TAG}-${PREFIX}.AppImage.sig"
               printf '%s\n' "GyroTube-${TAG}-${PREFIX}.AppImage" > "updater-sigs/${UPDATER_TARGET}.asset"
               cp -f "${f}.sig" "updater-sigs/${UPDATER_TARGET}.sig"
             fi
@@ -164,7 +163,6 @@ jobs:
           for f in "${BUNDLE_DIR}"/nsis/*.exe; do
             cp -f "$f" "release-assets/GyroTube-${TAG}-${PREFIX}-setup.exe"
             if [[ -f "${f}.sig" ]]; then
-              cp -f "${f}.sig" "release-assets/GyroTube-${TAG}-${PREFIX}-setup.exe.sig"
               printf '%s\n' "GyroTube-${TAG}-${PREFIX}-setup.exe" > "updater-sigs/${UPDATER_TARGET}.asset"
               cp -f "${f}.sig" "updater-sigs/${UPDATER_TARGET}.sig"
             fi
@@ -175,7 +173,6 @@ jobs:
           for f in "${BUNDLE_DIR}"/macos/*.app.tar.gz; do
             cp -f "$f" "release-assets/GyroTube-${TAG}-${PREFIX}.app.tar.gz"
             if [[ -f "${f}.sig" ]]; then
-              cp -f "${f}.sig" "release-assets/GyroTube-${TAG}-${PREFIX}.app.tar.gz.sig"
               printf '%s\n' "GyroTube-${TAG}-${PREFIX}.app.tar.gz" > "updater-sigs/${UPDATER_TARGET}.asset"
               cp -f "${f}.sig" "updater-sigs/${UPDATER_TARGET}.sig"
             fi
