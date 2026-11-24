@@ -1,5 +1,6 @@
 mod commands;
 mod mpris;
+mod single_instance;
 
 #[cfg(desktop)]
 use std::sync::atomic::Ordering;
@@ -45,10 +46,22 @@ pub(crate) fn refresh_tray_menu(_app: &tauri::AppHandle) {}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    #[cfg(desktop)]
+    let mut instance_guard = match single_instance::SingleInstanceGuard::acquire_or_notify_existing()
+    {
+        Some(guard) => guard,
+        None => return,
+    };
+
     gyrotube_core::tls::ensure_crypto_provider();
 
     tauri::Builder::default()
         .setup(move |app| {
+            #[cfg(desktop)]
+            {
+                instance_guard.start_listener(app.handle().clone());
+                app.manage(instance_guard);
+            }
             if let (Ok(data_dir), Ok(cache_dir)) =
                 (app.path().app_data_dir(), app.path().app_cache_dir())
             {
