@@ -175,6 +175,30 @@ impl InnerTubeClient {
             .chain(muxed.into_iter().flatten())
             .collect();
 
+        #[cfg(target_os = "macos")]
+        let candidates: &[(u64, &str)] = match self.audio_quality() {
+            AudioQuality::High => &[
+                (141, "m4a"),
+                (140, "m4a"),
+                (139, "m4a"),
+                (18, "mp4"),
+                (251, "webm"),
+            ],
+            AudioQuality::Normal => &[
+                (140, "m4a"),
+                (139, "m4a"),
+                (18, "mp4"),
+                (250, "webm"),
+            ],
+            AudioQuality::Low => &[
+                (139, "m4a"),
+                (140, "m4a"),
+                (18, "mp4"),
+                (249, "webm"),
+            ],
+        };
+
+        #[cfg(not(target_os = "macos"))]
         let candidates: &[(u64, &str)] = match self.audio_quality() {
             AudioQuality::High => &[
                 (251, "webm"),
