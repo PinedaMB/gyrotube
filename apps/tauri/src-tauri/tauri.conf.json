@@ -4,9 +4,15 @@
   "version": "1.0.0",
   "identifier": "com.github.gyrotube.GyroTube",
   "build": {
-    "beforeDevCommand": "node -e \"const fs=require('fs'),cp=require('child_process');const d=fs.existsSync('ui')?'ui':'../ui';cp.execSync('pnpm --dir '+d+' dev',{stdio:'inherit'})\"",
+    "beforeDevCommand": {
+      "script": "pnpm dev",
+      "cwd": "../ui"
+    },
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "node -e \"const fs=require('fs'),cp=require('child_process');const d=fs.existsSync('ui')?'ui':'../ui';cp.execSync('pnpm --dir '+d+' build',{stdio:'inherit'})\"",
+    "beforeBuildCommand": {
+      "script": "pnpm build",
+      "cwd": "../ui"
+    },
     "frontendDist": "../ui/dist"
   },
   "app": {

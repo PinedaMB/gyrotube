@@ -141,11 +141,14 @@ jobs:
           distribution: temurin
           java-version: 17
 
-      - uses: android-actions/setup-android@v3
-
       - name: Install Android NDK & Build-Tools
         run: |
-          sdkmanager "ndk;27.2.12479018" "build-tools;36.0.0"
+          SDKMANAGER="${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager"
+          if [[ ! -x "${SDKMANAGER}" ]]; then
+            SDKMANAGER="$(find "${ANDROID_HOME}/cmdline-tools" -name sdkmanager -type f | head -n 1)"
+          fi
+          yes | "${SDKMANAGER}" --licenses >/dev/null || true
+          "${SDKMANAGER}" "ndk;27.2.12479018" "build-tools;36.0.0"
           echo "NDK_HOME=${ANDROID_HOME}/ndk/27.2.12479018" >> "$GITHUB_ENV"
 
       - uses: pnpm/action-setup@v4
