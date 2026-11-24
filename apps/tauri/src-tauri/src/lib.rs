@@ -123,6 +123,13 @@ pub fn run() {
 
             #[cfg(desktop)]
             {
+                let _ = app
+                    .handle()
+                    .plugin(tauri_plugin_updater::Builder::new().build());
+            }
+
+            #[cfg(desktop)]
+            {
                 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 
                 let menu = build_tray_menu(app.handle())?;
@@ -230,6 +237,9 @@ pub fn run() {
             commands::spin_remote_control,
             commands::spin_remote_add_track,
             commands::spin_sync_snapshot,
+            commands::get_app_version,
+            commands::check_for_updates,
+            commands::install_update,
         ])
         .run(tauri::generate_context!())
         .expect("error while running GyroTube Tauri application");

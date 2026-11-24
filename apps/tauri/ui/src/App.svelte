@@ -19,6 +19,7 @@
   import { contextMenu } from "./lib/stores/contextMenu.svelte";
   import { device } from "./lib/stores/device.svelte";
   import { player } from "./lib/stores/player.svelte";
+  import { updater } from "./lib/stores/updater.svelte";
 
   let savedMuteVolume = 1;
 
@@ -93,6 +94,7 @@
       window.clearTimeout(safetyTimer);
       dismissSplash();
     });
+    updater.init();
 
     const handleOffline = () => {
       player.isOffline = true;

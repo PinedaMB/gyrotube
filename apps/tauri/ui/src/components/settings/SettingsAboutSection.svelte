@@ -1,6 +1,7 @@
 <script lang="ts">
-  import { Heart, Info, ShieldCheck } from "lucide-svelte";
+  import { Check, Download, ExternalLink, Heart, Info, RefreshCw, ShieldCheck } from "lucide-svelte";
   import { t } from "../../lib/i18n.svelte";
+  import { updater } from "../../lib/stores/updater.svelte";
 </script>
 
 <section class="space-y-2.5">
@@ -22,13 +23,81 @@
         <div class="flex items-center gap-2 flex-wrap">
           <span class="text-[16px] font-extrabold tracking-tight">GyroTube</span>
           <span class="px-2 py-0.5 rounded-full text-[10.5px] font-bold numeric bg-[var(--accent-soft)] text-[var(--accent-bright)] border border-[var(--accent-border)]/40">
-            v1.0.0
+            v{updater.currentVersion}
           </span>
         </div>
         <p class="text-[12.5px] text-[var(--text-muted)] mt-0.5 leading-snug">
           {t("settings.about_desc")}
         </p>
       </div>
+    </div>
+
+    <!-- Updates row -->
+    <div class="px-4 py-3 space-y-2">
+      <div class="flex items-center justify-between gap-3 text-[13px]">
+        <div class="min-w-0">
+          <div class="font-medium text-[var(--text)]">{t("updater.label")}</div>
+          <div class="text-[12px] text-[var(--text-muted)] mt-0.5">
+            {#if updater.status === "checking"}
+              {t("updater.checking")}
+            {:else if updater.status === "installing"}
+              {updater.progressPct !== null
+                ? t("updater.installing", { pct: updater.progressPct })
+                : t("updater.installing_indeterminate")}
+            {:else if updater.status === "available" && updater.latestVersion}
+              <span class="text-[var(--accent-bright)] font-semibold">
+                {t("updater.available", { version: updater.latestVersion })}
+              </span>
+            {:else if updater.status === "up_to_date"}
+              <span class="inline-flex items-center gap-1 text-[var(--accent-bright)]">
+                <Check size={12} />
+                {t("updater.up_to_date")}
+              </span>
+            {:else if updater.status === "error"}
+              <span class="text-rose-400">{t("updater.error")}</span>
+            {:else}
+              v{updater.currentVersion}
+            {/if}
+          </div>
+        </div>
+
+        <div class="flex items-center gap-2 shrink-0">
+          {#if updater.status === "available" && updater.latestVersion}
+            <button
+              type="button"
+              class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[12px] font-bold bg-[var(--accent)] hover:bg-[var(--accent-bright)] text-white transition-colors active:scale-95"
+              onclick={() => void updater.installOrDownload()}
+            >
+              {#if updater.canAutoInstall}
+                <Download size={13} />
+                <span>{t("updater.install_btn")}</span>
+              {:else}
+                <ExternalLink size={13} />
+                <span>{t("updater.download_btn", { version: updater.latestVersion })}</span>
+              {/if}
+            </button>
+          {/if}
+
+          <button
+            type="button"
+            disabled={updater.status === "checking" || updater.status === "installing"}
+            class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[12px] font-semibold bg-[var(--bg)]/60 hover:bg-[var(--surface-hover)] border border-[var(--border)] transition-colors disabled:opacity-50"
+            onclick={() => void updater.check(false)}
+          >
+            <RefreshCw size={12} class={updater.status === "checking" ? "animate-spin" : ""} />
+            <span>{t("updater.check_btn")}</span>
+          </button>
+        </div>
+      </div>
+
+      {#if updater.status === "installing"}
+        <div class="h-1.5 rounded-full bg-[var(--border)] overflow-hidden">
+          <div
+            class="h-full rounded-full bg-[var(--accent-bright)] transition-[width] duration-200"
+            style="width: {updater.progressPct ?? 35}%;"
+          ></div>
+        </div>
+      {/if}
     </div>
 
     <div class="px-4 py-3 flex items-center justify-between gap-4 text-[13px]">

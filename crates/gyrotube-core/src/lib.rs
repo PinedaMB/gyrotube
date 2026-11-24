@@ -7,3 +7,4 @@ pub mod jam;
 pub mod models;
 pub mod spin_remote;
 pub mod tls;
+pub mod updater;

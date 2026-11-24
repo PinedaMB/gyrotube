@@ -2,6 +2,7 @@ mod audio;
 mod catalog;
 mod persistence;
 mod spin;
+mod updater;
 
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex, RwLock};
@@ -18,6 +19,7 @@ pub use audio::*;
 pub use catalog::*;
 pub use persistence::*;
 pub use spin::*;
+pub use updater::*;
 
 pub struct SpinState {
     pub snapshot: Arc<RwLock<JamSnapshot>>,

@@ -67,21 +67,25 @@ jobs:
           - label: Linux x86_64
             platform: ubuntu-22.04
             asset_prefix: linux-x86_64
+            updater_target: linux-x86_64
             target_dir: target/release/bundle
             args: ""
           - label: Windows x86_64
             platform: windows-latest
             asset_prefix: windows-x64
+            updater_target: windows-x86_64
             target_dir: target/release/bundle
             args: ""
           - label: macOS Apple Silicon
             platform: macos-latest
             asset_prefix: macos-apple-silicon
+            updater_target: darwin-aarch64
             target_dir: target/aarch64-apple-darwin/release/bundle
             args: "--target aarch64-apple-darwin"
           - label: macOS Intel
             platform: macos-latest
             asset_prefix: macos-intel
+            updater_target: darwin-x86_64
             target_dir: target/x86_64-apple-darwin/release/bundle
             args: "--target x86_64-apple-darwin"
 
@@ -120,6 +124,8 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           NO_STRIP: "true"
         with:
           projectPath: apps/tauri
@@ -132,13 +138,19 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ needs.prepare-release.outputs.tag_name }}
           PREFIX: ${{ matrix.asset_prefix }}
+          UPDATER_TARGET: ${{ matrix.updater_target }}
           BUNDLE_DIR: ${{ matrix.target_dir }}
         run: |
-          mkdir -p release-assets
+          mkdir -p release-assets updater-sigs
           shopt -s nullglob
 
           for f in "${BUNDLE_DIR}"/appimage/*.AppImage; do
             cp -f "$f" "release-assets/GyroTube-${TAG}-${PREFIX}.AppImage"
+            if [[ -f "${f}.sig" ]]; then
+              cp -f "${f}.sig" "release-assets/GyroTube-${TAG}-${PREFIX}.AppImage.sig"
+              printf '%s\n' "GyroTube-${TAG}-${PREFIX}.AppImage" > "updater-sigs/${UPDATER_TARGET}.asset"
+              cp -f "${f}.sig" "updater-sigs/${UPDATER_TARGET}.sig"
+            fi
           done
           for f in "${BUNDLE_DIR}"/deb/*.deb; do
             cp -f "$f" "release-assets/GyroTube-${TAG}-${PREFIX}.deb"
@@ -151,13 +163,34 @@ jobs:
           done
           for f in "${BUNDLE_DIR}"/nsis/*.exe; do
             cp -f "$f" "release-assets/GyroTube-${TAG}-${PREFIX}-setup.exe"
+            if [[ -f "${f}.sig" ]]; then
+              cp -f "${f}.sig" "release-assets/GyroTube-${TAG}-${PREFIX}-setup.exe.sig"
+              printf '%s\n' "GyroTube-${TAG}-${PREFIX}-setup.exe" > "updater-sigs/${UPDATER_TARGET}.asset"
+              cp -f "${f}.sig" "updater-sigs/${UPDATER_TARGET}.sig"
+            fi
           done
           for f in "${BUNDLE_DIR}"/dmg/*.dmg; do
             cp -f "$f" "release-assets/GyroTube-${TAG}-${PREFIX}.dmg"
           done
+          for f in "${BUNDLE_DIR}"/macos/*.app.tar.gz; do
+            cp -f "$f" "release-assets/GyroTube-${TAG}-${PREFIX}.app.tar.gz"
+            if [[ -f "${f}.sig" ]]; then
+              cp -f "${f}.sig" "release-assets/GyroTube-${TAG}-${PREFIX}.app.tar.gz.sig"
+              printf '%s\n' "GyroTube-${TAG}-${PREFIX}.app.tar.gz" > "updater-sigs/${UPDATER_TARGET}.asset"
+              cp -f "${f}.sig" "updater-sigs/${UPDATER_TARGET}.sig"
+            fi
+          done
 
           ls -lh release-assets/
           gh release upload "${TAG}" release-assets/* --repo "${GITHUB_REPOSITORY}" --clobber
+
+      - name: Upload updater signature metadata
+        if: needs.prepare-release.outputs.is_release == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: updater-sig-${{ matrix.updater_target }}
+          path: updater-sigs/*
+          if-no-files-found: ignore
 
   android:
     name: Build Android APK (aarch64)
@@ -276,3 +309,62 @@ jobs:
           TAG: ${{ needs.prepare-release.outputs.tag_name }}
           APK_PATH: ${{ steps.sign.outputs.apk_path }}
         run: gh release upload "${TAG}" "${APK_PATH}" --repo "${GITHUB_REPOSITORY}" --clobber
+
+  publish-updater-manifest:
+    name: Publish Tauri Updater Manifest (latest.json)
+    needs: [prepare-release, desktop]
+    if: always() && needs.prepare-release.outputs.is_release == 'true' && needs.desktop.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download updater signature artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: updater-sig-*
+          path: all-sigs
+          merge-multiple: true
+
+      - name: Generate & upload latest.json
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.prepare-release.outputs.tag_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          python3 - <<'PY'
+          import datetime, glob, json, os
+
+          tag = os.environ["TAG"]
+          version = tag.lstrip("vV")
+          repo = os.environ["REPO"]
+          platforms = {}
+
+          for sig_path in sorted(glob.glob("all-sigs/*.sig")):
+              target = os.path.basename(sig_path)[:-4]
+              asset_file = f"all-sigs/{target}.asset"
+              if not os.path.exists(asset_file):
+                  continue
+              asset_name = open(asset_file, encoding="utf-8").read().strip()
+              signature = open(sig_path, encoding="utf-8").read().strip()
+              if asset_name and signature:
+                  platforms[target] = {
+                      "signature": signature,
+                      "url": f"https://github.com/{repo}/releases/download/{tag}/{asset_name}",
+                  }
+
+          if not platforms:
+              print("No updater signatures found (TAURI_SIGNING_PRIVATE_KEY not configured); skipping latest.json.")
+              raise SystemExit(0)
+
+          manifest = {
+              "version": version,
+              "notes": f"GyroTube {tag}",
+              "pub_date": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+              "platforms": platforms,
+          }
+          with open("latest.json", "w", encoding="utf-8") as f:
+              json.dump(manifest, f, indent=2)
+              f.write("\n")
+          print("Generated latest.json for platforms:", list(platforms.keys()))
+          PY
+          if [[ -f latest.json ]]; then
+            gh release upload "${TAG}" latest.json --repo "${GITHUB_REPOSITORY}" --clobber
+          fi

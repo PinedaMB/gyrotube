@@ -33,6 +33,7 @@
   },
   "bundle": {
     "active": true,
+    "createUpdaterArtifacts": true,
     "targets": "all",
     "category": "Music",
     "license": "MIT",
@@ -63,6 +64,14 @@
     },
     "android": {
       "minSdkVersion": 26
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEZDQkRGQjQ2RDFCMDY0RkIKUldUN1pMRFJSdnU5L0l4aUN4bjZlVE93UlJ1NElmRkFhRVIxaCthVHNSRzFBSzlMU2Y3R1Z0UDYK",
+      "endpoints": [
+        "https://github.com/PinedaMB/gyrotube/releases/latest/download/latest.json"
+      ]
     }
   }
 }

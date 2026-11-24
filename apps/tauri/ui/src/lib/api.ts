@@ -132,4 +132,15 @@ export const api = {
       queue: payload.queue,
       displayName: payload.displayName?.trim() || null,
     }),
+  getAppVersion: (): Promise<string> => call("get_app_version"),
+  checkForUpdates: (): Promise<{
+    current_version: string;
+    latest_version: string | null;
+    update_available: boolean;
+    can_auto_install: boolean;
+    release_url: string;
+    download_url: string | null;
+    notes: string | null;
+  }> => call("check_for_updates"),
+  installUpdate: (): Promise<void> => call("install_update"),
 };
