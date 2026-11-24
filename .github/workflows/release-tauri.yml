@@ -66,15 +66,23 @@ jobs:
         include:
           - label: Linux x86_64
             platform: ubuntu-22.04
+            asset_prefix: linux-x86_64
+            target_dir: target/release/bundle
             args: ""
           - label: Windows x86_64
             platform: windows-latest
+            asset_prefix: windows-x64
+            target_dir: target/release/bundle
             args: ""
           - label: macOS Apple Silicon
             platform: macos-latest
+            asset_prefix: macos-apple-silicon
+            target_dir: target/aarch64-apple-darwin/release/bundle
             args: "--target aarch64-apple-darwin"
           - label: macOS Intel
             platform: macos-latest
+            asset_prefix: macos-intel
+            target_dir: target/x86_64-apple-darwin/release/bundle
             args: "--target x86_64-apple-darwin"
 
     runs-on: ${{ matrix.platform }}
@@ -108,26 +116,48 @@ jobs:
       - name: Install UI dependencies
         run: pnpm --dir apps/tauri/ui install --frozen-lockfile
 
-      - name: Build & upload Tauri desktop bundles
-        if: needs.prepare-release.outputs.is_release == 'true'
+      - name: Build Tauri desktop bundles
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NO_STRIP: "true"
         with:
           projectPath: apps/tauri
-          releaseId: ${{ needs.prepare-release.outputs.release_id }}
           args: ${{ matrix.args }}
 
-      - name: Build Tauri desktop bundles (dry-run)
-        if: needs.prepare-release.outputs.is_release != 'true'
-        uses: tauri-apps/tauri-action@v0
+      - name: Rename & upload platform installers to GitHub Release
+        if: needs.prepare-release.outputs.is_release == 'true'
+        shell: bash
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NO_STRIP: "true"
-        with:
-          projectPath: apps/tauri
-          args: ${{ matrix.args }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.prepare-release.outputs.tag_name }}
+          PREFIX: ${{ matrix.asset_prefix }}
+          BUNDLE_DIR: ${{ matrix.target_dir }}
+        run: |
+          mkdir -p release-assets
+          shopt -s nullglob
+
+          for f in "${BUNDLE_DIR}"/appimage/*.AppImage; do
+            cp -f "$f" "release-assets/GyroTube-${TAG}-${PREFIX}.AppImage"
+          done
+          for f in "${BUNDLE_DIR}"/deb/*.deb; do
+            cp -f "$f" "release-assets/GyroTube-${TAG}-${PREFIX}.deb"
+          done
+          for f in "${BUNDLE_DIR}"/rpm/*.rpm; do
+            cp -f "$f" "release-assets/GyroTube-${TAG}-${PREFIX}.rpm"
+          done
+          for f in "${BUNDLE_DIR}"/msi/*.msi; do
+            cp -f "$f" "release-assets/GyroTube-${TAG}-${PREFIX}.msi"
+          done
+          for f in "${BUNDLE_DIR}"/nsis/*.exe; do
+            cp -f "$f" "release-assets/GyroTube-${TAG}-${PREFIX}-setup.exe"
+          done
+          for f in "${BUNDLE_DIR}"/dmg/*.dmg; do
+            cp -f "$f" "release-assets/GyroTube-${TAG}-${PREFIX}.dmg"
+          done
+
+          ls -lh release-assets/
+          gh release upload "${TAG}" release-assets/* --repo "${GITHUB_REPOSITORY}" --clobber
 
   android:
     name: Build Android APK (aarch64)

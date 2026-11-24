@@ -3,3 +3,5 @@
 /build/
 /output/
 /.impeccable/
+*.keystore
+*.jks
