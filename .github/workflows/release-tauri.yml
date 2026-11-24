@@ -46,6 +46,7 @@ jobs:
           RELEASE_ID="$(gh api "repos/${GITHUB_REPOSITORY}/releases" --jq ".[] | select(.tag_name == \"${TAG}\") | .id" | head -n 1 || true)"
           if [[ -z "${RELEASE_ID}" ]]; then
             gh release create "${TAG}" \
+              --repo "${GITHUB_REPOSITORY}" \
               --draft \
               --title "GyroTube ${TAG}" \
               --notes "Cross-platform desktop installers (\`.AppImage\`, \`.deb\`, \`.rpm\`, \`.msi\`, \`.exe\`, \`.dmg\`) and Android APK (\`aarch64\`)."
@@ -241,4 +242,4 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ needs.prepare-release.outputs.tag_name }}
           APK_PATH: ${{ steps.sign.outputs.apk_path }}
-        run: gh release upload "${TAG}" "${APK_PATH}" --clobber
+        run: gh release upload "${TAG}" "${APK_PATH}" --repo "${GITHUB_REPOSITORY}" --clobber
