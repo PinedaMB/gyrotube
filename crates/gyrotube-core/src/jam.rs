@@ -43,7 +43,7 @@ pub enum JamCommand {
     AddTrack {
         video_id: String,
         guest_name: String,
-        track: Option<Track>,
+        track: Option<Box<Track>>,
     },
     TogglePlayPause,
     NextTrack,
@@ -343,19 +343,21 @@ async fn handle_connection(
                         .as_deref()
                         .map(str::trim)
                         .filter(|t| !t.is_empty())
-                        .map(|title| Track {
-                            is_music: false,
-                            is_video: request.is_video,
-                            id: video_id.clone(),
-                            title: title.to_string(),
-                            artist: request.artist.unwrap_or_default(),
-                            artist_id: request.artist_id,
-                            album: request.album,
-                            album_id: request.album_id,
-                            duration_secs: request.duration_secs,
-                            view_count: request.view_count,
-                            cover_url: request.cover_url,
-                            cover_large_url: request.cover_large_url,
+                        .map(|title| {
+                            Box::new(Track {
+                                is_music: false,
+                                is_video: request.is_video,
+                                id: video_id.clone(),
+                                title: title.to_string(),
+                                artist: request.artist.unwrap_or_default(),
+                                artist_id: request.artist_id,
+                                album: request.album,
+                                album_id: request.album_id,
+                                duration_secs: request.duration_secs,
+                                view_count: request.view_count,
+                                cover_url: request.cover_url,
+                                cover_large_url: request.cover_large_url,
+                            })
                         });
                     if let Ok(mut snap) = snapshot.write() {
                         snap.added_count = snap.added_count.saturating_add(1);

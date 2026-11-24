@@ -359,7 +359,7 @@ async fn serve_guest(
                         JamCommand::AddTrack {
                             video_id: track.id.clone(),
                             guest_name: "remoto".into(),
-                            track: Some(track),
+                            track: Some(Box::new(track)),
                         }
                     }
                     RemoteGuestEvent::AddTrackNamed {
@@ -374,7 +374,7 @@ async fn serve_guest(
                         JamCommand::AddTrack {
                             video_id: track.id.clone(),
                             guest_name: name,
-                            track: Some(track),
+                            track: Some(Box::new(track)),
                         }
                     }
                     RemoteGuestEvent::Control(action) => {

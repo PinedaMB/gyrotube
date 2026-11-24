@@ -74,7 +74,7 @@ pub enum SpinCommandEvent {
     AddTrack {
         video_id: String,
         guest_name: String,
-        track: Option<gyrotube_core::models::Track>,
+        track: Option<Box<gyrotube_core::models::Track>>,
     },
     #[serde(rename = "toggle_play_pause")]
     TogglePlayPause,
@@ -105,7 +105,7 @@ pub fn open_external_url(url: String) -> Result<(), String> {
             .arg(trimmed)
             .spawn()
             .map_err(|e| format!("No se pudo abrir el navegador: {e}"))?;
-        return Ok(());
+        Ok(())
     }
     #[cfg(target_os = "macos")]
     {
@@ -113,7 +113,7 @@ pub fn open_external_url(url: String) -> Result<(), String> {
             .arg(trimmed)
             .spawn()
             .map_err(|e| format!("No se pudo abrir el navegador: {e}"))?;
-        return Ok(());
+        Ok(())
     }
     #[cfg(target_os = "windows")]
     {
@@ -121,7 +121,7 @@ pub fn open_external_url(url: String) -> Result<(), String> {
             .args(["/C", "start", "", trimmed])
             .spawn()
             .map_err(|e| format!("No se pudo abrir el navegador: {e}"))?;
-        return Ok(());
+        Ok(())
     }
     #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
     {
