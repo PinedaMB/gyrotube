@@ -1,4 +1,5 @@
 mod commands;
+mod mpris;
 
 #[cfg(desktop)]
 use std::sync::atomic::Ordering;
@@ -59,6 +60,7 @@ pub fn run() {
             // Construct core state AFTER init_storage_dirs so Android has valid writable dirs
             let (core_state, jam_cmd_rx, remote_rx) = AppCoreState::new();
             app.manage(core_state);
+            app.manage(mpris::MprisHandle::start(app.handle().clone()));
 
             // Bridge SPIN LAN & Remote host commands to the frontend via Tauri events
             let handle_for_jam = app.handle().clone();
@@ -246,6 +248,8 @@ pub fn run() {
             commands::get_app_version,
             commands::check_for_updates,
             commands::install_update,
+            commands::open_external_url,
+            mpris::mpris_sync_state,
         ])
         .run(tauri::generate_context!())
         .expect("error while running GyroTube Tauri application");

@@ -284,6 +284,7 @@ class PlayerStore {
         if (playing) this.isLoadingAudio = false;
         this.syncAndroidForegroundService(playing);
         void this.syncSpinSnapshot();
+        void this.syncMprisState();
       },
       onEnded: () => {
         if (
@@ -371,6 +372,14 @@ class PlayerStore {
       // Restore metadata, ambient color, and lyrics for the saved track (without auto-playing)
       const restored = this.currentTrack;
       if (restored) {
+        this.engine.updateMediaSession(restored, {
+          onPlay: () => void this.play(),
+          onPause: () => this.pause(),
+          onPrev: () => void this.prev(),
+          onNext: () => void this.next(),
+          onSeek: (s) => this.seek(s),
+        });
+        void this.syncMprisState();
         this.videoMode = Boolean(restored.is_video);
         this.probeCounterpartForCurrent(restored);
         void api.prefetchAudio(restored).catch(() => {
@@ -464,9 +473,26 @@ class PlayerStore {
 
   private async bindNativeEvents(): Promise<void> {
     await bindTauriPlayerEvents({
+      onPlay: () => void this.play(),
+      onPause: () => this.pause(),
       onTogglePlay: () => void this.togglePlay(),
+      onStop: () => this.pause(),
       onNext: () => void this.next(),
       onPrev: () => void this.prev(),
+      onSeekTo: (secs) => this.seek(secs),
+      onSeekBy: (offsetSecs) => {
+        const cur = this.getExactPositionSecs();
+        const dur = this.durationSecs || this.currentTrack?.duration_secs || 0;
+        const next = dur > 0 ? Math.max(0, Math.min(dur, cur + offsetSecs)) : Math.max(0, cur + offsetSecs);
+        this.seek(next);
+      },
+      onSetShuffle: (shuffle) => {
+        if (this.shuffle !== shuffle) this.toggleShuffle();
+      },
+      onSetRepeat: (repeat) => {
+        if (this.repeat !== repeat) this.toggleRepeat();
+      },
+      onSetVolume: (volume) => this.setVolume(volume),
       onMoveQueue: (from, to) => this.moveQueueItem(from, to),
       onEnqueueTrack: (track, guestName) => {
         this.enqueueTrack(track, true);
@@ -586,6 +612,7 @@ class PlayerStore {
     this.volume = Math.max(0, Math.min(1, v));
     this.engine.setVolume(this.volume);
     void this.persistSession();
+    void this.syncMprisState();
   }
 
   private formatErrorMessage(raw: string): string {
@@ -1831,6 +1858,7 @@ class PlayerStore {
     } else {
       void this.persistSession();
       void this.syncSpinSnapshot();
+      void this.syncMprisState();
     }
   }
 
@@ -1963,12 +1991,13 @@ class PlayerStore {
     }
 
     this.engine.updateMediaSession(track, {
-      onPlay: () => void this.togglePlay(),
-      onPause: () => void this.togglePlay(),
+      onPlay: () => void this.play(),
+      onPause: () => this.pause(),
       onPrev: () => void this.prev(),
       onNext: () => void this.next(),
       onSeek: (s) => this.seek(s),
     });
+    void this.syncMprisState();
 
     void this.persistSession();
 
@@ -2015,6 +2044,7 @@ class PlayerStore {
       this.audioLoadedForGen = gen;
       if (startPaused) this.isLoadingAudio = false;
       void this.syncSpinSnapshot();
+      void this.syncMprisState();
       this.schedulePrefetchNext(gen);
 
       if (waitForVideo) {
@@ -2062,6 +2092,28 @@ class PlayerStore {
     }
   }
 
+  public async play(): Promise<void> {
+    if (this.spinStatus.remote_role === "guest") {
+      if (!this.isPlaying) this.sendRemoteControl("play_pause");
+      return;
+    }
+    if (!this.currentTrack || this.currentIndex == null) return;
+    if (!this.engine.activeDeck.src) {
+      if (this.isLoadingAudio) return;
+      await this.playIndex(this.currentIndex);
+      return;
+    }
+    await this.engine.play();
+  }
+
+  public pause(): void {
+    if (this.spinStatus.remote_role === "guest") {
+      if (this.isPlaying) this.sendRemoteControl("play_pause");
+      return;
+    }
+    this.engine.pause();
+  }
+
   public async togglePlay(): Promise<void> {
     if (this.spinStatus.remote_role === "guest") {
       this.sendRemoteControl("play_pause");
@@ -2082,6 +2134,7 @@ class PlayerStore {
     this.updateActiveLyric(secs);
     this.syncAndroidForegroundService(this.isPlaying);
     void this.syncSpinSnapshot();
+    void this.syncMprisState(true);
   }
 
   public async prev(): Promise<void> {
@@ -2131,7 +2184,10 @@ class PlayerStore {
 
   public toggleShuffle(): void {
     this.shuffle = !this.shuffle;
-    if (this.queue.length <= 1 || this.currentIndex == null) return;
+    if (this.queue.length <= 1 || this.currentIndex == null) {
+      void this.syncMprisState();
+      return;
+    }
     if (this.shuffle) {
       const res = shuffleQueueKeepingCurrent(this.queue, this.currentIndex);
       this.unshuffledQueue = res.unshuffledQueue;
@@ -2144,11 +2200,46 @@ class PlayerStore {
     }
     void this.persistSession();
     void this.syncSpinSnapshot();
+    void this.syncMprisState();
   }
 
   public toggleRepeat(): void {
     this.repeat = !this.repeat;
     void this.persistSession();
+    void this.syncMprisState();
+  }
+
+  public async syncMprisState(seeked = false): Promise<void> {
+    if (!isTauriRuntime() || device.isAndroid) return;
+    const track = this.currentTrack;
+    const duration = this.durationSecs > 0 ? this.durationSecs : (track?.duration_secs ?? 0);
+    const canGoNext =
+      this.currentIndex != null &&
+      (this.currentIndex + 1 < this.queue.length ||
+        this.repeat ||
+        (this.autoplayRelated && this.suggestedTracks.length > 0));
+    const canGoPrevious =
+      this.currentIndex != null && (this.currentIndex > 0 || this.positionSecs > 3);
+    try {
+      await api.mprisSyncState({
+        track_id: track?.id ?? null,
+        title: track?.title ?? null,
+        artist: track?.artist ?? null,
+        album: track?.album ?? null,
+        art_url: this.trackCoverUrl(track, true),
+        duration_secs: duration,
+        position_secs: this.getExactPositionSecs(),
+        is_playing: this.isPlaying,
+        can_go_next: canGoNext,
+        can_go_previous: canGoPrevious,
+        shuffle: this.shuffle,
+        repeat: this.repeat,
+        volume: this.volume,
+        seeked,
+      });
+    } catch {
+      // ignore on platforms without MPRIS
+    }
   }
 
   private loadLyricsForCurrent(expectedGen = this.loadGen): Promise<void> {

@@ -59,7 +59,7 @@
         }
       },
       "appimage": {
-        "bundleMediaFramework": true
+        "bundleMediaFramework": false
       }
     },
     "macOS": {

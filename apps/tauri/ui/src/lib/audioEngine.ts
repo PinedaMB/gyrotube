@@ -1,5 +1,12 @@
+import { isTauriRuntime } from "./api";
 import { DEFAULT_EQ_SETTINGS, EQ_FREQUENCIES, type EqSettings } from "./equalizer";
 import type { Track } from "./types";
+
+function usesNativeLinuxMpris(): boolean {
+  if (!isTauriRuntime() || typeof navigator === "undefined") return false;
+  const ua = navigator.userAgent || "";
+  return /Linux/i.test(ua) && !/Android/i.test(ua);
+}
 
 export interface AudioCallbacks {
   onTimeUpdate: (position: number, duration: number) => void;
@@ -26,6 +33,7 @@ export class DualDeckAudioEngine {
   private fadeStep: (() => void) | null = null;
   private loading = false;
   private opGen = 0;
+  private lastPositionStateSync = 0;
   private disposingTimers = new Map<HTMLAudioElement, number>();
   private callbacks: AudioCallbacks;
 
@@ -139,6 +147,11 @@ export class DualDeckAudioEngine {
       const pos = Number.isFinite(audio.currentTime) ? audio.currentTime : 0;
       const dur = Number.isFinite(audio.duration) ? audio.duration : 0;
       this.callbacks.onTimeUpdate(pos, dur);
+      const now = performance.now();
+      if (now - this.lastPositionStateSync >= 1000) {
+        this.lastPositionStateSync = now;
+        this.syncMediaSessionPosition(pos, dur, audio.paused ? 0 : audio.playbackRate || 1);
+      }
 
       if (
         this.crossfadeSecs > 0 &&
@@ -151,13 +164,29 @@ export class DualDeckAudioEngine {
       }
     });
 
+    audio.addEventListener("loadedmetadata", () => {
+      if (this.decks[index] === audio && index === this.activeIndex) {
+        const pos = Number.isFinite(audio.currentTime) ? audio.currentTime : 0;
+        const dur = Number.isFinite(audio.duration) ? audio.duration : 0;
+        this.syncMediaSessionPosition(pos, dur, audio.paused ? 0 : audio.playbackRate || 1);
+      }
+    });
+
     audio.addEventListener("play", () => {
       if (this.decks[index] === audio && index === this.activeIndex) {
+        this.setMediaSessionPlaybackState("playing");
+        const pos = Number.isFinite(audio.currentTime) ? audio.currentTime : 0;
+        const dur = Number.isFinite(audio.duration) ? audio.duration : 0;
+        this.syncMediaSessionPosition(pos, dur, audio.playbackRate || 1);
         this.callbacks.onPlayStateChange(true);
       }
     });
     audio.addEventListener("pause", () => {
       if (this.decks[index] === audio && index === this.activeIndex) {
+        this.setMediaSessionPlaybackState("paused");
+        const pos = Number.isFinite(audio.currentTime) ? audio.currentTime : 0;
+        const dur = Number.isFinite(audio.duration) ? audio.duration : 0;
+        this.syncMediaSessionPosition(pos, dur, 0);
         this.callbacks.onPlayStateChange(false);
       }
     });
@@ -420,6 +449,22 @@ export class DualDeckAudioEngine {
     }
   }
 
+  public async play(): Promise<void> {
+    const deck = this.activeDeck;
+    if (!deck.src) return;
+    if (deck.paused) {
+      await deck.play();
+    }
+  }
+
+  public pause(): void {
+    const deck = this.activeDeck;
+    if (!deck.src) return;
+    if (!deck.paused) {
+      deck.pause();
+    }
+  }
+
   public async togglePlay(): Promise<void> {
     const deck = this.activeDeck;
     if (!deck.src) return;
@@ -433,7 +478,11 @@ export class DualDeckAudioEngine {
   public seek(secs: number): void {
     const deck = this.activeDeck;
     if (!deck.src || !Number.isFinite(secs)) return;
-    deck.currentTime = Math.max(0, secs);
+    const dur = Number.isFinite(deck.duration) ? deck.duration : 0;
+    const clamped = dur > 0 ? Math.max(0, Math.min(secs, dur)) : Math.max(0, secs);
+    deck.currentTime = clamped;
+    this.lastPositionStateSync = performance.now();
+    this.syncMediaSessionPosition(clamped, dur, deck.paused ? 0 : deck.playbackRate || 1);
   }
 
   public stop(): void {
@@ -442,8 +491,50 @@ export class DualDeckAudioEngine {
     this.cancelFade();
     this.resetDeck(0);
     this.resetDeck(1);
+    this.setMediaSessionPlaybackState("none");
     this.callbacks.onPlayStateChange(false);
     this.callbacks.onTimeUpdate(0, 0);
+  }
+
+  private setMediaSessionPlaybackState(state: MediaSessionPlaybackState): void {
+    if (usesNativeLinuxMpris()) return;
+    if (typeof navigator === "undefined" || !("mediaSession" in navigator)) return;
+    try {
+      navigator.mediaSession.playbackState = state;
+    } catch {
+      // Ignore on runtimes without playbackState support
+    }
+  }
+
+  private syncMediaSessionPosition(position: number, duration: number, playbackRate: number): void {
+    if (usesNativeLinuxMpris()) return;
+    if (typeof navigator === "undefined" || !("mediaSession" in navigator)) return;
+    if (typeof navigator.mediaSession.setPositionState !== "function") return;
+    if (!Number.isFinite(duration) || duration <= 0) return;
+    const safePos = Number.isFinite(position) ? Math.max(0, Math.min(position, duration)) : 0;
+    const safeRate = Number.isFinite(playbackRate) && playbackRate > 0 ? playbackRate : 1;
+    try {
+      navigator.mediaSession.setPositionState({
+        duration,
+        playbackRate: safeRate,
+        position: safePos,
+      });
+    } catch {
+      // Ignore invalid position state on stricter webviews
+    }
+  }
+
+  private safeSetActionHandler(
+    action: MediaSessionAction,
+    handler: MediaSessionActionHandler | null,
+  ): void {
+    if (usesNativeLinuxMpris()) return;
+    if (typeof navigator === "undefined" || !("mediaSession" in navigator)) return;
+    try {
+      navigator.mediaSession.setActionHandler(action, handler);
+    } catch {
+      // Ignore unsupported actions in WebKitGTK / Safari
+    }
   }
 
   public updateMediaSession(
@@ -456,9 +547,11 @@ export class DualDeckAudioEngine {
       onSeek: (secs: number) => void;
     },
   ): void {
-    if (!("mediaSession" in navigator)) return;
+    if (usesNativeLinuxMpris()) return;
+    if (typeof navigator === "undefined" || !("mediaSession" in navigator)) return;
     if (!track) {
       navigator.mediaSession.metadata = null;
+      this.setMediaSessionPlaybackState("none");
       return;
     }
     const art = track.cover_large_url || track.cover_url;
@@ -468,12 +561,26 @@ export class DualDeckAudioEngine {
       album: track.album ?? "",
       artwork: art ? [{ src: art, sizes: "512x512", type: "image/jpeg" }] : [],
     });
-    navigator.mediaSession.setActionHandler("play", handlers.onPlay);
-    navigator.mediaSession.setActionHandler("pause", handlers.onPause);
-    navigator.mediaSession.setActionHandler("previoustrack", handlers.onPrev);
-    navigator.mediaSession.setActionHandler("nexttrack", handlers.onNext);
-    navigator.mediaSession.setActionHandler("seekto", (details) => {
-      if (details.seekTime != null) handlers.onSeek(details.seekTime);
+    this.safeSetActionHandler("play", handlers.onPlay);
+    this.safeSetActionHandler("pause", handlers.onPause);
+    this.safeSetActionHandler("stop", handlers.onPause);
+    this.safeSetActionHandler("previoustrack", handlers.onPrev);
+    this.safeSetActionHandler("nexttrack", handlers.onNext);
+    this.safeSetActionHandler("seekto", (details) => {
+      if (details.seekTime != null && Number.isFinite(details.seekTime)) {
+        handlers.onSeek(details.seekTime);
+      }
+    });
+    this.safeSetActionHandler("seekbackward", (details) => {
+      const offset = details.seekOffset && Number.isFinite(details.seekOffset) ? details.seekOffset : 5;
+      const cur = Number.isFinite(this.activeDeck.currentTime) ? this.activeDeck.currentTime : 0;
+      handlers.onSeek(Math.max(0, cur - offset));
+    });
+    this.safeSetActionHandler("seekforward", (details) => {
+      const offset = details.seekOffset && Number.isFinite(details.seekOffset) ? details.seekOffset : 5;
+      const cur = Number.isFinite(this.activeDeck.currentTime) ? this.activeDeck.currentTime : 0;
+      const dur = Number.isFinite(this.activeDeck.duration) ? this.activeDeck.duration : 0;
+      handlers.onSeek(dur > 0 ? Math.min(dur, cur + offset) : cur + offset);
     });
   }
 }

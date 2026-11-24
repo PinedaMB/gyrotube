@@ -14,9 +14,17 @@ export interface SpinRemoteSyncPayload {
 }
 
 export interface NativeEventHandlers {
+  onPlay: () => void;
+  onPause: () => void;
   onTogglePlay: () => void;
+  onStop: () => void;
   onNext: () => void;
   onPrev: () => void;
+  onSeekTo: (secs: number) => void;
+  onSeekBy: (offsetSecs: number) => void;
+  onSetShuffle: (shuffle: boolean) => void;
+  onSetRepeat: (repeat: boolean) => void;
+  onSetVolume: (volume: number) => void;
   onMoveQueue: (from: number, to: number) => void;
   onEnqueueTrack: (track: Track, guestName: string) => void;
   onRemoteSync: (payload: SpinRemoteSyncPayload | null, error?: string | null) => void;
@@ -78,6 +86,32 @@ export async function bindTauriPlayerEvents(handlers: NativeEventHandlers): Prom
         error?: string | null;
       }>("spin:remote-sync", (event) => {
         handlers.onRemoteSync(event.payload.payload ?? null, event.payload.error);
+      }),
+      listen<
+        | { kind: "play" }
+        | { kind: "pause" }
+        | { kind: "play_pause" }
+        | { kind: "stop" }
+        | { kind: "next" }
+        | { kind: "previous" }
+        | { kind: "seek_to"; position_secs: number }
+        | { kind: "seek_by"; offset_secs: number }
+        | { kind: "set_shuffle"; shuffle: boolean }
+        | { kind: "set_repeat"; repeat: boolean }
+        | { kind: "set_volume"; volume: number }
+      >("mpris:command", (event) => {
+        const cmd = event.payload;
+        if (cmd.kind === "play") handlers.onPlay();
+        else if (cmd.kind === "pause") handlers.onPause();
+        else if (cmd.kind === "play_pause") handlers.onTogglePlay();
+        else if (cmd.kind === "stop") handlers.onStop();
+        else if (cmd.kind === "next") handlers.onNext();
+        else if (cmd.kind === "previous") handlers.onPrev();
+        else if (cmd.kind === "seek_to") handlers.onSeekTo(cmd.position_secs);
+        else if (cmd.kind === "seek_by") handlers.onSeekBy(cmd.offset_secs);
+        else if (cmd.kind === "set_shuffle") handlers.onSetShuffle(cmd.shuffle);
+        else if (cmd.kind === "set_repeat") handlers.onSetRepeat(cmd.repeat);
+        else if (cmd.kind === "set_volume") handlers.onSetVolume(cmd.volume);
       }),
     ]);
 

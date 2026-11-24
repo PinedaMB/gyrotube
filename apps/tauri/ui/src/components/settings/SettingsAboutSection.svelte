@@ -2,8 +2,21 @@
   import { Check, Download, ExternalLink, Heart, Info, RefreshCw, ShieldCheck, X } from "lucide-svelte";
   import { cubicOut } from "svelte/easing";
   import { fade, scale } from "svelte/transition";
+  import { api, isTauriRuntime } from "../../lib/api";
   import { t } from "../../lib/i18n.svelte";
   import { updater } from "../../lib/stores/updater.svelte";
+
+  const GITHUB_URL = "https://github.com/PinedaMB/gyrotube";
+
+  function openExternal(url: string) {
+    if (isTauriRuntime()) {
+      void api.openExternalUrl(url).catch(() => {
+        window.open(url, "_blank", "noopener,noreferrer");
+      });
+    } else {
+      window.open(url, "_blank", "noopener,noreferrer");
+    }
+  }
 
   let tapCount = $state(0);
   let tapResetTimer: number | undefined;
@@ -155,6 +168,50 @@
         {t("settings.about_privacy")}
       </span>
       <span class="font-semibold text-right">{t("settings.about_privacy_val")}</span>
+    </div>
+
+    <!-- Credits row -->
+    <div
+      class="px-4 py-3.5 flex items-center justify-between gap-3"
+      style="background: linear-gradient(90deg, rgba(16, 185, 129, 0.06) 0%, transparent 55%);"
+    >
+      <div class="flex items-center gap-3.5 min-w-0">
+        <div
+          class="w-11 h-11 rounded-full bg-[#f4f4f6] p-0.5 ring-2 ring-[var(--accent-border)]/45 shadow-[0_4px_14px_rgba(0,0,0,0.22)] shrink-0 overflow-hidden"
+        >
+          <img
+            src="/author-avatar.png"
+            alt="PinedaMB"
+            class="w-full h-full rounded-full object-contain select-none"
+          />
+        </div>
+        <div class="min-w-0">
+          <div class="flex items-center gap-2 flex-wrap">
+            <span class="text-[14px] font-bold text-[var(--text)] truncate">PinedaMB</span>
+            <span
+              class="px-1.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide bg-[var(--bg)]/70 border border-[var(--border)] text-[var(--text-muted)]"
+            >
+              {t("settings.about_license")}
+            </span>
+          </div>
+          <div class="text-[12px] text-[var(--text-muted)] mt-0.5 truncate">
+            {t("settings.about_author_role")}
+          </div>
+        </div>
+      </div>
+      <button
+        type="button"
+        class="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[12px] font-semibold bg-[var(--bg)]/60 hover:bg-[var(--surface-hover)] hover:border-[var(--accent-border)]/50 border border-[var(--border)] text-[var(--text)] transition-all active:scale-95 shrink-0 cursor-pointer"
+        onclick={() => openExternal(GITHUB_URL)}
+      >
+        <svg viewBox="0 0 24 24" class="w-3.5 h-3.5 fill-current shrink-0" aria-hidden="true">
+          <path
+            d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.53 1.032 1.53 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0 1 12 6.844a9.59 9.59 0 0 1 2.504.337c1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.02 10.02 0 0 0 22 12.017C22 6.484 17.522 2 12 2Z"
+          />
+        </svg>
+        <span>{t("settings.about_github")}</span>
+        <ExternalLink size={11} class="text-[var(--text-muted)]" />
+      </button>
     </div>
   </div>
 </section>

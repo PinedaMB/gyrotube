@@ -79,7 +79,9 @@ class UpdaterStore {
     if (!isTauriRuntime()) return;
     if (!this.canAutoInstall) {
       const target = this.downloadUrl || this.releaseUrl;
-      window.open(target, "_blank", "noopener,noreferrer");
+      void api.openExternalUrl(target).catch(() => {
+        window.open(target, "_blank", "noopener,noreferrer");
+      });
       return;
     }
 

@@ -143,4 +143,21 @@ export const api = {
     notes: string | null;
   }> => call("check_for_updates"),
   installUpdate: (): Promise<void> => call("install_update"),
+  openExternalUrl: (url: string): Promise<void> => call("open_external_url", { url }),
+  mprisSyncState: (payload: {
+    track_id: string | null;
+    title: string | null;
+    artist: string | null;
+    album: string | null;
+    art_url: string | null;
+    duration_secs: number;
+    position_secs: number;
+    is_playing: boolean;
+    can_go_next: boolean;
+    can_go_previous: boolean;
+    shuffle: boolean;
+    repeat: boolean;
+    volume: number;
+    seeked?: boolean;
+  }): Promise<void> => call("mpris_sync_state", { payload }),
 };
