@@ -1691,7 +1691,7 @@ impl Backend {
         let resp = self
             .http
             .get(url)
-            .header(reqwest::header::USER_AGENT, "GyroTube/0.1 (Linux GTK4)")
+            .header(reqwest::header::USER_AGENT, "GyroTube/1.0")
             .send()
             .await
             .map_err(|e| format!("Error de imagen: {e}"))?;

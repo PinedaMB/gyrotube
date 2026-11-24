@@ -60,6 +60,5 @@ cd apps/tauri/ui && npm run check && npm run build
 
 ## Arquitectura del workspace
 
-- `crates/gyrotube-core`: catálogo (`ytmapi-rs` + `rustypipe`), streamer HTTP local con soporte `Range` y `/cover/{id}`, caché de audio, descargas offline, letras, persistencia atómica y SPIN/JAM.
+- `crates/gyrotube-core`: catálogo (`ytmapi-rs` + InnerTube nativo en Rust), streamer HTTP local con soporte `Range` y `/cover/{id}`, caché de audio, descargas offline, letras, persistencia atómica y SPIN/JAM.
 - `apps/tauri`: aplicación principal multiplataforma (Tauri v2 + Svelte 5 + Tailwind CSS v4 + templates nativos de Android en `apps/tauri/android-templates`).
-- `apps/gtk`: cliente nativo GTK4/libadwaita legado para Linux.
