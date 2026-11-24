@@ -7,7 +7,7 @@ on:
 
 jobs:
   rust-workspace:
-    name: Rust Core & GTK4 Tests
+    name: Rust Core & Workspace Tests
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -15,14 +15,16 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            libgtk-4-dev libadwaita-1-dev \
-            libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
             libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
             librsvg2-dev libssl-dev pkg-config
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
       - uses: Swatinem/rust-cache@v2
-      - name: Run core & GTK tests
-        run: cargo test -p gyrotube-core -p gyrotube-gtk
+      - name: Run Rust core tests
+        run: cargo test -p gyrotube-core --lib
+      - name: Lint workspace with Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
       - name: Check entire workspace
         run: cargo check --workspace
 

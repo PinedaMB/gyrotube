@@ -2,6 +2,4 @@
 /dist/
 /build/
 /output/
-/rustypipe_reports
-/rustypipe_cache.json
 /.impeccable/
