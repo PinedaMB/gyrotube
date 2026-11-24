@@ -1,5 +1,6 @@
 <script lang="ts">
   import { CheckCircle2, Heart, Pencil, Pin, Play } from "lucide-svelte";
+  import { extractDominantRgb } from "../../lib/audioEngine";
   import { t } from "../../lib/i18n.svelte";
   import { player } from "../../lib/stores/player.svelte";
   import type { Track, UserPlaylist } from "../../lib/types";
@@ -12,6 +13,37 @@
   }
 
   let { onOpenFavorites, onOpenPlaylist, onEditPlaylist }: Props = $props();
+
+  let coverColors = $state<Record<string, string>>({});
+  let extractedFor = new Map<string, string>();
+
+  function rgbToHex([r, g, b]: [number, number, number]): string {
+    const toHex = (n: number) => Math.max(0, Math.min(255, Math.round(n))).toString(16).padStart(2, "0");
+    return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+  }
+
+  $effect(() => {
+    for (const pl of player.userPlaylists) {
+      const cover = pl.cover_path;
+      if (!cover) {
+        if (extractedFor.has(pl.id)) {
+          extractedFor.delete(pl.id);
+          const next = { ...coverColors };
+          delete next[pl.id];
+          coverColors = next;
+        }
+        continue;
+      }
+      if (extractedFor.get(pl.id) === cover) continue;
+      extractedFor.set(pl.id, cover);
+      const pid = pl.id;
+      void extractDominantRgb(cover).then((rgb) => {
+        if (extractedFor.get(pid) === cover && rgb) {
+          coverColors = { ...coverColors, [pid]: rgbToHex(rgb) };
+        }
+      });
+    }
+  });
 
   function allDownloaded(tracks: Track[]): boolean {
     return tracks.length > 0 && tracks.every((tr) => player.isTrackDownloaded(tr.id));
@@ -78,7 +110,7 @@
 
     <!-- User playlists (pinned first) -->
     {#each player.sortedUserPlaylists as pl (pl.id)}
-      {@const accent = pl.color_hex || "#10b981"}
+      {@const accent = pl.color_hex || (pl.cover_path ? coverColors[pl.id] : null) || "#10b981"}
       {@const pinned = player.isPlaylistPinned(pl.id)}
       <div
         class="group flex items-center gap-3.5 p-3.5 rounded-2xl border border-[var(--border)] hover:border-[var(--border-strong)] cursor-pointer transition-all duration-150 hover:-translate-y-0.5"

@@ -151,39 +151,41 @@
     </div>
   </div>
 
-  <!-- Centered circular controls (Play dead-center; Download integrated on mobile to save vertical space) -->
-  <div class="flex items-center justify-center gap-3 sm:gap-4 pt-0.5">
-    {#if tracks.length > 0}
+  <!-- Centered circular controls (3-column grid keeps Play mathematically dead-center on all breakpoints) -->
+  <div class="w-full grid grid-cols-[1fr_auto_1fr] items-center gap-3 sm:gap-4 pt-0.5">
+    <div class="flex items-center justify-end gap-3 sm:gap-4">
+      {#if tracks.length > 0}
+        <button
+          type="button"
+          class="lg:hidden w-10 h-10 rounded-full inline-flex items-center justify-center border transition-all active:scale-95 disabled:opacity-35 disabled:cursor-not-allowed {markedDownloaded || allDownloaded
+            ? 'bg-[var(--accent-soft)] border-[var(--accent-border)] text-[var(--accent-bright)]'
+            : 'bg-[var(--surface)] hover:bg-[var(--surface-hover)] border-[var(--border)]'}"
+          disabled={isDownloadingAny || (!markedDownloaded && player.isOffline)}
+          title={markedDownloaded ? t("offline.remove_downloads") : t("offline.download")}
+          aria-label={markedDownloaded ? t("offline.remove_downloads") : t("offline.download")}
+          onclick={() => void handleDownloadClick()}
+        >
+          {#if isDownloadingThis}
+            <span class="w-4 h-4 rounded-full border-2 border-current/30 border-t-current animate-spin"></span>
+          {:else if markedDownloaded || allDownloaded}
+            <CheckCircle2 size={17} />
+          {:else}
+            <Download size={17} />
+          {/if}
+        </button>
+      {/if}
+
       <button
         type="button"
-        class="lg:hidden w-10 h-10 rounded-full inline-flex items-center justify-center border transition-all active:scale-95 disabled:opacity-35 disabled:cursor-not-allowed {markedDownloaded || allDownloaded
-          ? 'bg-[var(--accent-soft)] border-[var(--accent-border)] text-[var(--accent-bright)]'
-          : 'bg-[var(--surface)] hover:bg-[var(--surface-hover)] border-[var(--border)]'}"
-        disabled={isDownloadingAny || (!markedDownloaded && player.isOffline)}
-        title={markedDownloaded ? t("offline.remove_downloads") : t("offline.download")}
-        aria-label={markedDownloaded ? t("offline.remove_downloads") : t("offline.download")}
-        onclick={() => void handleDownloadClick()}
+        class="w-10 h-10 sm:w-11 sm:h-11 rounded-full inline-flex items-center justify-center bg-[var(--surface)] hover:bg-[var(--surface-hover)] border border-[var(--border)] transition-all active:scale-95 disabled:opacity-35 disabled:cursor-not-allowed"
+        disabled={tracks.length === 0}
+        title={t("artist.shuffle")}
+        aria-label={t("artist.shuffle")}
+        onclick={onShuffle}
       >
-        {#if isDownloadingThis}
-          <span class="w-4 h-4 rounded-full border-2 border-current/30 border-t-current animate-spin"></span>
-        {:else if markedDownloaded || allDownloaded}
-          <CheckCircle2 size={17} />
-        {:else}
-          <Download size={17} />
-        {/if}
+        <Shuffle size={17} />
       </button>
-    {/if}
-
-    <button
-      type="button"
-      class="w-10 h-10 sm:w-11 sm:h-11 rounded-full inline-flex items-center justify-center bg-[var(--surface)] hover:bg-[var(--surface-hover)] border border-[var(--border)] transition-all active:scale-95 disabled:opacity-35 disabled:cursor-not-allowed"
-      disabled={tracks.length === 0}
-      title={t("artist.shuffle")}
-      aria-label={t("artist.shuffle")}
-      onclick={onShuffle}
-    >
-      <Shuffle size={17} />
-    </button>
+    </div>
 
     <button
       type="button"
@@ -196,28 +198,30 @@
       <Play size={22} fill="currentColor" class="translate-x-[1.5px]" />
     </button>
 
-    {#if mode === "playlist" && playlist}
+    <div class="flex items-center justify-start gap-3 sm:gap-4">
+      {#if mode === "playlist" && playlist}
+        <button
+          type="button"
+          class="w-10 h-10 sm:w-11 sm:h-11 rounded-full inline-flex items-center justify-center bg-[var(--surface)] hover:bg-[var(--surface-hover)] border border-[var(--border)] transition-all active:scale-95"
+          title={t("collection.customize")}
+          aria-label={t("collection.customize")}
+          onclick={() => onEdit?.(playlist)}
+        >
+          <Pencil size={16} />
+        </button>
+      {/if}
+
       <button
         type="button"
-        class="w-10 h-10 sm:w-11 sm:h-11 rounded-full inline-flex items-center justify-center bg-[var(--surface)] hover:bg-[var(--surface-hover)] border border-[var(--border)] transition-all active:scale-95"
-        title={t("collection.customize")}
-        aria-label={t("collection.customize")}
-        onclick={() => onEdit?.(playlist)}
+        class="w-10 h-10 sm:w-11 sm:h-11 rounded-full inline-flex items-center justify-center bg-[var(--surface)] hover:bg-[var(--surface-hover)] border border-[var(--border)] transition-all active:scale-95 disabled:opacity-35 disabled:cursor-not-allowed"
+        disabled={tracks.length === 0}
+        title={t("queue.add")}
+        aria-label={t("queue.add")}
+        onclick={queueAll}
       >
-        <Pencil size={16} />
+        <ListPlus size={17} />
       </button>
-    {/if}
-
-    <button
-      type="button"
-      class="w-10 h-10 sm:w-11 sm:h-11 rounded-full inline-flex items-center justify-center bg-[var(--surface)] hover:bg-[var(--surface-hover)] border border-[var(--border)] transition-all active:scale-95 disabled:opacity-35 disabled:cursor-not-allowed"
-      disabled={tracks.length === 0}
-      title={t("queue.add")}
-      aria-label={t("queue.add")}
-      onclick={queueAll}
-    >
-      <ListPlus size={17} />
-    </button>
+    </div>
   </div>
 
   {#if isDownloadingThis && player.downloadProgress}

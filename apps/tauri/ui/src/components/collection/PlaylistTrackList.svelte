@@ -1,4 +1,5 @@
 <script lang="ts">
+  import CoverImage from "../CoverImage.svelte";
   import TrackRow from "../TrackRow.svelte";
   import {
     ArrowDownCircle,
@@ -247,17 +248,17 @@
       </button>
     </div>
   {:else}
-    <div class="flex flex-wrap items-center justify-between gap-2">
+    <div class="flex flex-col sm:flex-row sm:flex-wrap sm:items-center justify-between gap-2">
       {#if tracks.length > 4}
         <div
-          class="flex items-center gap-2 flex-1 min-w-[180px] max-w-[300px] h-8 px-3 rounded-full bg-[var(--surface)] border border-[var(--border)] focus-within:border-[var(--accent-border)] transition-colors"
+          class="flex items-center gap-2 w-full sm:flex-1 sm:min-w-[180px] sm:max-w-[300px] h-9 sm:h-8 px-3 rounded-full bg-[var(--surface)] border border-[var(--border)] focus-within:border-[var(--accent-border)] transition-colors"
         >
           <Search size={13} class="text-[var(--text-muted)] shrink-0" />
           <input
             type="text"
             bind:value={filterText}
             placeholder={t("filter.placeholder")}
-            class="w-full bg-transparent outline-none focus-visible:!outline-none text-[12.5px] placeholder:text-[var(--text-muted)]"
+            class="w-full bg-transparent outline-none focus-visible:!outline-none text-[13px] sm:text-[12.5px] placeholder:text-[var(--text-muted)]"
           />
           {#if filterText}
             <button
@@ -272,7 +273,7 @@
         </div>
       {/if}
 
-      <div class="flex flex-wrap items-center gap-1.5 {tracks.length > 4 ? 'ml-auto' : 'w-full justify-between'}">
+      <div class="flex flex-wrap items-center justify-between sm:justify-end gap-1.5 w-full sm:w-auto sm:ml-auto">
         {#if mode === "playlist" && playlist && !player.isOffline && tracks.length > 0}
           <button
             type="button"
@@ -418,23 +419,43 @@
                 <span>{t("collection.enhance_refresh")}</span>
               </button>
             </div>
-            <div class="track-list">
+            <div class="flex flex-col gap-1.5">
               {#each visibleEnhanced as sug (sug.id)}
-                <div class="flex items-center gap-1.5 rounded-xl bg-[var(--accent-soft)]/35 border border-[var(--accent-border)]/30 pr-2">
-                  <div class="flex-1 min-w-0">
-                    <TrackRow
-                      track={sug}
-                      onPlay={() =>
-                        player.replaceQueueAndPlay([sug, ...tracks], 0, playlist?.name ?? "Playlist")}
-                    />
-                  </div>
+                {@const isPlayingSug = player.currentTrack?.id === sug.id}
+                <div
+                  class="flex items-center gap-2.5 rounded-xl px-2 py-1.5 bg-[var(--accent-soft)]/20 hover:bg-[var(--accent-soft)]/35 border border-[var(--accent-border)]/25 transition-colors"
+                >
                   <button
                     type="button"
-                    class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11.5px] font-bold bg-[var(--accent)] hover:bg-[var(--accent-bright)] text-white shrink-0 transition-all active:scale-95"
+                    class="flex items-center gap-2.5 flex-1 min-w-0 text-left"
+                    onclick={() =>
+                      player.replaceQueueAndPlay([sug, ...tracks], 0, playlist?.name ?? "Playlist")}
+                  >
+                    <CoverImage
+                      class="w-10 h-10 sm:w-11 sm:h-11 rounded-[9px] shrink-0 object-cover border border-white/10"
+                      src={sug.cover_url}
+                      alt={sug.title}
+                    />
+                    <div class="min-w-0 flex-1">
+                      <div
+                        class="text-[14px] font-semibold truncate {isPlayingSug
+                          ? 'text-[var(--accent-bright)]'
+                          : 'text-[var(--text)]'}"
+                      >
+                        {sug.title}
+                      </div>
+                      <div class="text-[12px] text-[var(--text-muted)] truncate">
+                        {sug.artist}{sug.album ? ` · ${sug.album}` : ""}
+                      </div>
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    class="inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-[12px] font-bold bg-[var(--accent)] hover:bg-[var(--accent-bright)] text-white shrink-0 transition-all active:scale-95"
                     title={t("collection.enhance_add")}
                     onclick={() => playlist && player.addTrackToPlaylist(playlist.id, sug)}
                   >
-                    <Plus size={12} />
+                    <Plus size={13} />
                     {t("queue.add").split(" ")[0]}
                   </button>
                 </div>

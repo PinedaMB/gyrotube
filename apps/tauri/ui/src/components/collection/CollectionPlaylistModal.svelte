@@ -1,6 +1,7 @@
 <script lang="ts">
   import { Check, ImagePlus, Link2, Loader2, Plus, Trash2, X } from "lucide-svelte";
   import { api, isTauriRuntime } from "../../lib/api";
+  import { extractDominantRgb } from "../../lib/audioEngine";
   import { t } from "../../lib/i18n.svelte";
   import { player } from "../../lib/stores/player.svelte";
   import type { Track, UserPlaylist } from "../../lib/types";
@@ -44,19 +45,42 @@
   let mode = $state<ModalMode>("create");
   let formName = $state("");
   let formDesc = $state("");
-  let formColor = $state<string | null>(SWATCHES[0]);
+  let formColor = $state<string | null>(null);
   let formIcon = $state<string>("music");
   let formCover = $state<string | null>(null);
+  let extractedCoverHex = $state<string | null>(null);
   let coverInputEl = $state<HTMLInputElement | null>(null);
   let importUrl = $state("");
   let importing = $state(false);
+
+  function rgbToHex([r, g, b]: [number, number, number]): string {
+    const toHex = (n: number) => Math.max(0, Math.min(255, Math.round(n))).toString(16).padStart(2, "0");
+    return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+  }
+
+  $effect(() => {
+    const cover = formCover;
+    if (!cover) {
+      extractedCoverHex = null;
+      return;
+    }
+    let cancelled = false;
+    void extractDominantRgb(cover).then((rgb) => {
+      if (!cancelled) {
+        extractedCoverHex = rgb ? rgbToHex(rgb) : null;
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  });
 
   $effect(() => {
     if (open) {
       mode = "create";
       formName = editing?.name ?? "";
       formDesc = editing?.description ?? "";
-      formColor = editing?.color_hex ?? SWATCHES[0];
+      formColor = editing?.color_hex ?? null;
       formIcon = editing?.icon_name ?? "music";
       formCover = editing?.cover_path ?? null;
       importUrl = "";
@@ -92,6 +116,7 @@
       const sy = Math.max(0, Math.floor(((img.naturalHeight || img.height) - srcSize) / 2));
       ctx.drawImage(img, sx, sy, srcSize, srcSize, 0, 0, size, size);
       formCover = canvas.toDataURL("image/jpeg", 0.84);
+      formColor = null;
     } catch {
       player.showToast(t("collection.cover_invalid"));
     }
@@ -155,7 +180,7 @@
     onClose();
   }
 
-  let previewColor = $derived(formColor ?? "#10b981");
+  let previewColor = $derived(formColor ?? extractedCoverHex ?? "#10b981");
 </script>
 
 <ModalSheet
@@ -216,7 +241,10 @@
         onchange={(e) => void handleCoverFile(e)}
       />
       <div class="min-w-0 flex-1">
-        <span class="text-[10px] font-extrabold uppercase tracking-[0.09em] text-[var(--accent-bright)]">
+        <span
+          class="text-[10px] font-extrabold uppercase tracking-[0.09em]"
+          style="color: {previewColor};"
+        >
           {t("collection.local_playlist")}
         </span>
         <div class="text-[16.5px] font-extrabold truncate">

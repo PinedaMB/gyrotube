@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { extractDominantRgb } from "../../lib/audioEngine";
   import { t } from "../../lib/i18n.svelte";
   import { player } from "../../lib/stores/player.svelte";
   import { shuffleItems } from "../../lib/stores/queueOps";
@@ -17,6 +18,29 @@
   let { mode, playlist = null, onBack, onEdit, onDelete }: Props = $props();
 
   let sortBy = $state<SortBy>("custom");
+  let extractedCoverHex = $state<string | null>(null);
+
+  function rgbToHex([r, g, b]: [number, number, number]): string {
+    const toHex = (n: number) => Math.max(0, Math.min(255, Math.round(n))).toString(16).padStart(2, "0");
+    return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+  }
+
+  $effect(() => {
+    const cover = mode === "playlist" ? playlist?.cover_path ?? null : null;
+    if (!cover) {
+      extractedCoverHex = null;
+      return;
+    }
+    let cancelled = false;
+    void extractDominantRgb(cover).then((rgb) => {
+      if (!cancelled) {
+        extractedCoverHex = rgb ? rgbToHex(rgb) : null;
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  });
 
   let rawTracks = $derived<Track[]>(
     mode === "favorites" ? player.favorites : (playlist?.tracks ?? []),
@@ -28,7 +52,9 @@
     mode === "favorites" ? t("collection.favorites_desc") : (playlist?.description ?? ""),
   );
   let accentColor = $derived(
-    mode === "favorites" ? "#e11d48" : (playlist?.color_hex || "#10b981"),
+    mode === "favorites"
+      ? "#e11d48"
+      : (playlist?.color_hex || extractedCoverHex || "#10b981"),
   );
 
   let tracks = $derived.by(() => {
