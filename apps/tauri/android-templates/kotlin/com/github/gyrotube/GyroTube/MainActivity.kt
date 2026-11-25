@@ -101,6 +101,9 @@ class MainActivity : TauriActivity() {
     // and allow loading http://127.0.0.1:<port>/stream/... from https://tauri.localhost.
     webView.settings.mediaPlaybackRequiresUserGesture = false
     webView.settings.mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+    webView.settings.setSupportZoom(false)
+    webView.settings.builtInZoomControls = false
+    webView.settings.displayZoomControls = false
     webView.addJavascriptInterface(AndroidPlaybackBridge(), "__GYROTUBE_ANDROID__")
 
     PlaybackForegroundService.onMediaAction = { action ->

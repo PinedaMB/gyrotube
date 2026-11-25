@@ -191,14 +191,19 @@
         void player.syncDownloadedPlaylists();
       }
     };
+    const handleWheel = (e: WheelEvent) => {
+      if (e.ctrlKey || e.metaKey) e.preventDefault();
+    };
     player.isOffline = !navigator.onLine;
     window.addEventListener("offline", handleOffline);
     window.addEventListener("online", handleOnline);
+    window.addEventListener("wheel", handleWheel, { passive: false });
     return () => {
       window.clearTimeout(saveWindowTimer);
       unlistenResize?.();
       window.removeEventListener("offline", handleOffline);
       window.removeEventListener("online", handleOnline);
+      window.removeEventListener("wheel", handleWheel);
     };
   });
 
