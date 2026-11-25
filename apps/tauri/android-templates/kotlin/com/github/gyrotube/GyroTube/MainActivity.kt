@@ -4,8 +4,10 @@ import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.media.AudioManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import android.view.View
 import android.webkit.JavascriptInterface
 import android.webkit.WebSettings
@@ -14,8 +16,14 @@ import androidx.activity.OnBackPressedCallback
 import androidx.activity.enableEdgeToEdge
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import java.io.File
+import java.io.FileOutputStream
+import java.net.HttpURLConnection
+import java.net.URL
+import java.util.concurrent.atomic.AtomicBoolean
 
 class MainActivity : TauriActivity() {
   // Handle Back presses ourselves so exhausting the WebView history moves the app
@@ -27,6 +35,9 @@ class MainActivity : TauriActivity() {
   private var playbackActive: Boolean = false
   @Volatile
   private var pendingSpinCode: String? = null
+  @Volatile
+  private var pendingInstallApk: File? = null
+  private val apkDownloading = AtomicBoolean(false)
 
   override fun onCreate(savedInstanceState: Bundle?) {
     enableEdgeToEdge()
@@ -104,6 +115,17 @@ class MainActivity : TauriActivity() {
     }
   }
 
+  override fun onResume() {
+    super.onResume()
+    val pendingApk = pendingInstallApk
+    if (pendingApk != null && pendingApk.exists()) {
+      if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || packageManager.canRequestPackageInstalls()) {
+        pendingInstallApk = null
+        launchApkInstaller(pendingApk)
+      }
+    }
+  }
+
   override fun onPause() {
     super.onPause()
     // WryActivity.onPause() calls mWebView.onPause(), which suspends JS execution,
@@ -154,7 +176,152 @@ class MainActivity : TauriActivity() {
     super.onDestroy()
   }
 
+  private fun notifyUpdateProgress(status: String, pct: Int, error: String = "") {
+    val safeErr = error
+      .replace("\\", "\\\\")
+      .replace("'", "\\'")
+      .replace("\n", " ")
+      .replace("\r", " ")
+    runOnUiThread {
+      activeWebView?.evaluateJavascript(
+        "if (window.__GYROTUBE_ANDROID_UPDATE__) { window.__GYROTUBE_ANDROID_UPDATE__('$status', $pct, '$safeErr'); }",
+        null
+      )
+    }
+  }
+
+  private fun launchApkInstaller(apkFile: File) {
+    try {
+      val uri = FileProvider.getUriForFile(this, "${packageName}.fileprovider", apkFile)
+      val intent = Intent(Intent.ACTION_VIEW).apply {
+        setDataAndType(uri, "application/vnd.android.package-archive")
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+      }
+      startActivity(intent)
+      notifyUpdateProgress("ready", 100)
+    } catch (t: Throwable) {
+      notifyUpdateProgress("error", 0, t.message ?: "Failed to launch installer")
+    }
+  }
+
   private inner class AndroidPlaybackBridge {
+    @JavascriptInterface
+    fun openExternalUrl(url: String) {
+      val trimmed = url.trim()
+      if (!trimmed.startsWith("https://") && !trimmed.startsWith("http://")) return
+      runOnUiThread {
+        try {
+          val intent = Intent(Intent.ACTION_VIEW, Uri.parse(trimmed)).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+          }
+          startActivity(intent)
+        } catch (_: Throwable) {
+          // Ignore if no browser is available
+        }
+      }
+    }
+
+    @JavascriptInterface
+    fun downloadAndInstallApk(url: String) {
+      val trimmed = url.trim()
+      if (!trimmed.startsWith("https://")) {
+        notifyUpdateProgress("error", 0, "Invalid update URL")
+        return
+      }
+      if (!apkDownloading.compareAndSet(false, true)) return
+
+      Thread {
+        try {
+          notifyUpdateProgress("progress", 0)
+          var currentUrl = trimmed
+          var conn: HttpURLConnection? = null
+          for (redirect in 0 until 6) {
+            val c = (URL(currentUrl).openConnection() as HttpURLConnection).apply {
+              instanceFollowRedirects = false
+              connectTimeout = 15000
+              readTimeout = 30000
+              setRequestProperty("User-Agent", "GyroTube-Android")
+            }
+            val code = c.responseCode
+            if (code in 300..399) {
+              val location = c.getHeaderField("Location")
+              c.disconnect()
+              if (location.isNullOrBlank()) throw IllegalStateException("Empty redirect")
+              currentUrl = URL(URL(currentUrl), location).toString()
+              continue
+            }
+            conn = c
+            break
+          }
+
+          val activeConn = conn ?: throw IllegalStateException("Too many redirects")
+          try {
+            if (activeConn.responseCode !in 200..299) {
+              throw IllegalStateException("HTTP ${activeConn.responseCode}")
+            }
+            val total = activeConn.contentLengthLong
+            val tmpFile = File(cacheDir, "gyrotube-update.apk.part")
+            val outFile = File(cacheDir, "gyrotube-update.apk")
+            if (tmpFile.exists()) tmpFile.delete()
+
+            activeConn.inputStream.use { input ->
+              FileOutputStream(tmpFile).use { output ->
+                val buf = ByteArray(16 * 1024)
+                var downloaded = 0L
+                var lastPct = -2
+                var lastNotifyMs = 0L
+                while (true) {
+                  val read = input.read(buf)
+                  if (read <= 0) break
+                  output.write(buf, 0, read)
+                  downloaded += read
+                  val now = System.currentTimeMillis()
+                  val pct = if (total > 0L) ((downloaded * 100L) / total).toInt().coerceIn(0, 100) else -1
+                  if (pct != lastPct && (now - lastNotifyMs >= 180L || pct == 100)) {
+                    lastPct = pct
+                    lastNotifyMs = now
+                    notifyUpdateProgress("progress", pct)
+                  }
+                }
+              }
+            }
+
+            if (outFile.exists()) outFile.delete()
+            if (!tmpFile.renameTo(outFile)) {
+              tmpFile.copyTo(outFile, overwrite = true)
+              tmpFile.delete()
+            }
+
+            runOnUiThread {
+              if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !packageManager.canRequestPackageInstalls()) {
+                pendingInstallApk = outFile
+                notifyUpdateProgress("ready", 100)
+                try {
+                  val settingsIntent = Intent(
+                    Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                    Uri.parse("package:$packageName")
+                  ).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                  }
+                  startActivity(settingsIntent)
+                } catch (_: Throwable) {
+                  launchApkInstaller(outFile)
+                }
+              } else {
+                launchApkInstaller(outFile)
+              }
+            }
+          } finally {
+            activeConn.disconnect()
+          }
+        } catch (t: Throwable) {
+          notifyUpdateProgress("error", 0, t.message ?: "Download failed")
+        } finally {
+          apkDownloading.set(false)
+        }
+      }.start()
+    }
+
     @JavascriptInterface
     fun consumePendingSpinLink(): String {
       val code = pendingSpinCode ?: return ""

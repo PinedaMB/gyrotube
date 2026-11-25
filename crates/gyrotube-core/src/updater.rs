@@ -160,11 +160,16 @@ pub async fn check_github_release(current_version: &str) -> Result<UpdateCheckRe
         .filter(|u| u.starts_with("https://"))
         .unwrap_or_else(|| GITHUB_RELEASES_PAGE.to_string());
 
+    #[cfg(target_os = "android")]
+    let can_auto_install = download_url.is_some();
+    #[cfg(not(target_os = "android"))]
+    let can_auto_install = false;
+
     Ok(UpdateCheckResult {
         current_version: current_version.to_string(),
         latest_version: Some(latest_clean),
         update_available,
-        can_auto_install: false,
+        can_auto_install,
         release_url,
         download_url,
         notes: release.body,

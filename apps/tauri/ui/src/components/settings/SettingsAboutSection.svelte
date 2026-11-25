@@ -9,6 +9,18 @@
   const GITHUB_URL = "https://github.com/PinedaMB/gyrotube";
 
   function openExternal(url: string) {
+    const androidBridge =
+      typeof window !== "undefined"
+        ? (
+            window as unknown as {
+              __GYROTUBE_ANDROID__?: { openExternalUrl?: (u: string) => void };
+            }
+          ).__GYROTUBE_ANDROID__
+        : undefined;
+    if (androidBridge?.openExternalUrl) {
+      androidBridge.openExternalUrl(url);
+      return;
+    }
     if (isTauriRuntime()) {
       void api.openExternalUrl(url).catch(() => {
         window.open(url, "_blank", "noopener,noreferrer");

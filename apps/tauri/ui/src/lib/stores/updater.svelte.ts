@@ -77,8 +77,45 @@ class UpdaterStore {
 
   public async installOrDownload(): Promise<void> {
     if (!isTauriRuntime()) return;
+    const win =
+      typeof window !== "undefined"
+        ? (window as unknown as {
+            __GYROTUBE_ANDROID__?: {
+              openExternalUrl?: (url: string) => void;
+              downloadAndInstallApk?: (url: string) => void;
+            };
+            __GYROTUBE_ANDROID_UPDATE__?: (status: string, pct: number, error: string) => void;
+          })
+        : null;
+
+    const androidBridge = win?.__GYROTUBE_ANDROID__;
+    if (androidBridge?.downloadAndInstallApk && this.downloadUrl) {
+      this.status = "installing";
+      this.progressPct = 0;
+      this.errorMessage = null;
+      win!.__GYROTUBE_ANDROID_UPDATE__ = (status: string, pct: number, error: string) => {
+        if (status === "progress") {
+          this.status = "installing";
+          this.progressPct = pct >= 0 ? Math.min(100, pct) : null;
+        } else if (status === "ready") {
+          this.progressPct = 100;
+          this.status = "available";
+        } else if (status === "error") {
+          this.status = "error";
+          this.errorMessage = error || "Update failed";
+          player.showToast(t("updater.error"));
+        }
+      };
+      androidBridge.downloadAndInstallApk(this.downloadUrl);
+      return;
+    }
+
     if (!this.canAutoInstall) {
       const target = this.downloadUrl || this.releaseUrl;
+      if (androidBridge?.openExternalUrl) {
+        androidBridge.openExternalUrl(target);
+        return;
+      }
       void api.openExternalUrl(target).catch(() => {
         window.open(target, "_blank", "noopener,noreferrer");
       });
