@@ -62,6 +62,6 @@ modules:
       - type: git
         url: https://github.com/PinedaMB/gyrotube.git
         tag: v1.0.5
-        commit: REPLACE_WITH_V1_0_5_COMMIT_HASH
+        commit: 446e4f92d5b12750f596edf75d0d2d252d1441cb
       - cargo-sources.json
       - node-sources.json
