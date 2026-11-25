@@ -119,7 +119,7 @@
   class="w-full min-h-full transition-all duration-500"
   style="background-image: radial-gradient(ellipse 75% 48% at 24% 26%, {accentColor}30 0%, {accentColor}0d 48%, transparent 78%);"
 >
-  <div class="w-full max-w-[1280px] mx-auto px-4 sm:px-8 pt-[max(0.75rem,env(safe-area-inset-top))] sm:pt-6 pb-36 md:pb-28">
+  <div class="w-full max-w-[1280px] mx-auto px-4 sm:px-8 pt-[calc(0.75rem+var(--safe-top))] sm:pt-6 pb-36 md:pb-28">
     <div class="grid grid-cols-1 lg:grid-cols-[320px_minmax(0,1fr)] gap-5 lg:gap-12 items-start">
       <PlaylistSidebarHero
         {mode}

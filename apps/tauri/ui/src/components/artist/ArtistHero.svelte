@@ -80,7 +80,7 @@
     ></div>
   {/if}
 
-  <div class="relative z-10 w-full max-w-[1280px] mx-auto px-6 pt-[max(1rem,env(safe-area-inset-top))] md:pt-4 pb-8 sm:pb-10 flex-1 flex flex-col justify-between">
+  <div class="relative z-10 w-full max-w-[1280px] mx-auto px-6 pt-[calc(0.75rem+var(--safe-top))] md:pt-4 pb-8 sm:pb-10 flex-1 flex flex-col justify-between">
     <div>
       <button
         class="w-9 h-9 rounded-full inline-flex items-center justify-center transition-all active:scale-95 {hasBanner

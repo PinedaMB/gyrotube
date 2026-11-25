@@ -107,7 +107,7 @@
 <div class="w-full min-h-full flex flex-col">
   <!-- Mobile dedicated YouTube Music-style search bar -->
   <div
-    class="md:hidden sticky top-0 z-20 flex items-center gap-2 px-3 pt-[max(0.625rem,env(safe-area-inset-top))] pb-2.5 bg-[var(--bg-elevated)] border-b border-[var(--border)]"
+    class="md:hidden sticky top-0 z-20 flex items-center gap-2 px-3 pt-[calc(0.5rem+var(--safe-top))] pb-2.5 bg-[var(--bg-elevated)] border-b border-[var(--border)]"
   >
     <button
       type="button"

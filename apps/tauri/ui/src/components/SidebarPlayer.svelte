@@ -101,7 +101,7 @@
   <!-- Mobile pull-down handle -->
   <div
     data-player-header
-    class="lg:hidden shrink-0 flex justify-center pt-[max(0.6rem,env(safe-area-inset-top))] pb-0.5"
+    class="lg:hidden shrink-0 flex justify-center pt-[calc(0.55rem+var(--safe-top))] pb-0.5"
     aria-hidden="true"
   >
     <div class="w-10 h-1 rounded-full bg-[var(--border-strong)]"></div>
@@ -147,7 +147,7 @@
   <!-- Bottom tab bar -->
   <nav
     class="shrink-0 grid grid-cols-4 gap-1 px-2.5 py-2 border-t border-[var(--border)] bg-[var(--bg-sidebar)]"
-    style="padding-bottom: max(0.5rem, env(safe-area-inset-bottom));"
+    style="padding-bottom: calc(0.5rem + var(--safe-bottom));"
   >
     <button
       class="flex flex-col items-center justify-center gap-0.5 py-1.5 rounded-xl text-[11px] font-semibold border transition-colors {player.sidebarTab === 'player'

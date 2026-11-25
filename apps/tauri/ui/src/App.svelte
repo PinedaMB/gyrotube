@@ -194,6 +194,16 @@
     const handleWheel = (e: WheelEvent) => {
       if (e.ctrlKey || e.metaKey) e.preventDefault();
     };
+    const androidBridge = (
+      window as unknown as {
+        __GYROTUBE_ANDROID__?: { getSafeAreaInsets?: () => string };
+      }
+    ).__GYROTUBE_ANDROID__;
+    if (androidBridge?.getSafeAreaInsets) {
+      const [top, bottom] = androidBridge.getSafeAreaInsets().split(",");
+      if (top) document.documentElement.style.setProperty("--safe-top", `${top}px`);
+      if (bottom) document.documentElement.style.setProperty("--safe-bottom", `${bottom}px`);
+    }
     player.isOffline = !navigator.onLine;
     window.addEventListener("offline", handleOffline);
     window.addEventListener("online", handleOnline);
@@ -233,11 +243,33 @@
 
   let toastBottomClass = $derived(
     miniPlayerVisible
-      ? "bottom-[calc(8.25rem+env(safe-area-inset-bottom))] md:bottom-[5.75rem]"
+      ? "bottom-[calc(8.25rem+var(--safe-bottom))] md:bottom-[5.75rem]"
       : player.sidebarOpen
-        ? "bottom-[calc(1.5rem+env(safe-area-inset-bottom))] md:bottom-5"
-        : "bottom-[calc(4.5rem+env(safe-area-inset-bottom))] md:bottom-5",
+        ? "bottom-[calc(1.5rem+var(--safe-bottom))] md:bottom-5"
+        : "bottom-[calc(4.5rem+var(--safe-bottom))] md:bottom-5",
   );
+
+  $effect(() => {
+    if (!device.isAndroid || typeof window === "undefined") return;
+    const bridge = (
+      window as unknown as {
+        __GYROTUBE_ANDROID__?: { setSystemBarsTheme?: (bgHex: string, isDark: boolean) => void };
+      }
+    ).__GYROTUBE_ANDROID__;
+    if (!bridge?.setSystemBarsTheme) return;
+    const forceDarkIcons =
+      player.partyMode || (!player.sidebarOpen && player.activeView.kind === "artist");
+    if (forceDarkIcons) {
+      bridge.setSystemBarsTheme("#131218", true);
+    } else {
+      const mode = player.themeMode;
+      const prefersDark =
+        typeof window.matchMedia === "function" &&
+        window.matchMedia("(prefers-color-scheme: dark)").matches;
+      const isDark = mode === "dark" || (mode === "system" && prefersDark);
+      bridge.setSystemBarsTheme(isDark ? "#1e1c26" : "#ffffff", isDark);
+    }
+  });
 
   $effect(() => {
     if (player.activeView.kind === "explore") {

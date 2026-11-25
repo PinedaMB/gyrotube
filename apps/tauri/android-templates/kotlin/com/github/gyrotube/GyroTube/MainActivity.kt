@@ -40,6 +40,10 @@ class MainActivity : TauriActivity() {
   private var pendingSpinCode: String? = null
   @Volatile
   private var pendingInstallApk: File? = null
+  @Volatile
+  private var safeTopDp: Float = 0f
+  @Volatile
+  private var safeBottomDp: Float = 0f
   private val apkDownloading = AtomicBoolean(false)
 
   override fun onCreate(savedInstanceState: Bundle?) {
@@ -84,17 +88,23 @@ class MainActivity : TauriActivity() {
       }
     }
 
-    // Keep the WebView out of the status bar / navigation bar / keyboard areas so the
-    // header (search) and bottom navigation are never covered by system UI.
+    // True Edge-to-Edge: keep system bars fully transparent so artwork, artist banners,
+    // and ambient player gradients flow behind the status bar and gesture nav bar.
+    // Only apply IME (keyboard) bottom padding natively, and forward system bar insets
+    // as CSS custom properties (--safe-top / --safe-bottom) for exact layout spacing.
     val content = findViewById<View>(android.R.id.content)
     val isNight = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
-    applySystemBars(if (isNight) "#1e1c26" else "#ffffff", isNight)
+    applySystemBars(isNight)
     ViewCompat.setOnApplyWindowInsetsListener(content) { view, insets ->
       val bars = insets.getInsets(
         WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
       )
       val ime = insets.getInsets(WindowInsetsCompat.Type.ime())
-      view.setPadding(bars.left, bars.top, bars.right, maxOf(bars.bottom, ime.bottom))
+      val density = resources.displayMetrics.density.coerceAtLeast(1f)
+      safeTopDp = bars.top / density
+      safeBottomDp = if (ime.bottom > 0) 0f else bars.bottom / density
+      view.setPadding(0, 0, 0, ime.bottom)
+      dispatchSafeAreaInsets()
       WindowInsetsCompat.CONSUMED
     }
   }
@@ -184,18 +194,29 @@ class MainActivity : TauriActivity() {
     super.onDestroy()
   }
 
-  @Suppress("DEPRECATION")
-  private fun applySystemBars(bgHex: String, isDark: Boolean) {
-    val color = try {
-      Color.parseColor(bgHex)
-    } catch (_: Throwable) {
-      if (isDark) Color.parseColor("#1e1c26") else Color.WHITE
+  private fun dispatchSafeAreaInsets() {
+    val wv = activeWebView ?: return
+    val top = "%.2f".format(java.util.Locale.US, safeTopDp)
+    val bottom = "%.2f".format(java.util.Locale.US, safeBottomDp)
+    runOnUiThread {
+      wv.evaluateJavascript(
+        "document.documentElement.style.setProperty('--safe-top','${top}px');document.documentElement.style.setProperty('--safe-bottom','${bottom}px');",
+        null
+      )
     }
-    window.decorView.setBackgroundColor(color)
-    findViewById<View>(android.R.id.content)?.setBackgroundColor(color)
+  }
+
+  @Suppress("DEPRECATION")
+  private fun applySystemBars(isDark: Boolean) {
+    WindowCompat.setDecorFitsSystemWindows(window, false)
+    window.decorView.setBackgroundColor(if (isDark) Color.parseColor("#131218") else Color.parseColor("#f5f6f8"))
     if (Build.VERSION.SDK_INT < 35) {
-      window.statusBarColor = color
-      window.navigationBarColor = color
+      window.statusBarColor = Color.TRANSPARENT
+      window.navigationBarColor = Color.TRANSPARENT
+    }
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+      window.isStatusBarContrastEnforced = false
+      window.isNavigationBarContrastEnforced = false
     }
     val controller = WindowCompat.getInsetsController(window, window.decorView)
     controller.isAppearanceLightStatusBars = !isDark
@@ -232,9 +253,14 @@ class MainActivity : TauriActivity() {
 
   private inner class AndroidPlaybackBridge {
     @JavascriptInterface
-    fun setSystemBarsTheme(bgHex: String, isDark: Boolean) {
+    fun getSafeAreaInsets(): String {
+      return "%.2f,%.2f".format(java.util.Locale.US, safeTopDp, safeBottomDp)
+    }
+
+    @JavascriptInterface
+    fun setSystemBarsTheme(_bgHex: String, isDark: Boolean) {
       runOnUiThread {
-        applySystemBars(bgHex, isDark)
+        applySystemBars(isDark)
       }
     }
 

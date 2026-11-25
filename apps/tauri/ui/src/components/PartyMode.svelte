@@ -86,7 +86,7 @@
 >
   <!-- Top bar -->
   <header
-    class="shrink-0 flex items-center justify-between gap-2 px-4 sm:px-7 pt-[max(0.75rem,env(safe-area-inset-top))] pb-3 lg:py-5"
+    class="shrink-0 flex items-center justify-between gap-2 px-4 sm:px-7 pt-[calc(0.75rem+var(--safe-top))] pb-3 lg:py-5"
   >
     <div class="flex items-center gap-2.5 sm:gap-3 min-w-0">
       <span
@@ -401,7 +401,7 @@
   <!-- Mobile pinned bottom controls dock -->
   <div
     class="flex lg:hidden shrink-0 flex-col gap-3 px-5 pt-2"
-    style="padding-bottom: max(1rem, env(safe-area-inset-bottom));"
+    style="padding-bottom: calc(1rem + var(--safe-bottom));"
   >
     <div class="space-y-1.5">
       <div

@@ -120,7 +120,7 @@
       <OfflineState />
     </div>
   {:else}
-    <div class="w-full max-w-[1280px] mx-auto px-4 sm:px-8 pt-[max(1rem,env(safe-area-inset-top))] sm:pt-6 pb-36 md:pb-28">
+    <div class="w-full max-w-[1280px] mx-auto px-4 sm:px-8 pt-[calc(0.75rem+var(--safe-top))] sm:pt-6 pb-36 md:pb-28">
       <div class="grid grid-cols-1 lg:grid-cols-[320px_minmax(0,1fr)] gap-8 lg:gap-12 items-start">
         <AlbumSidebarHero
           {id}

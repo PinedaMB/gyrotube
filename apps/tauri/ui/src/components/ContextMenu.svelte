@@ -46,7 +46,7 @@
       ? "fixed inset-x-0 bottom-0 z-[100] max-h-[82vh] overflow-y-auto scroll-y rounded-t-3xl bg-[var(--bg-elevated)] border-t border-[var(--border-strong)] shadow-[0_-16px_48px_rgba(0,0,0,0.65)] px-3 pt-2 select-none text-[14.5px]"
       : "fixed z-[100] w-[240px] rounded-2xl bg-[var(--bg-elevated)] border border-[var(--border-strong)] shadow-[0_20px_52px_rgba(0,0,0,0.6)] p-1.5 select-none text-[13px]"}
     style={device.isMobile
-      ? "padding-bottom: max(1rem, env(safe-area-inset-bottom));"
+      ? "padding-bottom: calc(1rem + var(--safe-bottom));"
       : `left: ${contextMenu.x}px; top: ${contextMenu.y}px;`}
   >
     {#if device.isMobile}

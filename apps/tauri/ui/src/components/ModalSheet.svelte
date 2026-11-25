@@ -66,7 +66,7 @@
     ? 'modal-sheet-mobile w-full max-w-none max-h-[88vh] rounded-t-3xl border-t border-[var(--border-strong)] shadow-[0_-18px_52px_rgba(0,0,0,0.65)]'
     : 'modal-sheet-desktop max-h-[calc(100vh-48px)] rounded-[18px] border border-[var(--border-strong)] shadow-[0_24px_64px_rgba(0,0,0,0.62)]'} overflow-y-auto scroll-y bg-[var(--bg-elevated)] text-[var(--text)] p-0"
   style={device.isMobile
-    ? "padding-bottom: max(1rem, env(safe-area-inset-bottom));"
+    ? "padding-bottom: calc(1rem + var(--safe-bottom));"
     : `width: min(${maxWidth}px, calc(100vw - 32px));`}
   onpointerdown={handlePointerDown}
   onpointerup={handlePointerUp}

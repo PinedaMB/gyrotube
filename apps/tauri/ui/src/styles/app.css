@@ -17,6 +17,8 @@
 
   --bg: #131218;
   --bg-elevated: #1e1c26;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
   --bg-sidebar: #17151d;
   --card-bg: rgba(255, 255, 255, 0.048);
   --card-shadow: none;
