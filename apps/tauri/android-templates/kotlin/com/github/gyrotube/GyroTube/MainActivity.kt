@@ -3,6 +3,8 @@ package com.github.gyrotube.GyroTube
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.res.Configuration
+import android.graphics.Color
 import android.media.AudioManager
 import android.net.Uri
 import android.os.Build
@@ -18,6 +20,7 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import java.io.File
 import java.io.FileOutputStream
@@ -84,6 +87,8 @@ class MainActivity : TauriActivity() {
     // Keep the WebView out of the status bar / navigation bar / keyboard areas so the
     // header (search) and bottom navigation are never covered by system UI.
     val content = findViewById<View>(android.R.id.content)
+    val isNight = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+    applySystemBars(if (isNight) "#1e1c26" else "#ffffff", isNight)
     ViewCompat.setOnApplyWindowInsetsListener(content) { view, insets ->
       val bars = insets.getInsets(
         WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
@@ -179,6 +184,24 @@ class MainActivity : TauriActivity() {
     super.onDestroy()
   }
 
+  @Suppress("DEPRECATION")
+  private fun applySystemBars(bgHex: String, isDark: Boolean) {
+    val color = try {
+      Color.parseColor(bgHex)
+    } catch (_: Throwable) {
+      if (isDark) Color.parseColor("#1e1c26") else Color.WHITE
+    }
+    window.decorView.setBackgroundColor(color)
+    findViewById<View>(android.R.id.content)?.setBackgroundColor(color)
+    if (Build.VERSION.SDK_INT < 35) {
+      window.statusBarColor = color
+      window.navigationBarColor = color
+    }
+    val controller = WindowCompat.getInsetsController(window, window.decorView)
+    controller.isAppearanceLightStatusBars = !isDark
+    controller.isAppearanceLightNavigationBars = !isDark
+  }
+
   private fun notifyUpdateProgress(status: String, pct: Int, error: String = "") {
     val safeErr = error
       .replace("\\", "\\\\")
@@ -208,6 +231,13 @@ class MainActivity : TauriActivity() {
   }
 
   private inner class AndroidPlaybackBridge {
+    @JavascriptInterface
+    fun setSystemBarsTheme(bgHex: String, isDark: Boolean) {
+      runOnUiThread {
+        applySystemBars(bgHex, isDark)
+      }
+    }
+
     @JavascriptInterface
     fun openExternalUrl(url: String) {
       val trimmed = url.trim()

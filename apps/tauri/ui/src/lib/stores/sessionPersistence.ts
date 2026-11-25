@@ -55,7 +55,28 @@ export function readThemeMode(): ThemeMode {
   return "system";
 }
 
+let systemThemeMediaBound = false;
+let lastAppliedThemeMode: ThemeMode = "system";
+
+function syncAndroidSystemBars(mode: ThemeMode): void {
+  if (typeof window === "undefined") return;
+  const bridge = (
+    window as unknown as {
+      __GYROTUBE_ANDROID__?: {
+        setSystemBarsTheme?: (bgHex: string, isDark: boolean) => void;
+      };
+    }
+  ).__GYROTUBE_ANDROID__;
+  if (!bridge?.setSystemBarsTheme) return;
+  const prefersDark =
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(prefers-color-scheme: dark)").matches;
+  const isDark = mode === "dark" || (mode === "system" && prefersDark);
+  bridge.setSystemBarsTheme(isDark ? "#1e1c26" : "#ffffff", isDark);
+}
+
 export function applyThemeToDocument(mode: ThemeMode): void {
+  lastAppliedThemeMode = mode;
   if (typeof localStorage !== "undefined") {
     try {
       localStorage.setItem(THEME_MODE_KEY, mode);
@@ -71,6 +92,15 @@ export function applyThemeToDocument(mode: ThemeMode): void {
   } else {
     root.setAttribute("data-theme", mode);
     root.style.colorScheme = mode;
+  }
+  syncAndroidSystemBars(mode);
+  if (!systemThemeMediaBound && typeof window !== "undefined" && typeof window.matchMedia === "function") {
+    systemThemeMediaBound = true;
+    window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
+      if (lastAppliedThemeMode === "system") {
+        syncAndroidSystemBars("system");
+      }
+    });
   }
 }
 
