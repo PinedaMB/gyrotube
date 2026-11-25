@@ -13,6 +13,8 @@ import android.content.pm.ServiceInfo
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.drawable.Icon
+import android.media.AudioAttributes
+import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.media.MediaMetadata
 import android.media.session.MediaSession
@@ -44,6 +46,77 @@ class PlaybackForegroundService : Service() {
     private var currentCoverUrl: String? = null
     private var currentCoverBitmap: Bitmap? = null
     private var noisyReceiverRegistered = false
+    private var audioManager: AudioManager? = null
+    private var audioFocusRequest: AudioFocusRequest? = null
+    private var hasAudioFocus = false
+    private var isDucked = false
+
+    private val audioFocusListener = AudioManager.OnAudioFocusChangeListener { focusChange ->
+        when (focusChange) {
+            AudioManager.AUDIOFOCUS_LOSS,
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
+                hasAudioFocus = false
+                isDucked = false
+                if (currentPlaying) {
+                    onMediaAction?.invoke("pause")
+                }
+            }
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
+                if (currentPlaying && !isDucked) {
+                    isDucked = true
+                    onMediaAction?.invoke("duck")
+                }
+            }
+            AudioManager.AUDIOFOCUS_GAIN -> {
+                hasAudioFocus = true
+                if (isDucked) {
+                    isDucked = false
+                    onMediaAction?.invoke("unduck")
+                }
+            }
+        }
+    }
+
+    private fun requestMediaAudioFocus(): Boolean {
+        val am = audioManager ?: return true
+        if (hasAudioFocus) return true
+        val result = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val attrs = AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_MEDIA)
+                .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                .build()
+            val req = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+                .setAudioAttributes(attrs)
+                .setAcceptsDelayedFocusGain(false)
+                .setOnAudioFocusChangeListener(audioFocusListener, mainHandler)
+                .build()
+            audioFocusRequest = req
+            am.requestAudioFocus(req)
+        } else {
+            @Suppress("DEPRECATION")
+            am.requestAudioFocus(
+                audioFocusListener,
+                AudioManager.STREAM_MUSIC,
+                AudioManager.AUDIOFOCUS_GAIN
+            )
+        }
+        hasAudioFocus = (result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED)
+        return hasAudioFocus
+    }
+
+    private fun abandonMediaAudioFocus() {
+        val am = audioManager ?: return
+        if (!hasAudioFocus && audioFocusRequest == null) return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            audioFocusRequest?.let { am.abandonAudioFocusRequest(it) }
+            audioFocusRequest = null
+        } else {
+            @Suppress("DEPRECATION")
+            am.abandonAudioFocus(audioFocusListener)
+        }
+        hasAudioFocus = false
+        isDucked = false
+    }
 
     private val becomingNoisyReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -74,6 +147,7 @@ class PlaybackForegroundService : Service() {
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
+        audioManager = getSystemService(AudioManager::class.java)
         val pm = getSystemService(PowerManager::class.java)
         wakeLock = pm?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "GyroTube::PlaybackWakeLock")?.apply {
             setReferenceCounted(false)
@@ -154,11 +228,15 @@ class PlaybackForegroundService : Service() {
         updateSessionAndNotification(startInForeground = true)
 
         if (currentPlaying) {
+            requestMediaAudioFocus()
             if (wakeLock?.isHeld == false) {
                 wakeLock?.acquire(4 * 60 * 60 * 1000L)
             }
-        } else if (wakeLock?.isHeld == true) {
-            wakeLock?.release()
+        } else {
+            abandonMediaAudioFocus()
+            if (wakeLock?.isHeld == true) {
+                wakeLock?.release()
+            }
         }
 
         return START_STICKY
@@ -254,6 +332,7 @@ class PlaybackForegroundService : Service() {
     }
 
     override fun onDestroy() {
+        abandonMediaAudioFocus()
         if (noisyReceiverRegistered) {
             try {
                 unregisterReceiver(becomingNoisyReceiver)

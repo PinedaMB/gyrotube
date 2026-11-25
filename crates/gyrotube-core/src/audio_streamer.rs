@@ -179,6 +179,27 @@ impl AudioStreamer {
         format!("http://127.0.0.1:{}/cover", self.port)
     }
 
+    /// Resolves a loopback `/stream/<key>.<ext>` URL directly to its backing file path
+    /// and `ChunkProgress` receiver so the native Rust decoder can read directly from disk
+    /// without going through loopback HTTP.
+    pub fn lookup_session_source(
+        &self,
+        stream_url: &str,
+    ) -> Option<(PathBuf, String, watch::Receiver<ChunkProgress>)> {
+        let parsed = reqwest::Url::parse(stream_url).ok()?;
+        if parsed.port() != Some(self.port) {
+            return None;
+        }
+        let key = stream_session_key(parsed.path())?;
+        let sessions = self.sessions.read().ok()?;
+        let session = sessions.get(key)?;
+        Some((
+            session.file_path.clone(),
+            session.mime_type.clone(),
+            session.progress_rx.clone(),
+        ))
+    }
+
     pub(crate) fn can_reuse_url(&self, url: &reqwest::Url) -> bool {
         if url.port() != Some(self.port) {
             return false;
@@ -569,7 +590,7 @@ impl AudioStreamer {
 
         let staging = tempfile::tempdir_in(streams_dir)
             .map_err(|e| format!("Failed to create yt-dlp pipe staging dir: {e}"))?;
-        let ext = "webm".to_string();
+        let ext = "m4a".to_string();
         let staging_file_path = staging.path().join(format!("{video_id}.pipe.{ext}"));
         let mut file = tokio::fs::OpenOptions::new()
             .create(true)
@@ -602,7 +623,7 @@ impl AudioStreamer {
                 "--http-chunk-size",
                 "512K",
                 "-f",
-                "251/250/249/140/bestaudio[acodec=opus]/bestaudio/best",
+                "140/139/bestaudio[ext=m4a]/251/bestaudio/best",
                 "-o",
                 "-",
                 "--",
@@ -722,7 +743,7 @@ impl AudioStreamer {
 
         Ok(StreamInfo {
             url: self.local_url(&session_key, &ext),
-            quality_label: "160kbps (WEBM)".to_string(),
+            quality_label: "128kbps (M4A)".to_string(),
             user_agent: None,
             headers: HashMap::new(),
             local_audio: None,
@@ -826,8 +847,8 @@ async fn refresh_ytdlp_audio_stream(
     ext: &str,
 ) -> Option<StreamInfo> {
     let format_selector = match itag {
-        Some(tag) if !tag.is_empty() => format!("{tag}/bestaudio[ext={ext}]/251/140/bestaudio"),
-        _ => format!("bestaudio[ext={ext}]/251/140/bestaudio"),
+        Some(tag) if !tag.is_empty() => format!("{tag}/bestaudio[ext={ext}]/140/139/bestaudio"),
+        _ => format!("bestaudio[ext={ext}]/140/139/bestaudio"),
     };
     let watch_url = format!("https://music.youtube.com/watch?v={video_id}");
     let out = tokio::time::timeout(
@@ -1389,7 +1410,7 @@ mod tests {
         let streamer = AudioStreamer::start_new().await.unwrap();
         let remote = StreamInfo {
             url: format!("http://127.0.0.1:{origin_port}/audio.webm"),
-            quality_label: "160kbps (WEBM)".to_string(),
+            quality_label: "128kbps (M4A)".to_string(),
             user_agent: Some("GyroTubeTest/1.0".to_string()),
             headers: HashMap::new(),
             local_audio: None,
@@ -1433,7 +1454,7 @@ mod tests {
         let streamer = AudioStreamer::start_new().await.unwrap();
         let remote = StreamInfo {
             url: format!("http://127.0.0.1:{origin_port}/audio.webm"),
-            quality_label: "160kbps (WEBM)".to_string(),
+            quality_label: "128kbps (M4A)".to_string(),
             user_agent: None,
             headers: HashMap::new(),
             local_audio: None,

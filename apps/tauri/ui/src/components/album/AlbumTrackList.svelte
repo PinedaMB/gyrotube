@@ -82,7 +82,15 @@
           <TrackRow
             {track}
             number={originalIndex + 1}
-            onPlay={() => player.replaceQueueAndPlay(tracks, originalIndex, title)}
+            onPlay={() =>
+              player.replaceQueueAndPlay(
+                tracks,
+                originalIndex,
+                title,
+                player.activeView.kind === "album" && !player.activeView.isPlaylist
+                  ? { mix: false }
+                  : undefined,
+              )}
           />
         {/each}
       </div>

@@ -99,6 +99,20 @@
     player.replaceQueueAndPlay(shuffled, 0, title);
   }
 
+  function playMix() {
+    const list = playableTracks();
+    if (!list.length) {
+      if (player.isOffline) player.showToast(t("offline.not_downloaded"));
+      return;
+    }
+    if (player.sourceName === title && player.currentTrack && player.queue.length > 0) {
+      player.toggleMixMode();
+      return;
+    }
+    player.replaceQueueAndPlay(list, 0, title, { mix: true });
+    player.showToast(t("mix.enabled_toast"));
+  }
+
   function playTrack(index: number) {
     if (player.isOffline) {
       const target = tracks[index];
@@ -132,6 +146,7 @@
         {onBack}
         onPlayAll={playAll}
         onShuffle={shufflePlay}
+        onPlayMix={playMix}
         {onEdit}
         {onDelete}
       />

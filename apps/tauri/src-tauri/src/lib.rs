@@ -75,6 +75,37 @@ pub fn run() {
             app.manage(core_state);
             app.manage(mpris::MprisHandle::start(app.handle().clone()));
 
+            // Passive-wait 30 ms `playback-tick` telemetry emitter (0% CPU when paused/idle)
+            let handle_for_ticks = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                let (telemetry_opt, notify) = {
+                    let core = handle_for_ticks.state::<AppCoreState>();
+                    let tel = core
+                        .native_audio
+                        .lock()
+                        .ok()
+                        .and_then(|g| g.controller.as_ref().map(|c| c.telemetry()));
+                    (tel, std::sync::Arc::clone(&core.tick_notify))
+                };
+                let Some(telemetry) = telemetry_opt else {
+                    return;
+                };
+                loop {
+                    let snap = telemetry.snapshot();
+                    let active = snap.deck_a_playing
+                        || snap.deck_b_playing
+                        || snap.transition_progress.is_some();
+                    if active {
+                        let _ = handle_for_ticks.emit("playback-tick", snap);
+                        tokio::time::sleep(std::time::Duration::from_millis(30)).await;
+                    } else {
+                        // Emit one final idle/ended tick and then park passively until resumed
+                        let _ = handle_for_ticks.emit("playback-tick", snap);
+                        notify.notified().await;
+                    }
+                }
+            });
+
             // Bridge SPIN LAN & Remote host commands to the frontend via Tauri events
             let handle_for_jam = app.handle().clone();
             tauri::async_runtime::spawn(async move {
@@ -239,6 +270,8 @@ pub fn run() {
             commands::resolve_video_stream,
             commands::find_counterpart_track,
             commands::prefetch_audio,
+            commands::get_mix_profile,
+            commands::save_mix_profile,
             commands::cancel_stale_streams,
             commands::get_cache_bytes,
             commands::clear_audio_cache,
@@ -248,6 +281,16 @@ pub fn run() {
             commands::get_downloads_bytes,
             commands::clear_all_downloads,
             commands::get_offline_cover_base_url,
+            commands::native_load_deck,
+            commands::native_play,
+            commands::native_pause,
+            commands::native_stop,
+            commands::native_seek,
+            commands::native_set_volume,
+            commands::native_set_eq,
+            commands::native_trigger_mix,
+            commands::native_cancel_mix,
+            commands::get_track_waveform,
             commands::spin_status,
             commands::spin_start_local,
             commands::spin_stop_local,

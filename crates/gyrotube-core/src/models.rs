@@ -529,6 +529,8 @@ pub struct SessionState {
     #[serde(default = "default_crossfade_secs")]
     pub crossfade_secs: u32,
     #[serde(default)]
+    pub mix_mode: bool,
+    #[serde(default)]
     pub language: crate::i18n::AppLanguage,
     #[serde(default = "default_background_playback")]
     pub background_playback: bool,

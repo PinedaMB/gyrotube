@@ -532,12 +532,18 @@ impl Backend {
         #[cfg(not(target_os = "android"))]
         {
 
-        // Fallback: extract stream URL via yt-dlp excluding tv_samsung (which triggers 6s ad / 403)
-        // and skipping HLS/DASH manifest downloads.
+        // Prefer m4a/AAC (itag 141/140/139) so Symphonia's 100% Pure Rust decoder &
+        // waveform analyzer can decode every stream without native C Opus libraries.
         let ytdlp_format = match self.innertube.audio_quality() {
-            crate::models::AudioQuality::High => "251/140/bestaudio",
-            crate::models::AudioQuality::Normal => "250/249/140/bestaudio",
-            crate::models::AudioQuality::Low => "249/139/250/worstaudio/bestaudio",
+            crate::models::AudioQuality::High => {
+                "141/140/bestaudio[ext=m4a][acodec^=mp4a]/bestaudio[acodec^=mp4a]/18/bestaudio"
+            }
+            crate::models::AudioQuality::Normal => {
+                "140/139/bestaudio[ext=m4a][acodec^=mp4a]/bestaudio[acodec^=mp4a]/18/bestaudio"
+            }
+            crate::models::AudioQuality::Low => {
+                "139/140/worstaudio[ext=m4a][acodec^=mp4a]/bestaudio[acodec^=mp4a]/18/bestaudio"
+            }
         };
         let mut cmd = tokio::process::Command::new("yt-dlp");
         cmd.kill_on_drop(true)
@@ -666,7 +672,7 @@ impl Backend {
                 "--remote-components",
                 "ejs:github",
             ])
-            .args(["-f", "251/140/bestaudio", "-o"])
+            .args(["-f", "141/140/bestaudio[ext=m4a]/251/bestaudio", "-o"])
             .arg(staging.path().join("audio.%(ext)s"))
             .arg("--")
             .arg(format!("https://music.youtube.com/watch?v={video_id}"));

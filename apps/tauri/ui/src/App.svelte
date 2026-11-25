@@ -214,6 +214,7 @@
       window.removeEventListener("offline", handleOffline);
       window.removeEventListener("online", handleOnline);
       window.removeEventListener("wheel", handleWheel);
+      player.dispose();
     };
   });
 

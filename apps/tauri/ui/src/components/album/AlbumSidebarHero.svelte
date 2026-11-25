@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { ArrowLeft, Bookmark, BookmarkCheck, ListPlus, Play, Radio, Shuffle } from "lucide-svelte";
+  import { ArrowLeft, AudioLines, Bookmark, BookmarkCheck, ListPlus, Play, Radio, Shuffle } from "lucide-svelte";
   import { api, isTauriRuntime } from "../../lib/api";
   import { t } from "../../lib/i18n.svelte";
   import { player } from "../../lib/stores/player.svelte";
@@ -58,13 +58,27 @@
 
   function playAll() {
     if (!tracks.length) return;
-    player.replaceQueueAndPlay(tracks, 0, title);
+    player.replaceQueueAndPlay(tracks, 0, title, isPlaylist ? undefined : { mix: false });
+  }
+
+  let isMixingThis = $derived(
+    isPlaylist && player.mixMode && player.sourceName === title && Boolean(player.currentTrack),
+  );
+
+  function playMix() {
+    if (!isPlaylist || tracks.length < 2) return;
+    if (player.sourceName === title && player.currentTrack && player.queue.length > 0) {
+      player.toggleMixMode();
+      return;
+    }
+    player.replaceQueueAndPlay(tracks, 0, title, { mix: true });
+    player.showToast(t("mix.enabled_toast"));
   }
 
   function shuffleAll() {
     if (!tracks.length) return;
     const shuffled = shuffleItems(tracks);
-    player.replaceQueueAndPlay(shuffled, 0, title);
+    player.replaceQueueAndPlay(shuffled, 0, title, isPlaylist ? undefined : { mix: false });
   }
 
   function queueAll() {
@@ -197,4 +211,19 @@
       </button>
     {/if}
   </div>
+
+  {#if isPlaylist && tracks.length > 1}
+    <button
+      type="button"
+      class="pill-btn !px-4 !py-1.5 !text-[12.5px] {isMixingThis
+        ? '!bg-[var(--accent-soft)] !border-[var(--accent-border)] !text-[var(--accent-bright)]'
+        : ''}"
+      title={t("mix.tooltip")}
+      aria-pressed={isMixingThis}
+      onclick={playMix}
+    >
+      <AudioLines size={14} />
+      <span>{isMixingThis ? t("mix.active") : t("mix.button")}</span>
+    </button>
+  {/if}
 </aside>

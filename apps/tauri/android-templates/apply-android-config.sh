@@ -97,6 +97,17 @@ path.write_text(text, encoding="utf-8")
 print("Applied GyroTube Android manifest & foreground service configuration.")
 PY
 
+# Ensure libc++_shared.so is bundled in jniLibs/arm64-v8a so cpal (Oboe/AAudio)
+# never throws UnsatisfiedLinkError at runtime on Android devices.
+if [[ -n "${NDK_HOME:-}" && -d "${NDK_HOME}" ]]; then
+  LIBCXX_SRC="$(find "${NDK_HOME}/toolchains/llvm/prebuilt" -path "*/sysroot/usr/lib/aarch64-linux-android/libc++_shared.so" 2>/dev/null | head -n 1 || true)"
+  if [[ -n "${LIBCXX_SRC}" && -f "${LIBCXX_SRC}" ]]; then
+    mkdir -p "${GEN_MAIN}/jniLibs/arm64-v8a"
+    cp -f "${LIBCXX_SRC}" "${GEN_MAIN}/jniLibs/arm64-v8a/libc++_shared.so"
+    echo "Bundled libc++_shared.so for arm64-v8a (Oboe/cpal)."
+  fi
+fi
+
 BUILD_GRADLE="${SCRIPT_DIR}/../src-tauri/gen/android/app/build.gradle.kts"
 if [[ -f "${BUILD_GRADLE}" ]]; then
   python3 - "${BUILD_GRADLE}" <<'PY'

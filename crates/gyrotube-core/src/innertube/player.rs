@@ -175,7 +175,8 @@ impl InnerTubeClient {
             .chain(muxed.into_iter().flatten())
             .collect();
 
-        #[cfg(target_os = "macos")]
+        // Prefer MP4/M4A (AAC) across all platforms so the native Rust audio engine
+        // decodes 100% Pure Rust via Symphonia (isomp4 + aac) without C/libopus NDK deps.
         let candidates: &[(u64, &str)] = match self.audio_quality() {
             AudioQuality::High => &[
                 (141, "m4a"),
@@ -195,34 +196,6 @@ impl InnerTubeClient {
                 (140, "m4a"),
                 (18, "mp4"),
                 (249, "webm"),
-            ],
-        };
-
-        #[cfg(not(target_os = "macos"))]
-        let candidates: &[(u64, &str)] = match self.audio_quality() {
-            AudioQuality::High => &[
-                (251, "webm"),
-                (140, "m4a"),
-                (250, "webm"),
-                (249, "webm"),
-                (139, "m4a"),
-                (18, "mp4"),
-            ],
-            AudioQuality::Normal => &[
-                (250, "webm"),
-                (249, "webm"),
-                (140, "m4a"),
-                (251, "webm"),
-                (139, "m4a"),
-                (18, "mp4"),
-            ],
-            AudioQuality::Low => &[
-                (249, "webm"),
-                (139, "m4a"),
-                (250, "webm"),
-                (140, "m4a"),
-                (251, "webm"),
-                (18, "mp4"),
             ],
         };
 

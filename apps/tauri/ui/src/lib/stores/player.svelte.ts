@@ -1,6 +1,9 @@
 import { api, isTauriRuntime } from "../api";
 import { DualDeckAudioEngine, extractDominantRgb } from "../audioEngine";
 import { t } from "../i18n.svelte";
+import { MixAnalysisQueue } from "../mixAnalyzer";
+import { planMixTransition, type TransitionPlan } from "../mixPlanner";
+import { NativeAudioClient } from "../nativeAudioClient";
 import {
   EQ_PRESETS,
   loadEqSettings,
@@ -68,6 +71,7 @@ import type {
   SpinStatus,
   ThemeMode,
   Track,
+  TrackWaveformAnalysis,
   UserPlaylist,
   VideoStreamInfo,
 } from "../types";
@@ -106,6 +110,10 @@ class PlayerStore {
   shuffle = $state(false);
   repeat = $state(false);
   crossfadeSecs = $state(0);
+  mixMode = $state(false);
+  activeMixPlan = $state<TransitionPlan | null>(null);
+  currentWaveform = $state<TrackWaveformAnalysis | null>(null);
+  transitionProgress = $state<number | null>(null);
   autoplayRelated = $state(true);
   backgroundPlayback = $state(true);
   audioQuality = $state<AudioQuality>("High");
@@ -234,6 +242,13 @@ class PlayerStore {
   private routeDepth = 0;
   private routerBound = false;
   private engine: DualDeckAudioEngine;
+  private nativeAudio: NativeAudioClient;
+  private nativeTrackLoaded = false;
+  private audioDuckFactor = 1.0;
+  private waveformCache = new Map<string, TrackWaveformAnalysis>();
+  private mixAnalyzer = new MixAnalysisQueue();
+  private currentStreamUrl: string | null = null;
+  private nextStreamUrlByTrackId = new Map<string, string>();
 
   currentTrack = $derived(
     this.currentIndex != null && this.currentIndex >= 0 && this.currentIndex < this.queue.length
@@ -317,7 +332,78 @@ class PlayerStore {
         this.showToast(msg);
       },
     });
+    this.nativeAudio = new NativeAudioClient({
+      onTimeUpdate: (pos, dur) => {
+        if (this.inFlightTransitionGen === this.loadGen && this.isLoadingAudio) {
+          return;
+        }
+        const minDelta = !this.videoMode && this.lyrics.type === "Synced" ? 0.1 : 0.25;
+        if (Math.abs(pos - this.positionSecs) >= minDelta || pos === 0) {
+          this.positionSecs = pos;
+        }
+        if (dur > 0 && Math.abs(dur - this.durationSecs) >= 0.5) {
+          this.durationSecs = dur;
+          const cur = this.currentTrack;
+          if (cur && cur.duration_secs == null) {
+            this.backfillTrackDuration(cur.id, Math.round(dur));
+          }
+          this.syncAndroidForegroundService(this.isPlaying);
+        }
+        if (!this.videoMode) {
+          this.updateActiveLyric(pos);
+        }
+        this.trackListeningProgress(pos);
+        const now = performance.now();
+        if (
+          this.spinStatus.local_active &&
+          this.isPlaying &&
+          !this.isLoadingAudio &&
+          now - this.lastLocalSpinUpdate >= 500
+        ) {
+          this.lastLocalSpinUpdate = now;
+          void this.syncSpinSnapshot();
+        }
+      },
+      onPlayStateChange: (playing) => {
+        this.isPlaying = playing;
+        if (playing) this.isLoadingAudio = false;
+        this.syncAndroidForegroundService(playing);
+        void this.syncSpinSnapshot();
+        void this.syncMprisState();
+      },
+      onTransitionProgress: (progress) => {
+        this.transitionProgress = progress;
+      },
+      onEnded: () => {
+        if (
+          this.inFlightTransitionGen === this.loadGen ||
+          this.advancedFromGen === this.loadGen
+        ) {
+          return;
+        }
+        this.advancedFromGen = this.loadGen;
+        this.isPlaying = false;
+        void this.syncSpinSnapshot();
+        if (this.spinStatus.remote_role !== "guest") void this.handleTrackEnded();
+      },
+      onCrossfadeTrigger: () => {
+        if (
+          this.inFlightTransitionGen === this.loadGen ||
+          this.advancedFromGen === this.loadGen
+        ) {
+          return;
+        }
+        if (this.spinStatus.remote_role !== "guest") {
+          this.advancedFromGen = this.loadGen;
+          void this.next(true);
+        }
+      },
+    });
     this.engine.applyEqSettings(this.eqSettings);
+  }
+
+  private useNativeAudio(): boolean {
+    return isTauriRuntime() && this.nativeAudio.isAvailable;
   }
 
   public async bootstrap(): Promise<void> {
@@ -353,6 +439,7 @@ class PlayerStore {
       this.shuffle = s.shuffle;
       this.repeat = s.repeat;
       this.crossfadeSecs = s.crossfade_secs ?? 0;
+      this.mixMode = Boolean(s.mix_mode);
       this.autoplayRelated = s.autoplay_related ?? true;
       this.audioQuality =
         s.audio_quality === "Normal" || s.audio_quality === "Low" ? s.audio_quality : "High";
@@ -367,6 +454,12 @@ class PlayerStore {
 
       this.engine.setVolume(this.volume);
       this.engine.setCrossfadeSecs(this.crossfadeSecs);
+      this.engine.setMixMode(this.mixMode);
+      await this.nativeAudio.bind();
+      this.nativeAudio.setUserVolume(this.volume);
+      this.nativeAudio.setCrossfadeSecs(this.crossfadeSecs);
+      this.nativeAudio.setMixMode(this.mixMode);
+      this.nativeAudio.applyEqSettings(this.eqSettings);
       this.applyTheme(this.themeMode);
 
       // Restore metadata, ambient color, and lyrics for the saved track (without auto-playing)
@@ -585,7 +678,158 @@ class PlayerStore {
   public setCrossfadeSecs(secs: number): void {
     this.crossfadeSecs = Math.max(0, Math.min(10, Math.round(secs)));
     this.engine.setCrossfadeSecs(this.crossfadeSecs);
+    this.nativeAudio.setCrossfadeSecs(this.crossfadeSecs);
+    this.refreshMixPlan(this.loadGen);
     void this.persistSession();
+  }
+
+  public setMixMode(enabled: boolean): void {
+    const next = Boolean(enabled) && !this.videoMode;
+    this.mixMode = next;
+    this.engine.setMixMode(next);
+    this.nativeAudio.setMixMode(next);
+    if (!next) {
+      this.activeMixPlan = null;
+      this.engine.setPlannedTransition(null);
+      this.nativeAudio.setPlannedTransition(null);
+      this.mixAnalyzer.cancelPending();
+    } else {
+      this.refreshMixPlan(this.loadGen);
+      const cur = this.currentTrack;
+      if (cur) {
+        if (this.useNativeAudio()) {
+          void this.loadWaveformForTrack(cur, this.loadGen, true);
+        } else if (this.currentStreamUrl) {
+          this.scheduleMixAnalysis(cur.id, this.currentStreamUrl, 2, this.loadGen);
+        }
+      }
+      const upcoming =
+        this.nextTrack ?? (this.autoplayRelated ? (this.suggestedTracks[0] ?? null) : null);
+      if (upcoming) {
+        if (this.useNativeAudio()) {
+          void this.loadWaveformForTrack(upcoming, this.loadGen, false);
+        } else {
+          const nextUrl = this.nextStreamUrlByTrackId.get(upcoming.id);
+          if (nextUrl) {
+            this.scheduleMixAnalysis(upcoming.id, nextUrl, 1, this.loadGen);
+          } else {
+            this.schedulePrefetchNext(this.loadGen);
+          }
+        }
+      }
+    }
+    void this.persistSession();
+  }
+
+  public toggleMixMode(): void {
+    if (this.videoMode) return;
+    const next = !this.mixMode;
+    this.setMixMode(next);
+    this.showToast(next ? t("mix.enabled_toast") : t("mix.disabled_toast"));
+  }
+
+  private waveformToMixProfile(wf: TrackWaveformAnalysis | undefined) {
+    if (!wf) return null;
+    return {
+      version: 3,
+      duration_secs: wf.duration_secs,
+      intro_end_secs: wf.intro_cue_secs,
+      outro_start_secs: wf.outro_cue_secs,
+      bpm: wf.bpm,
+      bpm_confidence: wf.bpm_confidence,
+      beat_offset_secs: wf.beat_offset_secs,
+      peaks: wf.peaks,
+      analyzed_at: 0,
+    };
+  }
+
+  private async loadWaveformForTrack(
+    track: Track,
+    expectedGen: number,
+    isCurrent: boolean,
+  ): Promise<void> {
+    if (!isTauriRuntime()) return;
+    const cached = this.waveformCache.get(track.id);
+    if (cached) {
+      if (isCurrent && this.loadGen === expectedGen) {
+        this.currentWaveform = cached;
+      }
+      if (this.loadGen === expectedGen) {
+        this.refreshMixPlan(expectedGen);
+      }
+      return;
+    }
+    try {
+      const wf = await api.getTrackWaveform(track, 220);
+      this.waveformCache.set(track.id, wf);
+      if (this.waveformCache.size > 40) {
+        const oldest = this.waveformCache.keys().next().value;
+        if (oldest) this.waveformCache.delete(oldest);
+      }
+      if (isCurrent && this.loadGen === expectedGen) {
+        this.currentWaveform = wf;
+      }
+      if (this.loadGen === expectedGen) {
+        this.refreshMixPlan(expectedGen);
+      }
+    } catch (err) {
+      console.warn("[GyroTube] getTrackWaveform failed:", err);
+      // Ignore waveform/analysis failure; slider fallback remains active
+    }
+  }
+
+  private refreshMixPlan(expectedGen: number): void {
+    if (this.loadGen !== expectedGen) return;
+    const cur = this.currentTrack;
+    if (!this.mixMode || this.videoMode || this.spinStatus.remote_role === "guest" || !cur) {
+      this.activeMixPlan = null;
+      this.engine.setPlannedTransition(null);
+      this.nativeAudio.setPlannedTransition(null);
+      return;
+    }
+    const upcoming =
+      this.nextTrack ?? (this.autoplayRelated ? (this.suggestedTracks[0] ?? null) : null);
+    if (!upcoming) {
+      this.activeMixPlan = null;
+      this.engine.setPlannedTransition(null);
+      this.nativeAudio.setPlannedTransition(null);
+      return;
+    }
+    const outProfile =
+      this.waveformToMixProfile(this.waveformCache.get(cur.id)) ??
+      this.mixAnalyzer.getCached(cur.id);
+    const inProfile =
+      this.waveformToMixProfile(this.waveformCache.get(upcoming.id)) ??
+      this.mixAnalyzer.getCached(upcoming.id);
+    const outDur = this.durationSecs > 0 ? this.durationSecs : (cur.duration_secs ?? 0);
+    const plan = planMixTransition(outProfile, inProfile, {
+      outgoingDurationSecs: outDur,
+      mixMode: true,
+      crossfadeSecs: this.crossfadeSecs,
+    });
+    this.activeMixPlan = plan;
+    this.engine.setPlannedTransition(plan);
+    this.nativeAudio.setPlannedTransition(plan);
+    if (!this.useNativeAudio()) {
+      const nextUrl = this.nextStreamUrlByTrackId.get(upcoming.id);
+      if (plan && nextUrl) {
+        this.engine.preCueNext(nextUrl, plan);
+      }
+    }
+  }
+
+  private scheduleMixAnalysis(
+    trackId: string,
+    streamUrl: string,
+    priority: number,
+    expectedGen: number,
+  ): void {
+    if (!this.mixMode || this.videoMode || this.spinStatus.remote_role === "guest") return;
+    void this.mixAnalyzer.analyze(trackId, streamUrl, priority).then((profile) => {
+      if (profile && this.loadGen === expectedGen) {
+        this.refreshMixPlan(expectedGen);
+      }
+    });
   }
 
   public setAutoplay(enabled: boolean): void {
@@ -606,13 +850,21 @@ class PlayerStore {
   public setVolume(v: number): void {
     if (device.isAndroid) {
       this.volume = 1.0;
-      this.engine.setVolume(1.0);
+      this.engine.setVolume(1.0 * this.audioDuckFactor);
+      this.nativeAudio.setUserVolume(1.0);
       return;
     }
     this.volume = Math.max(0, Math.min(1, v));
-    this.engine.setVolume(this.volume);
+    this.engine.setVolume(this.volume * this.audioDuckFactor);
+    this.nativeAudio.setUserVolume(this.volume);
     void this.persistSession();
     void this.syncMprisState();
+  }
+
+  public setAudioDuck(ducked: boolean): void {
+    this.audioDuckFactor = ducked ? 0.25 : 1.0;
+    this.nativeAudio.setDucking(ducked);
+    this.engine.setVolume(this.volume * this.audioDuckFactor);
   }
 
   private formatErrorMessage(raw: string): string {
@@ -1658,6 +1910,13 @@ class PlayerStore {
   }
 
   public getExactPositionSecs(): number {
+    if (this.useNativeAudio() && this.nativeTrackLoaded) {
+      return this.nativeAudio.getExactPositionSecs();
+    }
+    const bridgePos = this.engine.getBridgePositionSecs();
+    if (bridgePos !== null && Number.isFinite(bridgePos)) {
+      return bridgePos;
+    }
     const deck = this.engine.activeDeck;
     if (deck && deck.src && Number.isFinite(deck.currentTime)) {
       return deck.currentTime;
@@ -1799,12 +2058,27 @@ class PlayerStore {
     }
   }
 
-  public replaceQueueAndPlay(tracks: Track[], index: number, source: string): void {
+  public replaceQueueAndPlay(
+    tracks: Track[],
+    index: number,
+    source: string,
+    options?: { mix?: boolean },
+  ): void {
     if (!tracks.length) return;
     this.queue = [...tracks];
     this.unshuffledQueue = [...tracks];
     this.sourceName = source;
     this.shuffle = false;
+    if (options?.mix !== undefined && this.mixMode !== options.mix) {
+      const wantMix = options.mix;
+      this.mixMode = wantMix;
+      this.engine.setMixMode(wantMix);
+      if (!wantMix) {
+        this.activeMixPlan = null;
+        this.engine.setPlannedTransition(null);
+        this.mixAnalyzer.cancelPending();
+      }
+    }
     void this.playIndex(Math.max(0, Math.min(index, tracks.length - 1)));
   }
 
@@ -1941,25 +2215,56 @@ class PlayerStore {
       const target =
         this.nextTrack ?? (this.autoplayRelated ? (this.suggestedTracks[0] ?? null) : null);
       if (!target) return;
-      void api.prefetchAudio(target).catch(() => {
-        // Ignore prefetch failures; normal playback will resolve on demand.
-      });
+      void api
+        .prefetchAudio(target)
+        .then((streamUrl) => {
+          if (streamUrl) {
+            this.nextStreamUrlByTrackId.set(target.id, streamUrl);
+            if (this.nextStreamUrlByTrackId.size > 16) {
+              const firstKey = this.nextStreamUrlByTrackId.keys().next().value;
+              if (firstKey) this.nextStreamUrlByTrackId.delete(firstKey);
+            }
+            if (this.loadGen === expectedGen && this.mixMode && !this.videoMode) {
+              if (this.useNativeAudio()) {
+                void this.loadWaveformForTrack(target, expectedGen, false);
+              } else {
+                this.scheduleMixAnalysis(target.id, streamUrl, 1, expectedGen);
+              }
+            }
+          }
+        })
+        .catch(() => {
+          // Ignore prefetch failures; normal playback will resolve on demand.
+        });
     }, 3000);
   }
 
   public async playIndex(index: number, useCrossfade = false, startPositionSecs = 0, startPaused = false): Promise<void> {
     if (index < 0 || index >= this.queue.length) return;
     const prevTrackId = this.currentTrack?.id ?? null;
+    const planForTransition =
+      useCrossfade && this.mixMode && !this.videoMode ? this.activeMixPlan : null;
     const track = this.queue[index];
     const gen = ++this.loadGen;
     this.inFlightTransitionGen = gen;
+    this.activeMixPlan = null;
+    this.engine.setPlannedTransition(null);
     if (!useCrossfade) {
       this.engine.stop();
+      this.nativeAudio.stop();
+      this.nativeTrackLoaded = false;
     }
+    this.currentWaveform = this.waveformCache.get(track.id) ?? null;
+    this.transitionProgress = null;
     this.currentIndex = index;
     this.syncAndroidForegroundService(!startPaused);
     this.isLoadingAudio = true;
-    this.positionSecs = startPositionSecs;
+    this.positionSecs =
+      startPositionSecs > 0
+        ? startPositionSecs
+        : planForTransition
+          ? planForTransition.incomingStartSecs
+          : 0;
     this.durationSecs = track.duration_secs ?? 0;
     this.lyrics = { type: "None" };
     this.activeLyricIndex = null;
@@ -2030,19 +2335,74 @@ class PlayerStore {
         void this.loadVideoForCurrent();
       }
 
-      const stream = await api.resolveAudioStream(track);
-      if (this.loadGen !== gen) return;
-      this.qualityLabel = stream.quality_label;
-      await this.engine.loadAndPlay(
-        stream.url,
-        startPositionSecs,
-        useCrossfade,
-        startPaused || waitForVideo,
-      );
-      if (this.loadGen !== gen) return;
+      let loadedViaNative = false;
+      if (this.useNativeAudio()) {
+        if (this.videoMode && this.mixMode) {
+          this.nativeAudio.setMixMode(false);
+        } else if (!this.videoMode) {
+          this.nativeAudio.setMixMode(this.mixMode);
+        }
+        const nativeRes = await this.nativeAudio.loadAndPlay(
+          track,
+          startPositionSecs,
+          useCrossfade,
+          startPaused || waitForVideo,
+          this.videoMode ? null : planForTransition,
+        );
+        if (this.loadGen !== gen) return;
+        if (nativeRes) {
+          loadedViaNative = true;
+          this.nativeTrackLoaded = true;
+          this.currentStreamUrl = nativeRes.stream_url;
+          this.qualityLabel = nativeRes.quality_label;
+          if (nativeRes.duration_secs > 0) {
+            this.durationSecs = nativeRes.duration_secs;
+          }
+          void this.loadWaveformForTrack(track, gen, true);
+        }
+      }
+
+      if (!loadedViaNative) {
+        const stream = await api.resolveAudioStream(track);
+        if (this.loadGen !== gen) return;
+        this.currentStreamUrl = stream.url;
+        this.qualityLabel = stream.quality_label;
+        if (this.videoMode && this.mixMode) {
+          this.engine.setMixMode(false);
+        } else if (!this.videoMode) {
+          this.engine.setMixMode(this.mixMode);
+        }
+        const outSlices =
+          useCrossfade && !this.videoMode && prevTrackId
+            ? this.mixAnalyzer.getSlices(prevTrackId)
+            : null;
+        const inSlices =
+          useCrossfade && !this.videoMode ? this.mixAnalyzer.getSlices(track.id) : null;
+        const bridgeSlices =
+          outSlices && inSlices ? { outSlice: outSlices.outro, inSlice: inSlices.intro } : null;
+
+        await this.engine.loadAndPlay(
+          stream.url,
+          startPositionSecs,
+          useCrossfade,
+          startPaused || waitForVideo,
+          this.videoMode ? null : planForTransition,
+          bridgeSlices,
+        );
+        if (this.loadGen !== gen) return;
+      }
       if (this.inFlightTransitionGen === gen) this.inFlightTransitionGen = null;
       this.audioLoadedForGen = gen;
+      if (!loadedViaNative) {
+        void this.loadWaveformForTrack(track, gen, true);
+      }
       if (startPaused) this.isLoadingAudio = false;
+      if (this.mixMode && !this.videoMode) {
+        this.refreshMixPlan(gen);
+        if (!loadedViaNative && this.currentStreamUrl) {
+          this.scheduleMixAnalysis(track.id, this.currentStreamUrl, 2, gen);
+        }
+      }
       void this.syncSpinSnapshot();
       void this.syncMprisState();
       this.schedulePrefetchNext(gen);
@@ -2098,6 +2458,15 @@ class PlayerStore {
       return;
     }
     if (!this.currentTrack || this.currentIndex == null) return;
+    if (this.useNativeAudio()) {
+      if (!this.nativeTrackLoaded) {
+        if (this.isLoadingAudio) return;
+        await this.playIndex(this.currentIndex);
+        return;
+      }
+      await this.nativeAudio.play();
+      return;
+    }
     if (!this.engine.activeDeck.src) {
       if (this.isLoadingAudio) return;
       await this.playIndex(this.currentIndex);
@@ -2111,6 +2480,10 @@ class PlayerStore {
       if (this.isPlaying) this.sendRemoteControl("play_pause");
       return;
     }
+    if (this.useNativeAudio() && this.nativeTrackLoaded) {
+      void this.nativeAudio.pause();
+      return;
+    }
     this.engine.pause();
   }
 
@@ -2120,6 +2493,19 @@ class PlayerStore {
       return;
     }
     if (!this.currentTrack || this.currentIndex == null) return;
+    if (this.useNativeAudio()) {
+      if (!this.nativeTrackLoaded) {
+        if (this.isLoadingAudio) return;
+        await this.playIndex(this.currentIndex);
+        return;
+      }
+      if (this.isPlaying) {
+        await this.nativeAudio.pause();
+      } else {
+        await this.nativeAudio.play();
+      }
+      return;
+    }
     if (!this.engine.activeDeck.src) {
       if (this.isLoadingAudio) return;
       await this.playIndex(this.currentIndex);
@@ -2130,7 +2516,11 @@ class PlayerStore {
 
   public seek(secs: number): void {
     this.positionSecs = secs;
-    this.engine.seek(secs);
+    if (this.useNativeAudio() && this.nativeTrackLoaded) {
+      void this.nativeAudio.seek(secs);
+    } else {
+      this.engine.seek(secs);
+    }
     this.updateActiveLyric(secs);
     this.syncAndroidForegroundService(this.isPlaying);
     void this.syncSpinSnapshot();
@@ -2303,6 +2693,8 @@ class PlayerStore {
         else if (action === "toggle") void this.togglePlay();
         else if (action === "play" && !this.isPlaying) void this.togglePlay();
         else if (action === "pause" && this.isPlaying) void this.togglePlay();
+        else if (action === "duck") this.setAudioDuck(true);
+        else if (action === "unduck") this.setAudioDuck(false);
         else if (action.startsWith("seek:")) {
           const ms = Number(action.slice(5));
           if (Number.isFinite(ms) && ms >= 0) {
@@ -2494,12 +2886,14 @@ class PlayerStore {
     this.eqSettings = { ...this.eqSettings, enabled };
     saveEqSettings(this.eqSettings);
     this.engine.applyEqSettings(this.eqSettings);
+    this.nativeAudio.applyEqSettings(this.eqSettings);
   }
 
   public setEqNormalize(normalize: boolean): void {
     this.eqSettings = { ...this.eqSettings, normalize };
     saveEqSettings(this.eqSettings);
     this.engine.applyEqSettings(this.eqSettings);
+    this.nativeAudio.applyEqSettings(this.eqSettings);
   }
 
   public setEqPreset(preset: Exclude<EqPresetId, "custom">): void {
@@ -2507,6 +2901,7 @@ class PlayerStore {
     this.eqSettings = { ...this.eqSettings, enabled: true, preset, bands };
     saveEqSettings(this.eqSettings);
     this.engine.applyEqSettings(this.eqSettings);
+    this.nativeAudio.applyEqSettings(this.eqSettings);
   }
 
   public setEqBand(index: number, db: number): void {
@@ -2517,6 +2912,7 @@ class PlayerStore {
     this.eqSettings = { ...this.eqSettings, enabled: true, preset: "custom", bands };
     saveEqSettings(this.eqSettings);
     this.engine.applyEqSettings(this.eqSettings);
+    this.nativeAudio.applyEqSettings(this.eqSettings);
   }
 
   private trackListeningProgress(pos: number): void {
@@ -2584,6 +2980,10 @@ class PlayerStore {
     }
   }
 
+  public dispose(): void {
+    this.nativeAudio.dispose();
+  }
+
   public async persistSession(): Promise<void> {
     this.persister.schedule(
       (): SessionState => ({
@@ -2597,6 +2997,7 @@ class PlayerStore {
         repeat: this.repeat,
         position_secs: this.positionSecs,
         crossfade_secs: this.crossfadeSecs,
+        mix_mode: this.mixMode,
         language: this.language,
         background_playback: this.backgroundPlayback,
         autoplay_related: this.autoplayRelated,

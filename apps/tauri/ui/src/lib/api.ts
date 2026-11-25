@@ -2,10 +2,13 @@ import { invoke } from "@tauri-apps/api/core";
 import type {
   Artist,
   ArtistDetails,
+  DeckId,
   Genre,
   HomeFeed,
   InitialAppData,
   LyricsData,
+  NativeEqParams,
+  NativeLoadResult,
   Playlist,
   RelatedFeed,
   SearchResults,
@@ -13,6 +16,8 @@ import type {
   SpinStatus,
   StreamInfo,
   Track,
+  TrackMixProfile,
+  TrackWaveformAnalysis,
   UserPlaylist,
   VideoStreamInfo,
 } from "./types";
@@ -87,7 +92,11 @@ export const api = {
     call("resolve_video_stream", { trackId, maxHeight }),
   findCounterpartTrack: (track: Track, wantVideo: boolean): Promise<Track | null> =>
     call("find_counterpart_track", { track, wantVideo }),
-  prefetchAudio: (track: Track): Promise<void> => call("prefetch_audio", { track }),
+  prefetchAudio: (track: Track): Promise<string | null> => call("prefetch_audio", { track }),
+  getMixProfile: (trackId: string): Promise<TrackMixProfile | null> =>
+    call("get_mix_profile", { trackId }),
+  saveMixProfile: (trackId: string, profile: TrackMixProfile): Promise<void> =>
+    call("save_mix_profile", { trackId, profile }),
   cancelStaleStreams: (keepIds: string[]): Promise<void> =>
     call("cancel_stale_streams", { keepIds }),
   getCacheBytes: (): Promise<number> => call("get_cache_bytes"),
@@ -100,6 +109,35 @@ export const api = {
   getDownloadsBytes: (): Promise<number> => call("get_downloads_bytes"),
   clearAllDownloads: (): Promise<void> => call("clear_all_downloads"),
   getOfflineCoverBaseUrl: (): Promise<string> => call("get_offline_cover_base_url"),
+
+  nativeLoadDeck: (
+    deck: DeckId,
+    track: Track,
+    startSecs = 0,
+    autoplay = true,
+  ): Promise<NativeLoadResult> =>
+    call("native_load_deck", { deck, track, startSecs, autoplay }),
+  nativePlay: (deck: DeckId): Promise<void> => call("native_play", { deck }),
+  nativePause: (deck: DeckId): Promise<void> => call("native_pause", { deck }),
+  nativeStop: (deck?: DeckId | null): Promise<void> =>
+    call("native_stop", { deck: deck ?? null }),
+  nativeSeek: (deck: DeckId, positionSecs: number): Promise<void> =>
+    call("native_seek", { deck, positionSecs }),
+  nativeSetVolume: (volume: number): Promise<void> => call("native_set_volume", { volume }),
+  nativeSetEq: (params: NativeEqParams): Promise<void> => call("native_set_eq", { params }),
+  nativeTriggerMix: (payload: {
+    from: DeckId;
+    to: DeckId;
+    durationSecs: number;
+    fromTargetRate: number;
+    toInitialRate: number;
+    enableBassSwap: boolean;
+    enableEcho: boolean;
+    bridgeBpm: number;
+  }): Promise<void> => call("native_trigger_mix", payload),
+  nativeCancelMix: (): Promise<void> => call("native_cancel_mix"),
+  getTrackWaveform: (track: Track, numPeaks = 220): Promise<TrackWaveformAnalysis> =>
+    call("get_track_waveform", { track, numPeaks }),
 
   spinStatus: (): Promise<SpinStatus> => call("spin_status"),
   spinStartLocal: (): Promise<SpinStatus> => call("spin_start_local"),

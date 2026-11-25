@@ -1,5 +1,6 @@
 <script lang="ts">
   import {
+    AudioLines,
     ChevronRight,
     Disc3,
     Film,
@@ -21,6 +22,7 @@
   import SegmentedControl, { type SegmentedOption } from "../SegmentedControl.svelte";
   import SyncedVideoPlayer from "../SyncedVideoPlayer.svelte";
   import SidebarActionPopovers from "./SidebarActionPopovers.svelte";
+  import WaveformCanvas from "./WaveformCanvas.svelte";
 
   type MediaMode = "song" | "video";
 
@@ -354,36 +356,72 @@
     <!-- 5-icon action row + Volume/Timer popovers -->
     <SidebarActionPopovers {sleepRemainingSecs} {onSetSleepTimer} />
 
-    <!-- Seek bar + Time / Quality -->
+    <!-- Seek bar (HiDPI WaveformCanvas when analyzed, range slider fallback) + Time / Quality -->
     <div class="w-full space-y-2.5">
-      <input
-        class="sidebar-seek w-full"
-        type="range"
-        min="0"
-        max={Math.max(1, player.durationSecs)}
-        step="0.5"
-        value={displayPos}
-        disabled={!player.currentTrack}
-        aria-label={t("a11y.seek")}
-        style="background: linear-gradient(to right, var(--accent-bright) {progressPct}%, var(--control-track) {progressPct}%);"
-        onpointerdown={() => {
-          seeking = true;
-          seekDraft = player.positionSecs;
-        }}
-        oninput={(e) => {
-          seekDraft = Number((e.currentTarget as HTMLInputElement).value);
-        }}
-        onchange={(e) => {
-          const target = Number((e.currentTarget as HTMLInputElement).value);
-          seeking = false;
-          player.seek(target);
-        }}
-      />
+      {#if player.currentWaveform && player.currentTrack && player.currentWaveform.track_id === player.currentTrack.id && player.currentWaveform.peaks.length > 0}
+        <WaveformCanvas
+          peaks={player.currentWaveform.peaks}
+          durationSecs={player.durationSecs || player.currentWaveform.duration_secs}
+          introCueSecs={player.currentWaveform.intro_cue_secs}
+          outroCueSecs={player.currentWaveform.outro_cue_secs}
+          showMixMarkers={player.mixMode}
+          transitionProgress={player.transitionProgress}
+          onSeek={(target) => player.seek(target)}
+        />
+      {:else}
+        <input
+          class="sidebar-seek w-full"
+          type="range"
+          min="0"
+          max={Math.max(1, player.durationSecs)}
+          step="0.5"
+          value={displayPos}
+          disabled={!player.currentTrack}
+          aria-label={t("a11y.seek")}
+          style="background: linear-gradient(to right, var(--accent-bright) {progressPct}%, var(--control-track) {progressPct}%);"
+          onpointerdown={() => {
+            seeking = true;
+            seekDraft = player.positionSecs;
+          }}
+          oninput={(e) => {
+            seekDraft = Number((e.currentTarget as HTMLInputElement).value);
+          }}
+          onchange={(e) => {
+            const target = Number((e.currentTarget as HTMLInputElement).value);
+            seeking = false;
+            player.seek(target);
+          }}
+        />
+      {/if}
       <div class="flex items-center justify-between text-[12px] text-[var(--text-muted)] numeric">
         <span>{formatDuration(displayPos)}</span>
-        <span class="px-3 py-0.5 rounded-full text-[11px] font-bold bg-[var(--accent-soft)] text-[var(--accent-bright)]">
-          {player.qualityLabel}
-        </span>
+        <div class="flex items-center gap-1.5">
+          <span class="px-3 py-0.5 rounded-full text-[11px] font-bold bg-[var(--accent-soft)] text-[var(--accent-bright)]">
+            {player.qualityLabel}
+          </span>
+          {#if player.currentTrack && !player.videoMode}
+            <button
+              type="button"
+              class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10.5px] font-bold border transition-all active:scale-95 {player.mixMode
+                ? 'bg-[var(--accent-soft)] border-[var(--accent-border)] text-[var(--accent-bright)]'
+                : 'bg-[var(--surface)] border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text)]'}"
+              title={player.mixMode
+                ? player.activeMixPlan?.mode === "beatmatch" && player.activeMixPlan.outBpm
+                  ? t("mix.beatmatch_tooltip", { bpm: Math.round(player.activeMixPlan.outBpm) })
+                  : t("mix.smart_tooltip")
+                : t("mix.tooltip")}
+              aria-pressed={player.mixMode}
+              onclick={() => player.toggleMixMode()}
+            >
+              <AudioLines size={11} />
+              <span>
+                MIX{#if player.mixMode && player.activeMixPlan?.mode === "beatmatch" && player.activeMixPlan.outBpm}
+                  · {Math.round(player.activeMixPlan.outBpm)}
+                {/if}
+              </span>
+            </button>
+          {/if}
+        </div>
         <span>{formatDuration(player.durationSecs)}</span>
       </div>
     </div>

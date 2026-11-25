@@ -95,6 +95,54 @@ export interface StreamInfo {
   quality_label: string;
 }
 
+export interface TrackMixProfile {
+  version: number;
+  duration_secs: number;
+  intro_end_secs: number;
+  outro_start_secs: number;
+  bpm: number | null;
+  bpm_confidence: number;
+  beat_offset_secs: number;
+  peaks?: number[];
+  analyzed_at: number;
+}
+
+export type DeckId = "A" | "B";
+
+export interface NativeEqParams {
+  enabled: boolean;
+  normalize: boolean;
+  bands_db: [number, number, number, number, number];
+}
+
+export interface NativeLoadResult {
+  stream_url: string;
+  quality_label: string;
+  duration_secs: number;
+}
+
+export interface PlaybackTick {
+  active_deck: DeckId;
+  deck_a_secs: number;
+  deck_b_secs: number;
+  deck_a_playing: boolean;
+  deck_b_playing: boolean;
+  deck_a_ended: boolean;
+  deck_b_ended: boolean;
+  transition_progress: number | null;
+}
+
+export interface TrackWaveformAnalysis {
+  track_id: string;
+  duration_secs: number;
+  peaks: number[];
+  bpm: number | null;
+  bpm_confidence: number;
+  beat_offset_secs: number;
+  intro_cue_secs: number;
+  outro_cue_secs: number;
+}
+
 export interface VideoStreamInfo {
   url: string;
   quality_label: string;
@@ -150,6 +198,7 @@ export interface SessionState {
   repeat: boolean;
   position_secs: number;
   crossfade_secs: number;
+  mix_mode?: boolean;
   language: AppLanguage;
   background_playback: boolean;
   autoplay_related: boolean;

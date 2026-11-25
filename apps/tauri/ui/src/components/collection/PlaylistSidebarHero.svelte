@@ -1,6 +1,7 @@
 <script lang="ts">
   import {
     ArrowLeft,
+    AudioLines,
     CheckCircle2,
     Download,
     Heart,
@@ -26,6 +27,7 @@
     onBack: () => void;
     onPlayAll: () => void;
     onShuffle: () => void;
+    onPlayMix?: () => void;
     onEdit?: (pl: UserPlaylist) => void;
     onDelete?: (pl: UserPlaylist) => void;
   }
@@ -41,9 +43,12 @@
     onBack,
     onPlayAll,
     onShuffle,
+    onPlayMix,
     onEdit,
     onDelete,
   }: Props = $props();
+
+  let isMixingThis = $derived(player.mixMode && player.sourceName === title && Boolean(player.currentTrack));
 
   let playlistKey = $derived(mode === "favorites" ? "__favorites__" : (playlist?.id ?? "__playlist__"));
   let markedDownloaded = $derived(player.isPlaylistMarkedDownloaded(playlistKey));
@@ -223,6 +228,21 @@
       </button>
     </div>
   </div>
+
+  {#if tracks.length > 1 && onPlayMix}
+    <button
+      type="button"
+      class="pill-btn !px-4 !py-1.5 !text-[12.5px] {isMixingThis
+        ? '!bg-[var(--accent-soft)] !border-[var(--accent-border)] !text-[var(--accent-bright)]'
+        : ''}"
+      title={t("mix.tooltip")}
+      aria-pressed={isMixingThis}
+      onclick={onPlayMix}
+    >
+      <AudioLines size={14} />
+      <span>{isMixingThis ? t("mix.active") : t("mix.button")}</span>
+    </button>
+  {/if}
 
   {#if isDownloadingThis && player.downloadProgress}
     <div class="lg:hidden inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11.5px] font-semibold bg-[var(--accent-soft)] border border-[var(--accent-border)] text-[var(--accent-bright)]">

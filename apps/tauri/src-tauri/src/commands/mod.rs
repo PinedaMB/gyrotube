@@ -10,10 +10,12 @@ use std::sync::{Arc, Mutex, RwLock};
 use gyrotube_core::audio_cache::LocalAudio;
 use gyrotube_core::backend::Backend;
 use gyrotube_core::jam::{JamRequest, JamServerHandle, JamSnapshot};
+use gyrotube_core::native_audio::{AudioController, DecoderHandle};
 use gyrotube_core::spin_remote::{
     GuestSession, HostPublisher, RemoteRole, RemoteSyncPayload, RemoteUpdate,
 };
 use serde::Serialize;
+use tokio::sync::Notify;
 
 pub use audio::*;
 pub use catalog::*;
@@ -31,9 +33,48 @@ pub struct SpinState {
     pub remote_tx: async_channel::Sender<RemoteUpdate>,
 }
 
+pub struct NativeDeckSlot {
+    pub decoder: Option<DecoderHandle>,
+    pub track_id: Option<String>,
+    pub stream_url: Option<String>,
+    pub local_path: Option<std::path::PathBuf>,
+    pub lease: Option<Arc<LocalAudio>>,
+    pub bpm: f32,
+}
+
+impl Default for NativeDeckSlot {
+    fn default() -> Self {
+        Self {
+            decoder: None,
+            track_id: None,
+            stream_url: None,
+            local_path: None,
+            lease: None,
+            bpm: 120.0,
+        }
+    }
+}
+
+pub struct NativeAudioState {
+    pub controller: Option<AudioController>,
+    pub deck_a: NativeDeckSlot,
+    pub deck_b: NativeDeckSlot,
+}
+
+impl NativeAudioState {
+    pub fn slot_mut(&mut self, deck: gyrotube_core::native_audio::DeckId) -> &mut NativeDeckSlot {
+        match deck {
+            gyrotube_core::native_audio::DeckId::A => &mut self.deck_a,
+            gyrotube_core::native_audio::DeckId::B => &mut self.deck_b,
+        }
+    }
+}
+
 pub struct AppCoreState {
     pub backend: Backend,
     pub active_audio_lease: Mutex<Option<Arc<LocalAudio>>>,
+    pub native_audio: Mutex<NativeAudioState>,
+    pub tick_notify: Arc<Notify>,
     pub spin: Mutex<SpinState>,
     pub background_playback: Arc<AtomicBool>,
     #[cfg_attr(not(desktop), allow(dead_code))]
@@ -48,9 +89,22 @@ impl AppCoreState {
     ) {
         let (cmd_tx, cmd_rx) = async_channel::unbounded();
         let (remote_tx, remote_rx) = async_channel::unbounded();
+        let controller = match AudioController::start() {
+            Ok(ctrl) => Some(ctrl),
+            Err(err) => {
+                eprintln!("[gyrotube-tauri] Native cpal audio unavailable (headless/no device): {err}");
+                None
+            }
+        };
         let state = Self {
             backend: Backend::new(),
             active_audio_lease: Mutex::new(None),
+            native_audio: Mutex::new(NativeAudioState {
+                controller,
+                deck_a: NativeDeckSlot::default(),
+                deck_b: NativeDeckSlot::default(),
+            }),
+            tick_notify: Arc::new(Notify::new()),
             spin: Mutex::new(SpinState {
                 snapshot: Arc::new(RwLock::new(JamSnapshot::default())),
                 server: None,
