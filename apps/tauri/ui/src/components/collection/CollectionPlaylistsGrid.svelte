@@ -152,7 +152,7 @@
           <button
             class="icon-btn !w-8 !h-8 transition-opacity {pinned
               ? 'text-[var(--accent-bright)] opacity-100'
-              : 'opacity-0 group-hover:opacity-100'}"
+              : 'text-[var(--text-muted)] opacity-85 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 [@media(hover:hover)]:focus-visible:opacity-100'}"
             title={pinned ? t("collection.unpin") : t("collection.pin")}
             onclick={(e) => {
               e.stopPropagation();
@@ -162,7 +162,7 @@
             <Pin size={13} class={pinned ? "fill-current" : ""} />
           </button>
           <button
-            class="icon-btn !w-8 !h-8 opacity-0 group-hover:opacity-100 transition-opacity"
+            class="icon-btn !w-8 !h-8 text-[var(--text-muted)] opacity-85 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 [@media(hover:hover)]:focus-visible:opacity-100 transition-opacity"
             title={t("collection.modal_edit")}
             onclick={(e) => {
               e.stopPropagation();

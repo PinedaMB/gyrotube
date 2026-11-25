@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { LogicalSize } from "@tauri-apps/api/dpi";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { WifiOff } from "lucide-svelte";
   import { onMount } from "svelte";
@@ -115,62 +114,19 @@
     };
 
     let unlistenResize: (() => void) | undefined;
-    let saveWindowTimer: number | undefined;
-    const WINDOW_STATE_KEY = "gyrotube.windowState";
     if (isDesktopTauri) {
       const win = getCurrentWindow();
-      let savedSize = { width: 1220, height: 760, maximized: false };
-      try {
-        const raw = localStorage.getItem(WINDOW_STATE_KEY);
-        if (raw) {
-          const parsed = JSON.parse(raw) as Partial<typeof savedSize>;
-          if (
-            typeof parsed.width === "number" &&
-            typeof parsed.height === "number" &&
-            parsed.width >= 360 &&
-            parsed.height >= 480
-          ) {
-            savedSize = {
-              width: Math.min(3840, Math.round(parsed.width)),
-              height: Math.min(2160, Math.round(parsed.height)),
-              maximized: Boolean(parsed.maximized),
-            };
-            void win.setSize(new LogicalSize(savedSize.width, savedSize.height)).catch(() => {});
-          }
-          if (savedSize.maximized) {
-            void win.maximize().catch(() => {});
-          }
-        }
-      } catch {
-        // ignore invalid stored window state
-      }
-
-      const syncWindowFrame = (persist: boolean) => {
-        void Promise.all([win.isMaximized(), win.isFullscreen(), win.innerSize(), win.scaleFactor()])
-          .then(([max, fs, size, scale]) => {
+      const syncWindowFrame = () => {
+        void Promise.all([win.isMaximized(), win.isFullscreen()])
+          .then(([max, fs]) => {
             windowEdgeToEdge = max || fs;
-            if (!persist || fs) return;
-            const factor = scale > 0 ? scale : 1;
-            const next = {
-              width: max ? savedSize.width : Math.max(360, Math.round(size.width / factor)),
-              height: max ? savedSize.height : Math.max(480, Math.round(size.height / factor)),
-              maximized: max,
-            };
-            savedSize = next;
-            try {
-              localStorage.setItem(WINDOW_STATE_KEY, JSON.stringify(next));
-            } catch {
-              // ignore storage quota errors
-            }
           })
           .catch(() => {});
       };
-      syncWindowFrame(false);
+      syncWindowFrame();
       void win
         .onResized(() => {
-          syncWindowFrame(false);
-          window.clearTimeout(saveWindowTimer);
-          saveWindowTimer = window.setTimeout(() => syncWindowFrame(true), 250);
+          syncWindowFrame();
         })
         .then((fn) => {
           unlistenResize = fn;
@@ -209,7 +165,6 @@
     window.addEventListener("online", handleOnline);
     window.addEventListener("wheel", handleWheel, { passive: false });
     return () => {
-      window.clearTimeout(saveWindowTimer);
       unlistenResize?.();
       window.removeEventListener("offline", handleOffline);
       window.removeEventListener("online", handleOnline);
@@ -428,10 +383,10 @@
       </main>
     </div>
 
-    <!-- Right player sidebar (docked on lg+, full-height slide-over sheet on < lg) -->
+    <!-- Right player sidebar (docked on lg+, slide-over sheet on < lg; stays below HeaderBar on desktop) -->
     {#if player.sidebarOpen}
       <div
-        class="lg:hidden fixed inset-0 z-40 bg-black/65"
+        class="lg:hidden {isDesktopTauri ? 'absolute' : 'fixed'} inset-0 z-40 bg-black/65"
         role="presentation"
         transition:fade={{ duration: 160 }}
         onclick={() => {
@@ -439,7 +394,9 @@
         }}
       ></div>
       <div
-        class="h-full shrink-0 max-lg:fixed max-lg:inset-y-0 max-lg:right-0 max-lg:z-50 max-md:inset-0"
+        class="h-full shrink-0 {isDesktopTauri
+          ? 'max-lg:absolute max-lg:inset-y-0 max-lg:right-0 max-lg:z-50 max-md:inset-0'
+          : 'max-lg:fixed max-lg:inset-y-0 max-lg:right-0 max-lg:z-50 max-md:inset-0'}"
         transition:playerFly
       >
         <SidebarPlayer />

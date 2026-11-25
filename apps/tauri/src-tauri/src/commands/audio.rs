@@ -161,3 +161,50 @@ pub async fn get_offline_cover_base_url() -> Result<String, String> {
     let streamer = AudioStreamer::global().await?;
     Ok(streamer.cover_base_url())
 }
+
+#[tauri::command]
+pub async fn save_lyrics_card_png(
+    app: tauri::AppHandle,
+    filename: String,
+    png_bytes: Vec<u8>,
+) -> Result<String, String> {
+    use tauri::Manager;
+
+    if png_bytes.is_empty() {
+        return Err("Empty PNG payload".to_string());
+    }
+    let sanitized: String = filename
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-') {
+                c
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    let clean_name = sanitized.trim_matches(['.', '-', '_']);
+    let final_name = if clean_name.is_empty() {
+        "gyrotube-lyrics.png".to_string()
+    } else if clean_name.to_ascii_lowercase().ends_with(".png") {
+        clean_name.to_string()
+    } else {
+        format!("{clean_name}.png")
+    };
+
+    let base_dir = app
+        .path()
+        .picture_dir()
+        .or_else(|_| app.path().download_dir())
+        .or_else(|_| app.path().document_dir())
+        .map_err(|e| format!("No se pudo localizar la carpeta de imágenes: {e}"))?;
+    let target_dir = base_dir.join("GyroTube");
+    tokio::fs::create_dir_all(&target_dir)
+        .await
+        .map_err(|e| format!("No se pudo crear la carpeta GyroTube: {e}"))?;
+    let target_path = target_dir.join(&final_name);
+    tokio::fs::write(&target_path, png_bytes)
+        .await
+        .map_err(|e| format!("No se pudo guardar la imagen: {e}"))?;
+    Ok(target_path.to_string_lossy().to_string())
+}

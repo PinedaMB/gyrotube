@@ -19,14 +19,22 @@
   let swipeStartY = 0;
   let swipeStartAt = 0;
 
+  function hasScrolledAncestor(target: HTMLElement | null): boolean {
+    let el: HTMLElement | null = target;
+    while (el && el !== scrollPaneEl) {
+      if (el.scrollTop > 2) return true;
+      el = el.parentElement;
+    }
+    return Boolean(scrollPaneEl && scrollPaneEl.scrollTop > 2);
+  }
+
   function handleTouchStart(e: TouchEvent) {
     if (window.innerWidth >= 1024 || e.touches.length !== 1) return;
     const target = e.target as HTMLElement | null;
-    if (target?.closest("input[type='range'], [data-drag-handle]")) return;
-    // Allow pull-down from top bar anytime, or from the content pane when scrolled to top
+    if (target?.closest("input[type='range'], canvas, [data-drag-handle]")) return;
+    // Allow pull-down from top bar anytime; on lyrics tab only from top bar so scrolling lyrics never dismisses the sheet
     const inHeader = Boolean(target?.closest("[data-player-header]"));
-    const atTop = !scrollPaneEl || scrollPaneEl.scrollTop <= 2;
-    if (!inHeader && !atTop) return;
+    if (!inHeader && (player.sidebarTab === "lyrics" || hasScrolledAncestor(target))) return;
     const touch = e.touches[0];
     swipeTracking = true;
     swipeStartX = touch.clientX;

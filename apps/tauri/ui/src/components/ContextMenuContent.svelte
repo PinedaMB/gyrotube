@@ -1,5 +1,7 @@
 <script lang="ts">
   import {
+    Check,
+    ChevronDown,
     Compass,
     Disc3,
     Eye,
@@ -20,9 +22,11 @@
     Trash2,
     User,
   } from "lucide-svelte";
+  import { slide } from "svelte/transition";
   import { api, isTauriRuntime } from "../lib/api";
   import { t } from "../lib/i18n.svelte";
   import { contextMenu, type ContextPayload } from "../lib/stores/contextMenu.svelte";
+  import { device } from "../lib/stores/device.svelte";
   import { player } from "../lib/stores/player.svelte";
   import type { Track } from "../lib/types";
   import CoverImage from "./CoverImage.svelte";
@@ -60,117 +64,219 @@
   {@const fav = player.isFavorite(track.id)}
 
   <!-- Track header -->
-  <div class="flex items-center gap-2.5 px-2.5 py-2 mb-1 border-b border-[var(--border)]">
-    <CoverImage class="track-cover !w-9 !h-9 !rounded-[7px] shrink-0" src={track.cover_url} alt="" eager={true} />
+  <div class="flex items-center gap-3 px-2.5 py-2 mb-2 border-b border-[var(--border)]">
+    <CoverImage
+      class={device.isMobile
+        ? "track-cover !w-11 !h-11 !rounded-[10px] shrink-0"
+        : "track-cover !w-9 !h-9 !rounded-[7px] shrink-0"}
+      src={player.trackCoverUrl(track, false)}
+      fallbackSrc={player.offlineCoverUrl(track.id)}
+      alt=""
+      eager={true}
+    />
     <div class="min-w-0 flex-1">
-      <div class="text-[12.5px] font-bold truncate leading-tight">{track.title}</div>
-      <div class="text-[11px] text-[var(--text-muted)] truncate mt-0.5">{track.artist}</div>
+      <div class="{device.isMobile ? 'text-[14.5px]' : 'text-[12.5px]'} font-bold truncate leading-tight">
+        {track.title}
+      </div>
+      <div class="{device.isMobile ? 'text-[12px]' : 'text-[11px]'} text-[var(--text-muted)] truncate mt-0.5">
+        {track.artist}{track.album ? ` · ${track.album}` : ""}
+      </div>
     </div>
+    {#if device.isMobile}
+      <button
+        type="button"
+        class="icon-btn !w-9 !h-9 shrink-0 rounded-full {fav
+          ? 'text-[var(--fav-coral)] bg-[var(--fav-coral)]/12'
+          : 'text-[var(--text-muted)] bg-[var(--surface)]'}"
+        title={fav ? t("player.favorite_remove") : t("player.favorite_add")}
+        aria-label={fav ? t("player.favorite_remove") : t("player.favorite_add")}
+        onclick={() => {
+          player.toggleFavorite(track);
+        }}
+      >
+        <Heart size={17} fill={fav ? "currentColor" : "none"} />
+      </button>
+    {/if}
   </div>
 
-  <button
-    type="button"
-    role="menuitem"
-    class="ctx-item"
-    onclick={() => {
-      contextMenu.close();
-      if (payload.onPlay) payload.onPlay();
-      else player.replaceQueueAndPlay([track], 0, track.title);
-    }}
-  >
-    <Play size={15} fill="currentColor" />
-    <span>{t("home.play")}</span>
-  </button>
+  {#if device.isMobile}
+    <!-- Mobile quick-action tile row (thumb-friendly, reduces vertical height) -->
+    <div class="grid grid-cols-4 gap-2 mb-2.5">
+      <button
+        type="button"
+        role="menuitem"
+        class="flex flex-col items-center justify-center gap-1.5 py-2.5 px-1 rounded-2xl bg-[var(--accent-soft)] border border-[var(--accent-border)] text-[var(--accent-bright)] active:scale-95 transition-transform"
+        onclick={() => {
+          contextMenu.close();
+          if (payload.onPlay) payload.onPlay();
+          else player.replaceQueueAndPlay([track], 0, track.title);
+        }}
+      >
+        <Play size={17} fill="currentColor" class="translate-x-[1px]" />
+        <span class="text-[11px] font-semibold truncate max-w-full">{t("home.play")}</span>
+      </button>
+      <button
+        type="button"
+        role="menuitem"
+        class="flex flex-col items-center justify-center gap-1.5 py-2.5 px-1 rounded-2xl bg-[var(--surface)] hover:bg-[var(--surface-hover)] border border-[var(--border)] text-[var(--text)] active:scale-95 transition-transform"
+        onclick={() => {
+          contextMenu.close();
+          player.playNext(track);
+        }}
+      >
+        <ListStart size={17} />
+        <span class="text-[11px] font-semibold truncate max-w-full">{t("party.up_next")}</span>
+      </button>
+      <button
+        type="button"
+        role="menuitem"
+        class="flex flex-col items-center justify-center gap-1.5 py-2.5 px-1 rounded-2xl bg-[var(--surface)] hover:bg-[var(--surface-hover)] border border-[var(--border)] text-[var(--text)] active:scale-95 transition-transform"
+        onclick={() => {
+          contextMenu.close();
+          player.enqueueTrack(track);
+        }}
+      >
+        <ListPlus size={17} />
+        <span class="text-[11px] font-semibold truncate max-w-full">{t("player.tab_queue")}</span>
+      </button>
+      <button
+        type="button"
+        role="menuitem"
+        class="flex flex-col items-center justify-center gap-1.5 py-2.5 px-1 rounded-2xl bg-[var(--surface)] hover:bg-[var(--surface-hover)] border border-[var(--border)] text-[var(--text)] active:scale-95 transition-transform"
+        onclick={() => void startTrackRadio(track)}
+      >
+        <Radio size={17} />
+        <span class="text-[11px] font-semibold truncate max-w-full">Radio</span>
+      </button>
+    </div>
+  {:else}
+    <button
+      type="button"
+      role="menuitem"
+      class="ctx-item"
+      onclick={() => {
+        contextMenu.close();
+        if (payload.onPlay) payload.onPlay();
+        else player.replaceQueueAndPlay([track], 0, track.title);
+      }}
+    >
+      <Play size={15} fill="currentColor" />
+      <span>{t("home.play")}</span>
+    </button>
+
+    <button
+      type="button"
+      role="menuitem"
+      class="ctx-item"
+      onclick={() => {
+        contextMenu.close();
+        player.playNext(track);
+      }}
+    >
+      <ListStart size={15} />
+      <span>{t("queue.play_next")}</span>
+    </button>
+
+    <button
+      type="button"
+      role="menuitem"
+      class="ctx-item"
+      onclick={() => {
+        contextMenu.close();
+        player.enqueueTrack(track);
+      }}
+    >
+      <ListPlus size={15} />
+      <span>{t("queue.add")}</span>
+    </button>
+
+    <button
+      type="button"
+      role="menuitem"
+      class="ctx-item"
+      onclick={() => void startTrackRadio(track)}
+    >
+      <Radio size={15} />
+      <span>{t("ctx.start_radio")}</span>
+    </button>
+
+    <button
+      type="button"
+      role="menuitem"
+      class="ctx-item"
+      onclick={() => {
+        contextMenu.close();
+        player.toggleFavorite(track);
+      }}
+    >
+      <Heart
+        size={15}
+        class={fav ? "text-[var(--fav-coral)]" : ""}
+        fill={fav ? "currentColor" : "none"}
+      />
+      <span>{fav ? t("player.favorite_remove") : t("player.favorite_add")}</span>
+    </button>
+  {/if}
 
   <button
     type="button"
     role="menuitem"
-    class="ctx-item"
-    onclick={() => {
-      contextMenu.close();
-      player.playNext(track);
-    }}
-  >
-    <ListStart size={15} />
-    <span>{t("queue.play_next")}</span>
-  </button>
-
-  <button
-    type="button"
-    role="menuitem"
-    class="ctx-item"
-    onclick={() => {
-      contextMenu.close();
-      player.enqueueTrack(track);
-    }}
-  >
-    <ListPlus size={15} />
-    <span>{t("queue.add")}</span>
-  </button>
-
-  <button
-    type="button"
-    role="menuitem"
-    class="ctx-item"
-    onclick={() => void startTrackRadio(track)}
-  >
-    <Radio size={15} />
-    <span>{t("ctx.start_radio")}</span>
-  </button>
-
-  <button
-    type="button"
-    role="menuitem"
-    class="ctx-item"
-    onclick={() => {
-      contextMenu.close();
-      player.toggleFavorite(track);
-    }}
-  >
-    <Heart
-      size={15}
-      class={fav ? "text-[var(--fav-coral)]" : ""}
-      fill={fav ? "currentColor" : "none"}
-    />
-    <span>{fav ? t("player.favorite_remove") : t("player.favorite_add")}</span>
-  </button>
-
-  <button
-    type="button"
-    role="menuitem"
-    class="ctx-item"
+    aria-expanded={showPlaylists}
+    class="ctx-item justify-between"
     onclick={() => (showPlaylists = !showPlaylists)}
   >
-    <Plus size={15} />
-    <span>{t("collection.add_to_playlist").replace(/:$/, "")}</span>
+    <span class="inline-flex items-center gap-2.5 min-w-0">
+      <Plus size={15} class="shrink-0" />
+      <span class="truncate">{t("collection.add_to_playlist").replace(/:$/, "")}</span>
+    </span>
+    <ChevronDown
+      size={14}
+      class="shrink-0 text-[var(--text-muted)] transition-transform duration-150 {showPlaylists ? 'rotate-180' : ''}"
+    />
   </button>
 
   {#if showPlaylists}
-    <div class="mx-1.5 my-1 p-1 rounded-xl bg-[var(--surface)] border border-[var(--border)] space-y-0.5 max-h-36 overflow-y-auto scroll-y">
+    <div
+      transition:slide={{ duration: 150 }}
+      class="mx-1 my-1.5 p-1.5 rounded-2xl bg-[var(--surface)] border border-[var(--border)] space-y-0.5 max-h-40 overflow-y-auto scroll-y"
+    >
       {#each player.userPlaylists as pl (pl.id)}
+        {@const alreadyIn = pl.tracks.some((tr) => tr.id === track.id)}
         <button
           type="button"
           role="menuitem"
-          class="ctx-item !py-1.5 !text-[12px]"
+          class="ctx-item !py-2 !text-[13px] justify-between"
           onclick={() => {
             contextMenu.close();
             player.addTrackToPlaylist(pl.id, track);
           }}
         >
-          <PlaylistIcon name={pl.icon_name} size={13} />
-          <span class="truncate">{pl.name}</span>
+          <span class="inline-flex items-center gap-2 min-w-0">
+            <span
+              class="w-6 h-6 rounded-md inline-flex items-center justify-center text-white shrink-0"
+              style="background: {pl.color_hex || '#10b981'};"
+            >
+              <PlaylistIcon name={pl.icon_name} size={12} />
+            </span>
+            <span class="truncate">{pl.name}</span>
+          </span>
+          {#if alreadyIn}
+            <Check size={14} class="text-[var(--accent-bright)] shrink-0" />
+          {/if}
         </button>
       {/each}
       <button
         type="button"
         role="menuitem"
-        class="ctx-item !py-1.5 !text-[12px] text-[var(--accent-bright)]"
+        class="ctx-item !py-2 !text-[13px] text-[var(--accent-bright)]"
         onclick={() => {
           contextMenu.close();
           player.playlistDraftTrack = track;
         }}
       >
-        <Plus size={13} />
+        <span class="w-6 h-6 rounded-md inline-flex items-center justify-center bg-[var(--accent-soft)] shrink-0">
+          <Plus size={13} />
+        </span>
         <span>{t("collection.new_playlist")}</span>
       </button>
     </div>

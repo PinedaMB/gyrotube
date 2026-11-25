@@ -262,6 +262,8 @@ pub fn run() {
             commands::check_for_updates,
             commands::install_update,
             commands::open_external_url,
+            commands::save_lyrics_card_png,
+            commands::save_backup_json,
             mpris::mpris_sync_state,
         ])
         .run(tauri::generate_context!())

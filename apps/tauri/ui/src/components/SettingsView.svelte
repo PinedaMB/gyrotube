@@ -68,15 +68,45 @@
     }
   }
 
-  function exportLibrary() {
+  async function exportLibrary() {
     try {
       const json = player.exportLibraryJson();
+      const date = new Date().toISOString().slice(0, 10);
+      const filename = `gyrotube-library-${date}.json`;
+
+      // 1. Android native bridge -> saves directly to Downloads/GyroTube via MediaStore
+      const androidBridge =
+        typeof window !== "undefined"
+          ? (
+              window as unknown as {
+                __GYROTUBE_ANDROID__?: {
+                  saveBackupJson?: (name: string, content: string) => string;
+                };
+              }
+            ).__GYROTUBE_ANDROID__
+          : undefined;
+      if (device.isAndroid && androidBridge?.saveBackupJson) {
+        const res = androidBridge.saveBackupJson(filename, json);
+        if (res === "ok") {
+          player.showToast(t("settings.export_done"));
+          return;
+        }
+        throw new Error(res.replace(/^error:/, "") || "Backup export failed");
+      }
+
+      // 2. Desktop Tauri native command -> saves directly to Downloads/
+      if (isTauriRuntime() && !device.isAndroid) {
+        await api.saveBackupJson(filename, json);
+        player.showToast(t("settings.export_done"));
+        return;
+      }
+
+      // 3. Browser fallback
       const blob = new Blob([json], { type: "application/json" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
-      const date = new Date().toISOString().slice(0, 10);
       a.href = url;
-      a.download = `gyrotube-library-${date}.json`;
+      a.download = filename;
       document.body.appendChild(a);
       a.click();
       a.remove();

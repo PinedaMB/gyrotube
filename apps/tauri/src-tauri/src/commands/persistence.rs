@@ -101,3 +101,49 @@ pub async fn save_followed_artists_cmd(artists: Vec<Artist>) -> Result<(), Strin
         .await
         .map_err(|e| e.to_string())?
 }
+
+#[tauri::command]
+pub async fn save_backup_json(
+    app: tauri::AppHandle,
+    filename: String,
+    json_content: String,
+) -> Result<String, String> {
+    use tauri::Manager;
+
+    if json_content.is_empty() {
+        return Err("Empty backup payload".to_string());
+    }
+    let sanitized: String = filename
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-') {
+                c
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    let clean_name = sanitized.trim_matches(['.', '-', '_']);
+    let final_name = if clean_name.is_empty() {
+        "gyrotube-library.json".to_string()
+    } else if clean_name.to_ascii_lowercase().ends_with(".json") {
+        clean_name.to_string()
+    } else {
+        format!("{clean_name}.json")
+    };
+
+    let base_dir = app
+        .path()
+        .download_dir()
+        .or_else(|_| app.path().document_dir())
+        .or_else(|_| app.path().home_dir())
+        .map_err(|e| format!("No se pudo localizar la carpeta de descargas: {e}"))?;
+    tokio::fs::create_dir_all(&base_dir)
+        .await
+        .map_err(|e| format!("No se pudo crear la carpeta de descargas: {e}"))?;
+    let target_path = base_dir.join(&final_name);
+    tokio::fs::write(&target_path, json_content.as_bytes())
+        .await
+        .map_err(|e| format!("No se pudo guardar el respaldo: {e}"))?;
+    Ok(target_path.to_string_lossy().to_string())
+}

@@ -10,10 +10,11 @@
   const isDesktopTauri = isTauriRuntime() && !device.isAndroid;
 
   let hideOnMobile = $derived(
-    player.activeView.kind === "album" ||
-      player.activeView.kind === "artist" ||
-      player.activeView.kind === "search" ||
-      (player.activeView.kind === "collection" && Boolean(player.activeView.sub)),
+    !isDesktopTauri &&
+      (player.activeView.kind === "album" ||
+        player.activeView.kind === "artist" ||
+        player.activeView.kind === "search" ||
+        (player.activeView.kind === "collection" && Boolean(player.activeView.sub))),
   );
 
   function isInteractiveTarget(target: EventTarget | null): boolean {

@@ -242,22 +242,33 @@ function truncateText(ctx: CanvasRenderingContext2D, text: string, maxWidth: num
   return `${trimmed}…`;
 }
 
+let activeRenderSeq = 0;
+
 export async function renderLyricsCard(
   canvas: HTMLCanvasElement,
   opts: LyricsCardOptions,
 ): Promise<void> {
+  const seq = ++activeRenderSeq;
   const width = 1080;
   const height = opts.aspect === "portrait" ? 1350 : 1080;
-  canvas.width = width;
-  canvas.height = height;
-
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return;
 
   const pal = paletteFor(opts.theme, opts.ambientRgb);
   if (typeof document !== "undefined" && document.fonts?.ready) {
     await document.fonts.ready.catch(() => {});
   }
+  // Load external images BEFORE mutating canvas so concurrent renders never interleave
+  const [coverImg, logoImg] = await Promise.all([
+    opts.coverUrl ? loadCorsImage(opts.coverUrl) : Promise.resolve(null),
+    loadAppLogo(),
+  ]);
+  if (seq !== activeRenderSeq) return;
+
+  canvas.width = width;
+  canvas.height = height;
+
+  const ctx = canvas.getContext("2d", { alpha: true });
+  if (!ctx) return;
+
   const computedLyricsFont =
     typeof document !== "undefined"
       ? getComputedStyle(document.documentElement).getPropertyValue("--lyrics-font").trim()
@@ -266,22 +277,25 @@ export async function renderLyricsCard(
     computedLyricsFont ||
     '"Plus Jakarta Sans Variable", "Plus Jakarta Sans", system-ui, -apple-system, sans-serif';
 
+  // Full-bleed opaque card (no transparent corners that apps/viewers turn into solid boxes)
+  ctx.clearRect(0, 0, width, height);
+
   // Rich 3-stop diagonal background gradient
-  const bg = ctx.createLinearGradient(0, 0, width * 0.35, height);
+  const bg = ctx.createLinearGradient(0, 0, width * 0.42, height);
   bg.addColorStop(0, pal.bgStart);
-  bg.addColorStop(0.55, pal.bgMid);
+  bg.addColorStop(0.52, pal.bgMid);
   bg.addColorStop(1, pal.bgEnd);
   ctx.fillStyle = bg;
   ctx.fillRect(0, 0, width, height);
 
-  // Atmospheric dual radial glows (Spotify-style depth without harsh borders)
+  // Atmospheric dual radial glows (editorial depth)
   const glowTop = ctx.createRadialGradient(
-    width * 0.85,
-    height * 0.14,
-    20,
-    width * 0.85,
-    height * 0.14,
-    width * 0.78,
+    width * 0.84,
+    height * 0.12,
+    24,
+    width * 0.84,
+    height * 0.12,
+    width * 0.82,
   );
   glowTop.addColorStop(0, pal.glowTop);
   glowTop.addColorStop(1, "rgba(0,0,0,0)");
@@ -289,82 +303,96 @@ export async function renderLyricsCard(
   ctx.fillRect(0, 0, width, height);
 
   const glowBot = ctx.createRadialGradient(
-    width * 0.12,
+    width * 0.14,
     height * 0.88,
-    20,
-    width * 0.12,
+    24,
+    width * 0.14,
     height * 0.88,
-    width * 0.65,
+    width * 0.68,
   );
   glowBot.addColorStop(0, pal.glowBottom);
   glowBot.addColorStop(1, "rgba(0,0,0,0)");
   ctx.fillStyle = glowBot;
   ctx.fillRect(0, 0, width, height);
 
+  // Subtle top sheen for glass-like studio finish
+  const sheen = ctx.createLinearGradient(0, 0, 0, height * 0.36);
+  sheen.addColorStop(0, pal.isLight ? "rgba(255,255,255,0.45)" : "rgba(255,255,255,0.06)");
+  sheen.addColorStop(1, "rgba(255,255,255,0)");
+  ctx.fillStyle = sheen;
+  ctx.fillRect(0, 0, width, height * 0.36);
+
   // Header: cover + vertically centered title & artist
   const pad = 88;
-  const coverSize = 132;
+  const coverSize = 140;
   const headerY = pad;
-  const coverImg = opts.coverUrl ? await loadCorsImage(opts.coverUrl) : null;
 
   ctx.save();
-  ctx.shadowColor = pal.isLight ? "rgba(15, 23, 42, 0.18)" : "rgba(0, 0, 0, 0.42)";
-  ctx.shadowBlur = 32;
-  ctx.shadowOffsetY = 12;
-  drawRoundedRect(ctx, pad, headerY, coverSize, coverSize, 24);
+  ctx.shadowColor = pal.isLight ? "rgba(15, 23, 42, 0.18)" : "rgba(0, 0, 0, 0.45)";
+  ctx.shadowBlur = 36;
+  ctx.shadowOffsetY = 14;
+  drawRoundedRect(ctx, pad, headerY, coverSize, coverSize, 26);
   ctx.fillStyle = pal.badgeBg;
   ctx.fill();
   ctx.restore();
 
   if (coverImg) {
     ctx.save();
-    drawRoundedRect(ctx, pad, headerY, coverSize, coverSize, 24);
+    drawRoundedRect(ctx, pad, headerY, coverSize, coverSize, 26);
     ctx.clip();
     const s = Math.min(coverImg.naturalWidth, coverImg.naturalHeight);
     const sx = (coverImg.naturalWidth - s) / 2;
     const sy = (coverImg.naturalHeight - s) / 2;
     ctx.drawImage(coverImg, sx, sy, s, s, pad, headerY, coverSize, coverSize);
     ctx.restore();
+
+    // Subtle crisp border ring around cover art
+    ctx.save();
+    drawRoundedRect(ctx, pad + 1, headerY + 1, coverSize - 2, coverSize - 2, 25);
+    ctx.strokeStyle = pal.isLight ? "rgba(24, 24, 27, 0.10)" : "rgba(255, 255, 255, 0.20)";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.restore();
   } else {
     ctx.fillStyle = pal.accent;
-    ctx.font = `800 54px ${fontFamily}`;
+    ctx.font = `800 56px ${fontFamily}`;
     ctx.textBaseline = "middle";
     ctx.textAlign = "center";
     ctx.fillText("♪", pad + coverSize / 2, headerY + coverSize / 2 + 2);
     ctx.textAlign = "left";
   }
 
-  const metaX = pad + coverSize + 32;
+  const metaX = pad + coverSize + 34;
   const metaMaxW = width - metaX - pad;
   const headerCenterY = headerY + coverSize / 2;
 
   ctx.textBaseline = "middle";
   ctx.fillStyle = pal.text;
-  ctx.font = `800 40px ${fontFamily}`;
-  ctx.fillText(truncateText(ctx, opts.title || "GyroTube", metaMaxW), metaX, headerCenterY - 20);
+  ctx.font = `800 42px ${fontFamily}`;
+  ctx.fillText(truncateText(ctx, opts.title || "GyroTube", metaMaxW), metaX, headerCenterY - 22);
 
   ctx.fillStyle = pal.muted;
-  ctx.font = `600 31px ${fontFamily}`;
+  ctx.font = `600 32px ${fontFamily}`;
   ctx.fillText(truncateText(ctx, opts.artist || "", metaMaxW), metaX, headerCenterY + 26);
 
   // Lyrics block in the center — bold hero typography
-  const contentTop = headerY + coverSize + 72;
-  const footerH = 148;
-  const contentBottom = height - footerH;
+  const contentTop = headerY + coverSize + 74;
+  const footerLineY = height - 144;
+  const contentBottom = footerLineY - 46;
   const availH = contentBottom - contentTop;
   const maxTextW = width - pad * 2;
 
   const cleanLines = opts.lines.map((l) => l.trim()).filter(Boolean);
-  const maxFontSize = cleanLines.length <= 2 ? 78 : cleanLines.length === 3 ? 68 : 60;
+  const maxFontSize = cleanLines.length <= 2 ? 78 : cleanLines.length === 3 ? 68 : 58;
   let fontSize = maxFontSize;
   let wrapped: string[] = [];
-  let lineHeight = fontSize * 1.26;
+  let lineHeight = fontSize * 1.34;
 
   for (let size = maxFontSize; size >= 36; size -= 2) {
-    ctx.font = `700 ${size}px ${fontFamily}`;
+    ctx.font = `800 ${size}px ${fontFamily}`;
     const candidate = wrapLines(ctx, cleanLines, maxTextW);
-    const lh = size * 1.32;
-    if (candidate.length * lh <= availH - 20) {
+    const lh = size * 1.36;
+    if (candidate.length * lh <= availH - 16) {
       fontSize = size;
       wrapped = candidate;
       lineHeight = lh;
@@ -378,17 +406,25 @@ export async function renderLyricsCard(
   const totalTextH = wrapped.length * lineHeight;
   let startY = contentTop + Math.max(0, (availH - totalTextH) / 2) + lineHeight * 0.5;
 
+  // Soft decorative quote mark behind the first lyric line
+  ctx.save();
+  ctx.fillStyle = pal.isLight ? "rgba(24, 24, 27, 0.06)" : "rgba(255, 255, 255, 0.08)";
+  ctx.font = `900 180px Georgia, serif`;
+  ctx.textBaseline = "top";
+  ctx.fillText("“", pad - 18, Math.max(contentTop - 36, startY - lineHeight * 0.5 - 92));
+  ctx.restore();
+
   ctx.save();
   ctx.textBaseline = "middle";
   ctx.fillStyle = pal.text;
-  ctx.font = `700 ${fontSize}px ${fontFamily}`;
+  ctx.font = `800 ${fontSize}px ${fontFamily}`;
   if ("letterSpacing" in ctx) {
-    (ctx as CanvasRenderingContext2D & { letterSpacing: string }).letterSpacing = "-0.015em";
+    (ctx as CanvasRenderingContext2D & { letterSpacing: string }).letterSpacing = "-0.02em";
   }
   if (!pal.isLight) {
-    ctx.shadowColor = "rgba(0, 0, 0, 0.24)";
-    ctx.shadowBlur = 18;
-    ctx.shadowOffsetY = 4;
+    ctx.shadowColor = "rgba(0, 0, 0, 0.28)";
+    ctx.shadowBlur = 20;
+    ctx.shadowOffsetY = 5;
   }
   for (const line of wrapped) {
     if (startY > contentBottom) break;
@@ -397,28 +433,39 @@ export async function renderLyricsCard(
   }
   ctx.restore();
 
+  // Subtle hairline separator above footer
+  ctx.save();
+  ctx.strokeStyle = pal.isLight ? "rgba(24, 24, 27, 0.09)" : "rgba(255, 255, 255, 0.13)";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(pad, footerLineY);
+  ctx.lineTo(width - pad, footerLineY);
+  ctx.stroke();
+  ctx.restore();
+
   // Footer: real GyroTube app logo + wordmark
-  const footerY = height - 80;
-  const logoSize = 42;
-  const logoImg = await loadAppLogo();
+  const footerY = height - 74;
+  const logoSize = 44;
   if (logoImg) {
     ctx.drawImage(logoImg, pad, footerY - logoSize / 2, logoSize, logoSize);
   } else {
     ctx.beginPath();
-    ctx.arc(pad + 16, footerY, 15, 0, Math.PI * 2);
+    ctx.arc(pad + 18, footerY, 16, 0, Math.PI * 2);
     ctx.fillStyle = pal.accent;
     ctx.fill();
 
     ctx.beginPath();
-    ctx.arc(pad + 16, footerY, 5, 0, Math.PI * 2);
+    ctx.arc(pad + 18, footerY, 5.5, 0, Math.PI * 2);
     ctx.fillStyle = pal.vinylCore;
     ctx.fill();
   }
 
   ctx.textBaseline = "middle";
-  ctx.fillStyle = pal.muted;
-  ctx.font = `800 30px ${fontFamily}`;
-  ctx.fillText("GyroTube", pad + (logoImg ? logoSize + 14 : 44), footerY + 1);
+  ctx.fillStyle = pal.text;
+  ctx.globalAlpha = 0.88;
+  ctx.font = `800 31px ${fontFamily}`;
+  ctx.fillText("GyroTube", pad + (logoImg ? logoSize + 15 : 46), footerY + 1);
+  ctx.globalAlpha = 1;
 }
 
 export function canvasToPngBlob(canvas: HTMLCanvasElement): Promise<Blob | null> {

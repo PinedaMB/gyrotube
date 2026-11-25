@@ -94,7 +94,7 @@
     {#if mode === "playlist" && playlist}
       <button
         type="button"
-        class="lg:hidden inline-flex items-center justify-center w-9 h-9 rounded-full text-[var(--text-muted)] hover:text-red-500 bg-[var(--surface)] hover:bg-red-500/12 border border-[var(--border)] transition-all active:scale-95"
+        class="inline-flex items-center justify-center w-9 h-9 rounded-full text-[var(--text-muted)] hover:text-red-500 bg-[var(--surface)] hover:bg-red-500/12 border border-[var(--border)] transition-all active:scale-95"
         title={t("collection.delete")}
         aria-label={t("collection.delete")}
         onclick={() => onDelete?.(playlist)}
@@ -154,10 +154,10 @@
   <!-- Centered circular controls (3-column grid keeps Play mathematically dead-center on all breakpoints) -->
   <div class="w-full grid grid-cols-[1fr_auto_1fr] items-center gap-3 sm:gap-4 pt-0.5">
     <div class="flex items-center justify-end gap-3 sm:gap-4">
-      {#if tracks.length > 0}
+      {#if mode === "playlist" && tracks.length > 0}
         <button
           type="button"
-          class="lg:hidden w-10 h-10 rounded-full inline-flex items-center justify-center border transition-all active:scale-95 disabled:opacity-35 disabled:cursor-not-allowed {markedDownloaded || allDownloaded
+          class="w-10 h-10 sm:w-11 sm:h-11 rounded-full inline-flex items-center justify-center border transition-all active:scale-95 disabled:opacity-35 disabled:cursor-not-allowed {markedDownloaded || allDownloaded
             ? 'bg-[var(--accent-soft)] border-[var(--accent-border)] text-[var(--accent-bright)]'
             : 'bg-[var(--surface)] hover:bg-[var(--surface-hover)] border-[var(--border)]'}"
           disabled={isDownloadingAny || (!markedDownloaded && player.isOffline)}
@@ -224,8 +224,8 @@
     </div>
   </div>
 
-  {#if isDownloadingThis && player.downloadProgress}
-    <div class="lg:hidden inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11.5px] font-semibold bg-[var(--accent-soft)] border border-[var(--accent-border)] text-[var(--accent-bright)]">
+  {#if mode === "playlist" && isDownloadingThis && player.downloadProgress}
+    <div class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11.5px] font-semibold bg-[var(--accent-soft)] border border-[var(--accent-border)] text-[var(--accent-bright)]">
       <span class="w-3 h-3 rounded-full border-2 border-current/30 border-t-current animate-spin"></span>
       <span>
         {t("offline.downloading", {
@@ -236,11 +236,11 @@
     </div>
   {/if}
 
-  <!-- Desktop-only pill buttons (plenty of vertical space in sticky sidebar) -->
-  {#if tracks.length > 0}
+  <!-- Centered download pill for Favorites (keeps 1-Play-1 symmetry above) -->
+  {#if mode === "favorites" && tracks.length > 0}
     <button
       type="button"
-      class="hidden lg:inline-flex pill-btn !px-4 !py-1.5 !text-[12.5px] {markedDownloaded || allDownloaded
+      class="inline-flex pill-btn !px-4 !py-1.5 !text-[12.5px] {markedDownloaded || allDownloaded
         ? '!bg-[var(--accent-soft)] !border-[var(--accent-border)] !text-[var(--accent-bright)]'
         : ''}"
       disabled={isDownloadingAny || (!markedDownloaded && player.isOffline)}
@@ -269,17 +269,6 @@
             : t("offline.download")}
         </span>
       {/if}
-    </button>
-  {/if}
-
-  {#if mode === "playlist" && playlist}
-    <button
-      type="button"
-      class="hidden lg:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[12px] font-semibold text-[var(--text-muted)] hover:text-red-500 hover:bg-red-500/12 transition-colors"
-      onclick={() => onDelete?.(playlist)}
-    >
-      <Trash2 size={13} />
-      {t("collection.delete")}
     </button>
   {/if}
 </aside>

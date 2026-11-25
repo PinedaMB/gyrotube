@@ -1,5 +1,7 @@
 <script lang="ts">
   import { Check, Copy, Download, Share2, X } from "lucide-svelte";
+  import { fade } from "svelte/transition";
+  import { api, isTauriRuntime } from "../../lib/api";
   import { t } from "../../lib/i18n.svelte";
   import {
     LYRICS_CARD_THEMES,
@@ -10,6 +12,7 @@
     type LyricsCardAspect,
     type LyricsCardThemeId,
   } from "../../lib/lyricsCard";
+  import { device } from "../../lib/stores/device.svelte";
   import { player } from "../../lib/stores/player.svelte";
   import ModalSheet from "../ModalSheet.svelte";
 
@@ -19,6 +22,11 @@
     onClose: () => void;
   }
 
+  interface AndroidCardBridge {
+    saveImageToGallery?: (filename: string, base64Png: string) => string;
+    shareImage?: (filename: string, base64Png: string, title: string) => string;
+  }
+
   let { open, lines, onClose }: Props = $props();
 
   let canvasEl = $state<HTMLCanvasElement | null>(null);
@@ -26,6 +34,29 @@
   let aspect = $state<LyricsCardAspect>("portrait");
   let busy = $state(false);
   let copied = $state(false);
+  let saved = $state(false);
+  let feedback = $state<{ text: string; kind: "ok" | "err" } | null>(null);
+  let feedbackTimer: number | undefined;
+
+  function showModalFeedback(text: string, kind: "ok" | "err" = "ok") {
+    feedback = { text, kind };
+    window.clearTimeout(feedbackTimer);
+    feedbackTimer = window.setTimeout(() => {
+      feedback = null;
+    }, 2600);
+  }
+
+  function getAndroidBridge(): AndroidCardBridge | undefined {
+    if (typeof window === "undefined") return undefined;
+    return (window as unknown as { __GYROTUBE_ANDROID__?: AndroidCardBridge })
+      .__GYROTUBE_ANDROID__;
+  }
+
+  function canvasToBase64Png(canvas: HTMLCanvasElement): string {
+    const dataUrl = canvas.toDataURL("image/png");
+    const comma = dataUrl.indexOf(",");
+    return comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl;
+  }
 
   $effect(() => {
     if (!open || !canvasEl || !player.currentTrack || lines.length === 0) return;
@@ -42,21 +73,64 @@
     });
   });
 
+  async function savePngInternal(): Promise<boolean> {
+    if (!canvasEl) return false;
+    const filename = lyricsCardFilename(player.currentTrack?.title ?? "lyrics");
+
+    // 1. Android native bridge -> saves directly to Pictures/GyroTube in Android Gallery
+    const bridge = getAndroidBridge();
+    if (device.isAndroid && bridge?.saveImageToGallery) {
+      const base64 = canvasToBase64Png(canvasEl);
+      const res = bridge.saveImageToGallery(filename, base64);
+      if (res === "ok") {
+        saved = true;
+        showModalFeedback(t("lyrics.card_saved"));
+        window.setTimeout(() => (saved = false), 2000);
+        return true;
+      }
+      showModalFeedback(res.replace(/^error:/, "") || t("spin.copy_failed"), "err");
+      return false;
+    }
+
+    const blob = await canvasToPngBlob(canvasEl);
+    if (!blob) return false;
+
+    // 2. Desktop Tauri native command -> saves directly to Pictures/GyroTube
+    if (isTauriRuntime() && !device.isAndroid) {
+      try {
+        const bytes = new Uint8Array(await blob.arrayBuffer());
+        await api.saveLyricsCardPng(filename, bytes);
+        saved = true;
+        showModalFeedback(t("lyrics.card_saved"));
+        window.setTimeout(() => (saved = false), 2000);
+        return true;
+      } catch (err) {
+        console.warn("[GyroTube] saveLyricsCardPng failed, falling back to browser download:", err);
+      }
+    }
+
+    // 3. Browser download fallback
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    saved = true;
+    showModalFeedback(t("lyrics.card_saved"));
+    window.setTimeout(() => (saved = false), 2000);
+    return true;
+  }
+
   async function downloadPng() {
     if (!canvasEl || busy) return;
     busy = true;
     try {
-      const blob = await canvasToPngBlob(canvasEl);
-      if (!blob) return;
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = lyricsCardFilename(player.currentTrack?.title ?? "lyrics");
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
-      player.showToast(t("lyrics.card_saved"));
+      await savePngInternal();
+    } catch {
+      showModalFeedback(t("spin.copy_failed"), "err");
     } finally {
       busy = false;
     }
@@ -66,9 +140,22 @@
     if (!canvasEl || busy) return;
     busy = true;
     try {
+      const filename = lyricsCardFilename(player.currentTrack?.title ?? "lyrics");
+      const title = player.currentTrack?.title ?? "GyroTube";
+
+      // 1. Android native Share Sheet via FileProvider
+      const bridge = getAndroidBridge();
+      if (device.isAndroid && bridge?.shareImage) {
+        const base64 = canvasToBase64Png(canvasEl);
+        const res = bridge.shareImage(filename, base64, title);
+        if (res === "ok") {
+          return;
+        }
+      }
+
+      // 2. Web Share API (if supported)
       const blob = await canvasToPngBlob(canvasEl);
       if (!blob) return;
-      const filename = lyricsCardFilename(player.currentTrack?.title ?? "lyrics");
       const file = new File([blob], filename, { type: "image/png" });
       if (
         typeof navigator !== "undefined" &&
@@ -78,7 +165,7 @@
         try {
           await navigator.share({
             files: [file],
-            title: player.currentTrack?.title ?? "GyroTube",
+            title,
             text: lines.join("\n"),
           });
           return;
@@ -86,16 +173,11 @@
           if ((err as { name?: string })?.name === "AbortError") return;
         }
       }
-      // Fallback to PNG download if native file share is unavailable
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
-      player.showToast(t("lyrics.card_saved"));
+
+      // 3. Fallback: save PNG natively & notify inside modal
+      await savePngInternal();
+    } catch {
+      showModalFeedback(t("spin.copy_failed"), "err");
     } finally {
       busy = false;
     }
@@ -112,24 +194,24 @@
         navigator.clipboard &&
         typeof ClipboardItem !== "undefined"
       ) {
-        await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
-        copied = true;
-        player.showToast(t("lyrics.card_copied"));
-        window.setTimeout(() => {
-          copied = false;
-        }, 1800);
-      } else {
-        await navigator.clipboard.writeText(
-          `${lines.join("\n")}\n— ${player.currentTrack?.title ?? ""} · ${player.currentTrack?.artist ?? ""}`,
-        );
-        copied = true;
-        player.showToast(t("lyrics.card_copied"));
-        window.setTimeout(() => {
-          copied = false;
-        }, 1800);
+        try {
+          await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+          copied = true;
+          showModalFeedback(t("lyrics.card_copied"));
+          window.setTimeout(() => (copied = false), 1800);
+          return;
+        } catch {
+          // Some Linux/Android WebViews disallow image clipboard write; fall back to text
+        }
       }
+      await navigator.clipboard.writeText(
+        `${lines.join("\n")}\n— ${player.currentTrack?.title ?? ""} · ${player.currentTrack?.artist ?? ""}`,
+      );
+      copied = true;
+      showModalFeedback(t("lyrics.card_copied"));
+      window.setTimeout(() => (copied = false), 1800);
     } catch {
-      player.showToast(t("spin.copy_failed"));
+      showModalFeedback(t("spin.copy_failed"), "err");
     } finally {
       busy = false;
     }
@@ -152,10 +234,10 @@
 
   <div class="p-5 space-y-4">
     <!-- Live high-DPI canvas preview -->
-    <div class="flex justify-center">
+    <div class="flex justify-center py-1">
       <canvas
         bind:this={canvasEl}
-        class="w-full max-w-[330px] h-auto rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.45)] {aspect === 'portrait'
+        class="w-full max-w-[332px] h-auto rounded-2xl shadow-[0_22px_48px_rgba(0,0,0,0.48)] {aspect === 'portrait'
           ? 'aspect-[4/5]'
           : 'aspect-square'}"
       ></canvas>
@@ -201,6 +283,22 @@
       </div>
     </div>
 
+    {#if feedback}
+      <div
+        transition:fade={{ duration: 140 }}
+        role="status"
+        aria-live="polite"
+        class="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl text-[12px] font-semibold border {feedback.kind === 'err'
+          ? 'bg-red-500/12 border-red-500/30 text-red-400'
+          : 'bg-[var(--accent-soft)] border-[var(--accent-border)] text-[var(--accent-bright)]'}"
+      >
+        {#if feedback.kind === "ok"}
+          <Check size={13} />
+        {/if}
+        <span>{feedback.text}</span>
+      </div>
+    {/if}
+
     <!-- Action buttons -->
     <div class="flex items-center gap-2">
       <button
@@ -219,7 +317,11 @@
         title={t("lyrics.card_save")}
         onclick={() => void downloadPng()}
       >
-        <Download size={14} />
+        {#if saved}
+          <Check size={14} class="text-[var(--accent-bright)]" />
+        {:else}
+          <Download size={14} />
+        {/if}
         PNG
       </button>
       <button

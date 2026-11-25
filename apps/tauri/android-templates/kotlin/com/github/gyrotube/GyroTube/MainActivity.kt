@@ -1,6 +1,7 @@
 package com.github.gyrotube.GyroTube
 
 import android.Manifest
+import android.content.ContentValues
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.res.Configuration
@@ -9,7 +10,10 @@ import android.media.AudioManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Environment
+import android.provider.MediaStore
 import android.provider.Settings
+import android.util.Base64
 import android.view.View
 import android.webkit.JavascriptInterface
 import android.webkit.WebSettings
@@ -379,6 +383,136 @@ class MainActivity : TauriActivity() {
           apkDownloading.set(false)
         }
       }.start()
+    }
+
+    @JavascriptInterface
+    fun saveImageToGallery(filename: String, base64Png: String): String {
+      return try {
+        val bytes = Base64.decode(base64Png, Base64.DEFAULT)
+        if (bytes.isEmpty()) return "error:Empty image"
+        val cleanName = filename
+          .replace(Regex("[^A-Za-z0-9._-]"), "-")
+          .ifBlank { "gyrotube-lyrics.png" }
+          .let { if (it.endsWith(".png", ignoreCase = true)) it else "$it.png" }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+          val values = ContentValues().apply {
+            put(MediaStore.Images.Media.DISPLAY_NAME, cleanName)
+            put(MediaStore.Images.Media.MIME_TYPE, "image/png")
+            put(MediaStore.Images.Media.RELATIVE_PATH, "${Environment.DIRECTORY_PICTURES}/GyroTube")
+            put(MediaStore.Images.Media.IS_PENDING, 1)
+          }
+          val resolver = contentResolver
+          val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
+            ?: return "error:MediaStore insert failed"
+          try {
+            resolver.openOutputStream(uri)?.use { out ->
+              out.write(bytes)
+              out.flush()
+            } ?: return "error:Failed to open output stream"
+            values.clear()
+            values.put(MediaStore.Images.Media.IS_PENDING, 0)
+            resolver.update(uri, values, null, null)
+          } catch (t: Throwable) {
+            resolver.delete(uri, null, null)
+            throw t
+          }
+          "ok"
+        } else {
+          val dir = File(getExternalFilesDir(Environment.DIRECTORY_PICTURES), "GyroTube")
+          dir.mkdirs()
+          val outFile = File(dir, cleanName)
+          FileOutputStream(outFile).use { it.write(bytes) }
+          "ok"
+        }
+      } catch (t: Throwable) {
+        "error:${t.message ?: "Save failed"}"
+      }
+    }
+
+    @JavascriptInterface
+    fun shareImage(filename: String, base64Png: String, title: String): String {
+      return try {
+        val bytes = Base64.decode(base64Png, Base64.DEFAULT)
+        if (bytes.isEmpty()) return "error:Empty image"
+        val cleanName = filename
+          .replace(Regex("[^A-Za-z0-9._-]"), "-")
+          .ifBlank { "gyrotube-lyrics.png" }
+          .let { if (it.endsWith(".png", ignoreCase = true)) it else "$it.png" }
+        val shareFile = File(cacheDir, cleanName)
+        FileOutputStream(shareFile).use { it.write(bytes) }
+        val uri = FileProvider.getUriForFile(
+          this@MainActivity,
+          "${packageName}.fileprovider",
+          shareFile
+        )
+        runOnUiThread {
+          try {
+            val sendIntent = Intent(Intent.ACTION_SEND).apply {
+              type = "image/png"
+              putExtra(Intent.EXTRA_STREAM, uri)
+              if (title.isNotBlank()) {
+                putExtra(Intent.EXTRA_SUBJECT, title)
+              }
+              addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            val chooser = Intent.createChooser(sendIntent, title.ifBlank { "GyroTube" }).apply {
+              addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            startActivity(chooser)
+          } catch (_: Throwable) {
+            // Ignore if no share target is available
+          }
+        }
+        "ok"
+      } catch (t: Throwable) {
+        "error:${t.message ?: "Share failed"}"
+      }
+    }
+
+    @JavascriptInterface
+    fun saveBackupJson(filename: String, jsonContent: String): String {
+      return try {
+        val bytes = jsonContent.toByteArray(Charsets.UTF_8)
+        if (bytes.isEmpty()) return "error:Empty backup"
+        val cleanName = filename
+          .replace(Regex("[^A-Za-z0-9._-]"), "-")
+          .ifBlank { "gyrotube-library.json" }
+          .let { if (it.endsWith(".json", ignoreCase = true)) it else "$it.json" }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+          val values = ContentValues().apply {
+            put(MediaStore.Downloads.DISPLAY_NAME, cleanName)
+            put(MediaStore.Downloads.MIME_TYPE, "application/json")
+            put(MediaStore.Downloads.RELATIVE_PATH, "${Environment.DIRECTORY_DOWNLOADS}/GyroTube")
+            put(MediaStore.Downloads.IS_PENDING, 1)
+          }
+          val resolver = contentResolver
+          val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+            ?: return "error:MediaStore insert failed"
+          try {
+            resolver.openOutputStream(uri)?.use { out ->
+              out.write(bytes)
+              out.flush()
+            } ?: return "error:Failed to open output stream"
+            values.clear()
+            values.put(MediaStore.Downloads.IS_PENDING, 0)
+            resolver.update(uri, values, null, null)
+          } catch (t: Throwable) {
+            resolver.delete(uri, null, null)
+            throw t
+          }
+          "ok"
+        } else {
+          val dir = File(getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "GyroTube")
+          dir.mkdirs()
+          val outFile = File(dir, cleanName)
+          FileOutputStream(outFile).use { it.write(bytes) }
+          "ok"
+        }
+      } catch (t: Throwable) {
+        "error:${t.message ?: "Backup save failed"}"
+      }
     }
 
     @JavascriptInterface

@@ -144,6 +144,10 @@ export const api = {
   }> => call("check_for_updates"),
   installUpdate: (): Promise<void> => call("install_update"),
   openExternalUrl: (url: string): Promise<void> => call("open_external_url", { url }),
+  saveLyricsCardPng: (filename: string, pngBytes: Uint8Array): Promise<string> =>
+    call("save_lyrics_card_png", { filename, pngBytes: Array.from(pngBytes) }),
+  saveBackupJson: (filename: string, jsonContent: string): Promise<string> =>
+    call("save_backup_json", { filename, jsonContent }),
   mprisSyncState: (payload: {
     track_id: string | null;
     title: string | null;

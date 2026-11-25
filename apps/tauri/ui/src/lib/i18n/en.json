@@ -46,6 +46,7 @@
   "collection.empty_playlist": "Add songs from Recently played or search results.",
   "collection.empty_recent": "Songs you play will appear here.",
   "collection.empty_title": "This playlist is empty",
+  "collection.add_short": "Add",
   "collection.enhance": "Enhance",
   "collection.enhance_active": "Enhanced",
   "collection.enhance_add": "Add to playlist",

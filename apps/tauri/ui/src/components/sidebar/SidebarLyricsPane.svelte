@@ -81,6 +81,30 @@
     }
   }
 
+  const INSTRUMENTAL_ONLY_RE = /^[\s♪♫♬♩•·…\-—]+$/;
+
+  function isSelectableLine(idx: number): boolean {
+    if (player.lyrics.type === "Synced") {
+      const text = player.lyrics.lines[idx]?.text ?? "";
+      return text.trim().length > 0 && !INSTRUMENTAL_ONLY_RE.test(text);
+    }
+    if (player.lyrics.type === "Plain") {
+      const text = plainParsed.selectable[idx] ?? "";
+      return text.trim().length > 0 && !INSTRUMENTAL_ONLY_RE.test(text);
+    }
+    return false;
+  }
+
+  function buildContiguousRange(from: number, to: number): number[] {
+    const start = Math.min(from, to);
+    const end = Math.max(from, to);
+    const out: number[] = [];
+    for (let i = start; i <= end; i++) {
+      if (isSelectableLine(i)) out.push(i);
+    }
+    return out;
+  }
+
   function startSelecting() {
     if (!hasLyrics) return;
     selecting = true;
@@ -89,12 +113,25 @@
       player.lyrics.type === "Synced"
         ? player.lyrics.lines.length
         : plainParsed.selectable.length;
-    const base =
+    let base =
       player.lyrics.type === "Synced" && player.activeLyricIndex != null
         ? player.activeLyricIndex
         : 0;
+    while (base < total && !isSelectableLine(base)) {
+      base += 1;
+    }
+    if (base >= total) {
+      selectedIndices = [];
+      return;
+    }
     const initial = [base];
-    if (base + 1 < total) initial.push(base + 1);
+    let next = base + 1;
+    while (next < total && !isSelectableLine(next)) {
+      next += 1;
+    }
+    if (next < total && next - base <= 2) {
+      initial.push(next);
+    }
     selectedIndices = initial;
   }
 
@@ -105,15 +142,38 @@
   }
 
   function toggleLineSelection(idx: number) {
-    if (selectedIndices.includes(idx)) {
-      selectedIndices = selectedIndices.filter((i) => i !== idx);
+    if (!isSelectableLine(idx)) return;
+    if (selectedIndices.length === 0) {
+      selectedIndices = [idx];
       return;
     }
-    if (selectedIndices.length >= MAX_SELECTED_LINES) {
-      player.showToast(t("lyrics.select_max", { max: MAX_SELECTED_LINES }));
+
+    const sorted = [...selectedIndices].sort((a, b) => a - b);
+    const min = sorted[0];
+    const max = sorted[sorted.length - 1];
+
+    if (sorted.includes(idx)) {
+      if (sorted.length === 1) {
+        selectedIndices = [];
+      } else if (idx === min) {
+        selectedIndices = sorted.slice(1);
+      } else if (idx === max) {
+        selectedIndices = sorted.slice(0, -1);
+      } else {
+        // Trim from tapped interior line onward to keep a single contiguous block
+        selectedIndices = sorted.slice(0, sorted.indexOf(idx) + 1);
+      }
       return;
     }
-    selectedIndices = [...selectedIndices, idx].sort((a, b) => a - b);
+
+    const candidate = buildContiguousRange(Math.min(min, idx), Math.max(max, idx));
+    if (candidate.length <= MAX_SELECTED_LINES) {
+      // Fill contiguously between existing selection and tapped line
+      selectedIndices = candidate;
+    } else {
+      // Tapped far away (> MAX_SELECTED_LINES span): move selection to the new line
+      selectedIndices = [idx];
+    }
   }
 
   function lyricOpacity(idx: number): number {
@@ -194,9 +254,10 @@
   </div>
 
   {#if selecting}
-    <p class="text-[11.5px] font-semibold text-[var(--accent-bright)] px-1">
-      {t("lyrics.select_hint", { max: MAX_SELECTED_LINES })}
-    </p>
+    <div class="flex items-center justify-between gap-2 px-3 py-1.5 rounded-xl bg-[var(--accent-soft)]/70 border border-[var(--accent-border)]/40 text-[11.5px] font-semibold text-[var(--accent-bright)]">
+      <span>{t("lyrics.select_hint", { max: MAX_SELECTED_LINES })}</span>
+      <span class="numeric opacity-85 shrink-0">{selectedIndices.length}/{MAX_SELECTED_LINES}</span>
+    </div>
   {/if}
 
   {#if player.lyricsLoading && player.currentTrack}
@@ -224,16 +285,20 @@
 
         {#each player.lyrics.lines as line, i}
           {@const active = !selecting && player.activeLyricIndex === i}
-          {@const picked = selecting && selectedIndices.includes(i)}
+          {@const selectable = isSelectableLine(i)}
+          {@const picked = selecting && selectable && selectedIndices.includes(i)}
           {@const prevLine = i > 0 ? player.lyrics.lines[i - 1] : null}
           {@const stanzaBreak = prevLine != null && line.time_secs - prevLine.time_secs >= 5.5}
           <button
             type="button"
             bind:this={lyricRefs[i]}
+            disabled={selecting && !selectable}
             class="sb-lyric-line text-left origin-left flex items-start gap-2.5 rounded-xl {active
               ? 'active-line'
-              : ''} {picked ? 'selected-line' : ''} {stanzaBreak ? 'mt-4' : ''}"
-            style="opacity: {lyricOpacity(i)};"
+              : ''} {picked ? 'selected-line' : ''} {stanzaBreak ? 'mt-4' : ''} {selecting && !selectable
+              ? 'cursor-default pointer-events-none'
+              : ''}"
+            style="opacity: {selecting && !selectable ? 0.22 : lyricOpacity(i)};"
             onclick={() => {
               if (selecting) {
                 toggleLineSelection(i);
@@ -243,11 +308,11 @@
               }
             }}
           >
-            {#if selecting}
+            {#if selecting && selectable}
               <span
-                class="mt-1.5 w-4 h-4 rounded-full border inline-flex items-center justify-center shrink-0 transition-colors {picked
-                  ? 'bg-[var(--accent)] border-[var(--accent)] text-white'
-                  : 'border-[var(--border-strong)]'}"
+                class="mt-1.5 w-4 h-4 rounded-full border inline-flex items-center justify-center shrink-0 transition-all duration-150 {picked
+                  ? 'bg-[var(--accent)] border-[var(--accent)] text-white scale-100'
+                  : 'border-white/20 scale-95'}"
               >
                 {#if picked}
                   <Check size={10} strokeWidth={3} />
@@ -324,9 +389,9 @@
                   onclick={() => toggleLineSelection(sIndex)}
                 >
                   <span
-                    class="mt-1.5 w-4 h-4 rounded-full border inline-flex items-center justify-center shrink-0 transition-colors {picked
-                      ? 'bg-[var(--accent)] border-[var(--accent)] text-white'
-                      : 'border-[var(--border-strong)]'}"
+                    class="mt-1.5 w-4 h-4 rounded-full border inline-flex items-center justify-center shrink-0 transition-all duration-150 {picked
+                      ? 'bg-[var(--accent)] border-[var(--accent)] text-white scale-100'
+                      : 'border-white/20 scale-95'}"
                   >
                     {#if picked}
                       <Check size={10} strokeWidth={3} />
@@ -477,13 +542,15 @@
     line-height: 1.44;
     letter-spacing: -0.015em;
     color: var(--text);
-    padding: 4px 8px;
+    padding: 5px 10px;
+    border: 1px solid transparent;
     will-change: transform, opacity;
     transition:
-      opacity 280ms cubic-bezier(0.22, 1, 0.36, 1),
-      transform 280ms cubic-bezier(0.22, 1, 0.36, 1),
+      opacity 240ms cubic-bezier(0.22, 1, 0.36, 1),
+      transform 240ms cubic-bezier(0.22, 1, 0.36, 1),
       background-color 180ms ease,
-      color 260ms ease;
+      border-color 180ms ease,
+      color 220ms ease;
   }
 
   .sb-lyric-line:hover {
@@ -497,8 +564,8 @@
   }
 
   .sb-lyric-line.selected-line {
-    background: var(--accent-soft);
-    box-shadow: inset 3px 0 0 var(--accent-bright);
+    background: color-mix(in srgb, var(--accent-soft) 92%, transparent);
+    border-color: color-mix(in srgb, var(--accent-border) 65%, transparent);
     color: var(--text);
   }
 

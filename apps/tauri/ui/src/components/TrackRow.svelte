@@ -120,19 +120,21 @@
       </div>
 
       {#if track.view_count}
-        <span class="hidden lg:inline text-[11.5px] text-[var(--text-muted)] tabular-nums shrink-0 mr-1 md:group-hover:hidden md:group-has-[:focus-visible]:hidden">
+        <span class="hidden lg:inline text-[11.5px] text-[var(--text-muted)] tabular-nums shrink-0 mr-1 transition-opacity duration-150 {pickerOpen
+          ? 'opacity-0'
+          : 'md:group-hover:opacity-0 md:group-has-[:focus-visible]:opacity-0'}">
           {t("artist.plays", { count: formatPlays(track.view_count) })}
         </span>
       {/if}
 
       {#if favorite}
-        <span class="text-[var(--fav-coral)] shrink-0 {pickerOpen ? 'hidden' : 'md:group-hover:hidden md:group-has-[:focus-visible]:hidden'}" aria-hidden="true">
+        <span class="md:hidden text-[var(--fav-coral)] shrink-0" aria-hidden="true">
           <Heart size={14} fill="currentColor" />
         </span>
       {/if}
 
       {#if displayDuration != null}
-        <span class="text-[12px] text-[var(--text-muted)] tabular-nums shrink-0 min-w-[34px] text-right {pickerOpen ? 'hidden' : 'md:group-hover:hidden md:group-has-[:focus-visible]:hidden'}">
+        <span class="md:hidden text-[12px] text-[var(--text-muted)] tabular-nums shrink-0 min-w-[34px] text-right">
           {formatDuration(displayDuration)}
         </span>
       {/if}
@@ -142,15 +144,49 @@
       <span id={`${pickerId}-playback`} class="sr-only">{playbackLabel}</span>
     {/if}
 
-    <!-- Desktop hover-revealed inline action cluster (no overlay box; text truncates cleanly) -->
-    <div
-      class="items-center gap-0.5 shrink-0 {pickerOpen
-        ? 'hidden md:flex'
-        : 'hidden md:group-hover:flex md:group-has-[:focus-visible]:flex'}"
-    >
+    <!-- Desktop actions: extra icons fade/slide in smoothly to the left of the fixed-position Heart & duration -->
+    <div class="hidden md:flex items-center gap-0.5 shrink-0">
+      <div
+        class="flex items-center gap-0.5 transition-all duration-150 ease-out {pickerOpen
+          ? 'opacity-100 translate-x-0 pointer-events-auto'
+          : 'opacity-0 translate-x-1.5 pointer-events-none group-hover:opacity-100 group-hover:translate-x-0 group-hover:pointer-events-auto group-has-[:focus-visible]:opacity-100 group-has-[:focus-visible]:translate-x-0 group-has-[:focus-visible]:pointer-events-auto'}"
+      >
+        <button
+          type="button"
+          class="icon-btn !w-7 !h-7 shrink-0"
+          title={t("queue.add")}
+          onclick={() => player.enqueueTrack(track)}
+        >
+          <ListPlus size={15} />
+        </button>
+        <button
+          type="button"
+          class="icon-btn !w-7 !h-7 shrink-0"
+          class:active={pickerOpen}
+          title={t("collection.add_to_playlist")}
+          aria-expanded={pickerOpen}
+          aria-controls={pickerOpen ? pickerId : undefined}
+          onclick={() => (pickerOpen = !pickerOpen)}
+        >
+          <Plus size={15} />
+        </button>
+        {#if onRemove}
+          <button
+            type="button"
+            class="icon-btn !w-7 !h-7 shrink-0 hover:!text-red-400"
+            title={removeLabel}
+            onclick={onRemove}
+          >
+            <Trash2 size={14} />
+          </button>
+        {/if}
+      </div>
+
       <button
         type="button"
-        class="icon-btn !w-7 !h-7 shrink-0"
+        class="icon-btn !w-7 !h-7 shrink-0 transition-opacity duration-150 ease-out {favorite || pickerOpen
+          ? 'opacity-100'
+          : 'opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto group-has-[:focus-visible]:opacity-100 group-has-[:focus-visible]:pointer-events-auto'}"
         class:fav-active={favorite}
         title={favorite ? t("player.favorite_remove") : t("player.favorite_add")}
         aria-pressed={favorite}
@@ -158,34 +194,11 @@
       >
         <Heart size={15} fill={favorite ? "currentColor" : "none"} />
       </button>
-      <button
-        type="button"
-        class="icon-btn !w-7 !h-7 shrink-0"
-        title={t("queue.add")}
-        onclick={() => player.enqueueTrack(track)}
-      >
-        <ListPlus size={15} />
-      </button>
-      <button
-        type="button"
-        class="icon-btn !w-7 !h-7 shrink-0"
-        class:active={pickerOpen}
-        title={t("collection.add_to_playlist")}
-        aria-expanded={pickerOpen}
-        aria-controls={pickerOpen ? pickerId : undefined}
-        onclick={() => (pickerOpen = !pickerOpen)}
-      >
-        <Plus size={15} />
-      </button>
-      {#if onRemove}
-        <button
-          type="button"
-          class="icon-btn !w-7 !h-7 shrink-0 hover:!text-red-400"
-          title={removeLabel}
-          onclick={onRemove}
-        >
-          <Trash2 size={14} />
-        </button>
+
+      {#if displayDuration != null}
+        <span class="text-[12px] text-[var(--text-muted)] tabular-nums shrink-0 min-w-[38px] text-right pr-1">
+          {formatDuration(displayDuration)}
+        </span>
       {/if}
     </div>
 
