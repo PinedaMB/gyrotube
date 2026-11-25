@@ -544,7 +544,6 @@
     color: var(--text);
     padding: 5px 10px;
     border: 1px solid transparent;
-    will-change: transform, opacity;
     transition:
       opacity 240ms cubic-bezier(0.22, 1, 0.36, 1),
       transform 240ms cubic-bezier(0.22, 1, 0.36, 1),

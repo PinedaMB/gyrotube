@@ -114,7 +114,7 @@
   );
 </script>
 
-<div bind:this={rootEl} class="w-full min-h-full transition-all duration-500" style={player.isOffline ? "" : glowStyle}>
+<div bind:this={rootEl} class="w-full min-h-full" style={player.isOffline ? "" : glowStyle}>
   {#if player.isOffline}
     <div class="page-clamp">
       <OfflineState />

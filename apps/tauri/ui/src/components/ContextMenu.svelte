@@ -30,8 +30,8 @@
 {#if contextMenu.open && contextMenu.payload}
   {#if device.isMobile}
     <div
-      transition:fade={{ duration: 160 }}
-      class="fixed inset-0 z-[99] bg-black/60 backdrop-blur-[2px]"
+      transition:fade={{ duration: 150 }}
+      class="fixed inset-0 z-[99] bg-black/65"
       role="presentation"
       onclick={() => contextMenu.close()}
     ></div>

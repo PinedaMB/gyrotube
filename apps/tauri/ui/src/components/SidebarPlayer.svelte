@@ -1,5 +1,6 @@
 <script lang="ts">
   import { ChevronDown, ChevronRight, ListMusic, MessageSquareQuote, Music, Sparkles } from "lucide-svelte";
+  import { onDestroy } from "svelte";
   import { t } from "../lib/i18n.svelte";
   import { player } from "../lib/stores/player.svelte";
   import SidebarLyricsPane from "./sidebar/SidebarLyricsPane.svelte";
@@ -94,6 +95,10 @@
       }
     }, 1000);
   }
+
+  onDestroy(() => {
+    window.clearInterval(sleepInterval);
+  });
 </script>
 
 <aside

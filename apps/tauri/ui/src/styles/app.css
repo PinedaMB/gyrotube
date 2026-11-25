@@ -345,6 +345,11 @@ h2,
   gap: 2px;
 }
 
+.track-list > * {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 56px;
+}
+
 .track-cover {
   width: 44px;
   height: 44px;

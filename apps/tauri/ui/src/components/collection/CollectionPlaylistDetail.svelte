@@ -116,7 +116,7 @@
 </script>
 
 <div
-  class="w-full min-h-full transition-all duration-500"
+  class="w-full min-h-full"
   style="background-image: radial-gradient(ellipse 75% 48% at 24% 26%, {accentColor}30 0%, {accentColor}0d 48%, transparent 78%);"
 >
   <div class="w-full max-w-[1280px] mx-auto px-4 sm:px-8 pt-[calc(0.75rem+var(--safe-top))] sm:pt-6 pb-36 md:pb-28">

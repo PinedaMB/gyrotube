@@ -515,7 +515,6 @@
     letter-spacing: -0.02em;
     color: var(--text);
     padding: 5px 10px;
-    will-change: transform, opacity;
     transition:
       opacity 280ms cubic-bezier(0.22, 1, 0.36, 1),
       transform 280ms cubic-bezier(0.22, 1, 0.36, 1),

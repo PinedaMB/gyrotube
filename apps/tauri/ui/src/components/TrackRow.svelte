@@ -147,7 +147,7 @@
     <!-- Desktop actions: extra icons fade/slide in smoothly to the left of the fixed-position Heart & duration -->
     <div class="hidden md:flex items-center gap-0.5 shrink-0">
       <div
-        class="flex items-center gap-0.5 transition-all duration-150 ease-out {pickerOpen
+        class="flex items-center gap-0.5 transition-[opacity,transform] duration-150 ease-out {pickerOpen
           ? 'opacity-100 translate-x-0 pointer-events-auto'
           : 'opacity-0 translate-x-1.5 pointer-events-none group-hover:opacity-100 group-hover:translate-x-0 group-hover:pointer-events-auto group-has-[:focus-visible]:opacity-100 group-has-[:focus-visible]:translate-x-0 group-has-[:focus-visible]:pointer-events-auto'}"
       >
