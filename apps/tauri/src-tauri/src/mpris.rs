@@ -225,7 +225,7 @@ mod linux {
         }
 
         async fn desktop_entry(&self) -> fdo::Result<String> {
-            Ok("GyroTube".into())
+            Ok(std::env::var("FLATPAK_ID").unwrap_or_else(|_| "GyroTube".into()))
         }
 
         async fn supported_uri_schemes(&self) -> fdo::Result<Vec<String>> {

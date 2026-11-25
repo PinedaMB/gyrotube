@@ -53,12 +53,12 @@
       "deb": {
         "depends": ["libwebkit2gtk-4.1-0", "libayatana-appindicator3-1"],
         "files": {
-          "/usr/share/metainfo/com.github.gyrotube.GyroTube.metainfo.xml": "linux/com.github.gyrotube.GyroTube.metainfo.xml"
+          "/usr/share/metainfo/io.github.pinedamb.gyrotube.metainfo.xml": "linux/io.github.pinedamb.gyrotube.metainfo.xml"
         }
       },
       "rpm": {
         "files": {
-          "/usr/share/metainfo/com.github.gyrotube.GyroTube.metainfo.xml": "linux/com.github.gyrotube.GyroTube.metainfo.xml"
+          "/usr/share/metainfo/io.github.pinedamb.gyrotube.metainfo.xml": "linux/io.github.pinedamb.gyrotube.metainfo.xml"
         }
       },
       "appimage": {

@@ -1,0 +1,11 @@
+[Desktop Entry]
+Name=GyroTube
+Comment=Fast, modern YouTube Music client with lyrics and SPIN Mode
+Exec=gyrotube-tauri %U
+Icon=io.github.pinedamb.gyrotube
+Terminal=false
+Type=Application
+Categories=AudioVideo;Audio;Music;Player;
+Keywords=music;youtube;streaming;lyrics;audio;player;
+StartupWMClass=gyrotube-tauri
+StartupNotify=true
