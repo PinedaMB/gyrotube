@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.0.3-10b981?style=for-the-badge" alt="Version 1.0.3" />
+  <img src="https://img.shields.io/badge/version-1.0.4-10b981?style=for-the-badge" alt="Version 1.0.4" />
   <img src="https://img.shields.io/badge/Linux%20%7C%20Windows%20%7C%20macOS%20%7C%20Android-1e1c26?style=for-the-badge" alt="Cross-Platform" />
   <img src="https://img.shields.io/badge/Rust%20%2B%20Tauri%20v2%20%2B%20Svelte%205-eab308?style=for-the-badge" alt="Rust + Tauri v2 + Svelte 5" />
   <img src="https://img.shields.io/badge/License-MIT-ff5c6c?style=for-the-badge" alt="MIT License" />
