@@ -2,7 +2,9 @@
   import {
     ArrowLeft,
     AudioLines,
+    Check,
     Download,
+    FastForward,
     FolderArchive,
     Globe,
     HardDrive,
@@ -149,6 +151,16 @@
     { value: "Normal", label: t("settings.quality_normal") },
     { value: "Low", label: t("settings.quality_low") },
   ]);
+
+  const PALETTE_SWATCHES = [
+    { id: "gyro", labelKey: "settings.palette_gyro", colors: ["#131218", "#1e1c26", "#10b981"] },
+    { id: "amoled", labelKey: "settings.palette_amoled", colors: ["#000000", "#101014", "#10b981"] },
+    { id: "catppuccin", labelKey: "settings.palette_catppuccin", colors: ["#1e1e2e", "#28283d", "#cba6f7"] },
+    { id: "nord", labelKey: "settings.palette_nord", colors: ["#2e3440", "#3b4252", "#88c0d0"] },
+    { id: "rose-pine", labelKey: "settings.palette_rose_pine", colors: ["#191724", "#26233a", "#ebbcba"] },
+    { id: "tokyo-night", labelKey: "settings.palette_tokyo_night", colors: ["#1a1b26", "#24283b", "#7aa2f7"] },
+    { id: "gruvbox", labelKey: "settings.palette_gruvbox", colors: ["#282828", "#3c3836", "#fe8019"] },
+  ] as const;
 </script>
 
 <div class="page-clamp !max-w-[780px] space-y-6">
@@ -202,6 +214,46 @@
             ariaLabel={t("settings.theme")}
             onchange={(mode) => player.setThemeMode(mode)}
           />
+        </div>
+      </div>
+
+      <div class="p-3.5 sm:p-4 space-y-3 transition-colors hover:bg-[var(--surface-hover)]/35">
+        <div class="flex items-center gap-3 min-w-0">
+          <span class="w-9 h-9 rounded-xl bg-[var(--bg)]/60 border border-[var(--border)] inline-flex items-center justify-center text-[var(--accent-bright)] shrink-0">
+            <Palette size={16} />
+          </span>
+          <div class="min-w-0">
+            <div class="text-[14px] font-semibold leading-snug">{t("settings.palette")}</div>
+            <div class="text-[12px] text-[var(--text-muted)]">{t("settings.palette_sub")}</div>
+          </div>
+        </div>
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          {#each PALETTE_SWATCHES as sw (sw.id)}
+            {@const active = player.themePalette === sw.id}
+            <button
+              type="button"
+              class="flex items-center justify-between gap-2 px-3 py-2 rounded-xl border text-left transition-all active:scale-[0.98] {active
+                ? 'bg-[var(--accent-soft)] border-[var(--accent-border)] text-[var(--text)]'
+                : 'bg-[var(--bg)]/45 border-[var(--border)] hover:bg-[var(--surface-hover)] text-[var(--text-muted)] hover:text-[var(--text)]'}"
+              aria-pressed={active}
+              onclick={() => player.setThemePalette(sw.id)}
+            >
+              <span class="flex items-center gap-2 min-w-0">
+                <span class="flex items-center -space-x-1 shrink-0" aria-hidden="true">
+                  {#each sw.colors as col}
+                    <span
+                      class="w-3.5 h-3.5 rounded-full border border-white/20"
+                      style="background: {col};"
+                    ></span>
+                  {/each}
+                </span>
+                <span class="text-[12px] font-semibold truncate">{t(sw.labelKey)}</span>
+              </span>
+              {#if active}
+                <Check size={13} class="text-[var(--accent-bright)] shrink-0" />
+              {/if}
+            </button>
+          {/each}
         </div>
       </div>
 
@@ -306,6 +358,34 @@
         >
           <span
             class="block w-5 h-5 rounded-full bg-white shadow transition-transform {player.autoplayRelated
+              ? 'translate-x-5'
+              : 'translate-x-0'}"
+          ></span>
+        </button>
+      </div>
+
+      <div class="p-4 flex items-center justify-between gap-4 transition-colors hover:bg-[var(--surface-hover)]/35">
+        <div class="flex items-center gap-3 min-w-0">
+          <span class="w-9 h-9 rounded-xl bg-[var(--bg)]/60 border border-[var(--border)] inline-flex items-center justify-center text-[var(--accent-bright)] shrink-0">
+            <FastForward size={16} />
+          </span>
+          <div class="min-w-0">
+            <div class="text-[14px] font-semibold leading-snug">{t("settings.sponsorblock")}</div>
+            <div class="text-[12px] text-[var(--text-muted)]">{t("settings.sponsorblock_sub")}</div>
+          </div>
+        </div>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={player.sponsorBlockEnabled}
+          aria-label={t("settings.sponsorblock")}
+          class="w-11 h-6 rounded-full p-0.5 transition-colors shrink-0 {player.sponsorBlockEnabled
+            ? 'bg-[var(--accent)]'
+            : 'bg-[var(--control-track)]'}"
+          onclick={() => player.setSponsorBlockEnabled(!player.sponsorBlockEnabled)}
+        >
+          <span
+            class="block w-5 h-5 rounded-full bg-white shadow transition-transform {player.sponsorBlockEnabled
               ? 'translate-x-5'
               : 'translate-x-0'}"
           ></span>

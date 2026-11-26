@@ -21,16 +21,20 @@ import { parseYtmUrl } from "../ytmUrl";
 import {
   readDownloadedPlaylistKeys,
   readHiddenTrackIds,
+  readLyricsOffsets,
   readPinnedPlaylistIds,
   readRecentPlayedAt,
   readRecentSearches,
   readSpinDisplayName,
+  readSponsorBlockEnabled,
   writeDownloadedPlaylistKeys,
   writeHiddenTrackIds,
+  writeLyricsOffsets,
   writePinnedPlaylistIds,
   writeRecentPlayedAt,
   writeRecentSearches,
   writeSpinDisplayName,
+  writeSponsorBlockEnabled,
 } from "./localPrefs";
 import { contextMenu } from "./contextMenu.svelte";
 import { device } from "./device.svelte";
@@ -50,6 +54,7 @@ import {
   readInitialSidebarOpen,
   readNavCollapsed,
   readThemeMode,
+  readThemePalette,
   SessionPersister,
   writeChartCountry,
   writeNavCollapsed,
@@ -69,7 +74,9 @@ import type {
   SearchResults,
   SessionState,
   SpinStatus,
+  SponsorSegment,
   ThemeMode,
+  ThemePalette,
   Track,
   UserPlaylist,
   VideoStreamInfo,
@@ -113,15 +120,22 @@ class PlayerStore {
   backgroundPlayback = $state(true);
   audioQuality = $state<AudioQuality>("High");
   themeMode = $state<ThemeMode>(readThemeMode());
+  themePalette = $state<ThemePalette>(readThemePalette());
+  sponsorBlockEnabled = $state<boolean>(readSponsorBlockEnabled());
   language = $state<AppLanguage>("Auto");
 
   // Dynamic ambient color extracted from current cover
   ambientRgb = $state<[number, number, number] | null>(null);
 
-  // Lyrics
+  // Lyrics & per-track timing offsets
   lyrics = $state<LyricsData>({ type: "None" });
   lyricsLoading = $state(false);
   activeLyricIndex = $state<number | null>(null);
+  lyricsOffsets = $state<Record<string, number>>(readLyricsOffsets());
+
+  // SponsorBlock segments for current track
+  sponsorSegments = $state<SponsorSegment[]>([]);
+  private skippedSponsorKeys = new Set<string>();
 
   // Related / suggested tracks for Autoplay
   suggestedTracks = $state<Track[]>([]);
@@ -251,6 +265,10 @@ class PlayerStore {
       : null,
   );
 
+  currentLyricsOffset = $derived(
+    this.currentTrack ? (this.lyricsOffsets[this.currentTrack.id] ?? 0) : 0,
+  );
+
   private favoriteIdSet = $derived(new Set(this.favorites.map((t) => t.id)));
   private followedArtistIdSet = $derived(new Set(this.followedArtists.map((a) => a.id)));
 
@@ -276,6 +294,7 @@ class PlayerStore {
         if (!this.videoMode) {
           this.updateActiveLyric(pos);
         }
+        this.checkSponsorBlockSkip(pos, dur > 0 ? dur : this.durationSecs);
         this.trackListeningProgress(pos);
         const now = performance.now();
         if (this.spinStatus.local_active && this.isPlaying && !this.isLoadingAudio && now - this.lastLocalSpinUpdate >= 500) {
@@ -568,12 +587,54 @@ class PlayerStore {
 
   public applyTheme(mode: ThemeMode): void {
     this.themeMode = mode;
-    applyThemeToDocument(mode);
+    applyThemeToDocument(mode, this.themePalette);
   }
 
   public setThemeMode(mode: ThemeMode): void {
     this.applyTheme(mode);
     void this.persistSession();
+  }
+
+  public setThemePalette(palette: ThemePalette): void {
+    this.themePalette = palette;
+    applyThemeToDocument(this.themeMode, palette);
+  }
+
+  public setSponsorBlockEnabled(enabled: boolean): void {
+    this.sponsorBlockEnabled = enabled;
+    writeSponsorBlockEnabled(enabled);
+    if (!enabled) {
+      this.sponsorSegments = [];
+      this.skippedSponsorKeys.clear();
+    } else if (this.currentTrack) {
+      this.loadSponsorBlockForCurrent(this.loadGen);
+    }
+  }
+
+  public adjustLyricsOffset(deltaSecs: number): void {
+    const tid = this.currentTrack?.id;
+    if (!tid) return;
+    const current = this.lyricsOffsets[tid] ?? 0;
+    const next = Math.max(-10, Math.min(10, Math.round((current + deltaSecs) * 10) / 10));
+    const updated = { ...this.lyricsOffsets };
+    if (next === 0) {
+      delete updated[tid];
+    } else {
+      updated[tid] = next;
+    }
+    this.lyricsOffsets = updated;
+    writeLyricsOffsets(updated);
+    this.updateActiveLyric(this.positionSecs);
+  }
+
+  public resetLyricsOffset(): void {
+    const tid = this.currentTrack?.id;
+    if (!tid || !(tid in this.lyricsOffsets)) return;
+    const updated = { ...this.lyricsOffsets };
+    delete updated[tid];
+    this.lyricsOffsets = updated;
+    writeLyricsOffsets(updated);
+    this.updateActiveLyric(this.positionSecs);
   }
 
   public setLanguage(lang: AppLanguage): void {
@@ -1875,6 +1936,8 @@ class PlayerStore {
     this.durationSecs = track.duration_secs ?? 0;
     this.lyrics = { type: "None" };
     this.activeLyricIndex = null;
+    this.sponsorSegments = [];
+    this.skippedSponsorKeys.clear();
     this.videoStream = null;
     this.videoError = null;
     this.videoMode = Boolean(track.is_video);
@@ -1969,6 +2032,7 @@ class PlayerStore {
         // Load lyrics asynchronously only in song mode
         void this.loadLyricsForCurrent(gen);
       }
+      this.loadSponsorBlockForCurrent(gen);
       if (this.sidebarTab === "related") {
         void this.loadRelatedForCurrent(true);
       }
@@ -2042,6 +2106,12 @@ class PlayerStore {
 
   public seek(secs: number): void {
     this.positionSecs = secs;
+    // Allow re-triggering segments that lie ahead of a manual seek
+    for (const seg of this.sponsorSegments) {
+      if (secs < seg.start - 0.25) {
+        this.skippedSponsorKeys.delete(`${seg.start}:${seg.end}`);
+      }
+    }
     this.engine.seek(secs);
     this.updateActiveLyric(secs);
     this.syncAndroidForegroundService(this.isPlaying);
@@ -2174,9 +2244,53 @@ class PlayerStore {
       });
   }
 
+  private loadSponsorBlockForCurrent(expectedGen = this.loadGen): void {
+    const track = this.currentTrack;
+    if (!track || !this.sponsorBlockEnabled || this.isOffline || !isTauriRuntime()) {
+      this.sponsorSegments = [];
+      return;
+    }
+    void api
+      .getSponsorBlockSegments(track.id)
+      .then((segments) => {
+        if (this.loadGen === expectedGen && this.sponsorBlockEnabled) {
+          this.sponsorSegments = segments;
+        }
+      })
+      .catch(() => {
+        if (this.loadGen === expectedGen) this.sponsorSegments = [];
+      });
+  }
+
+  private checkSponsorBlockSkip(pos: number, dur: number): void {
+    if (
+      !this.sponsorBlockEnabled ||
+      this.sponsorSegments.length === 0 ||
+      this.isLoadingAudio ||
+      this.spinStatus.remote_role === "guest"
+    ) {
+      return;
+    }
+    for (const seg of this.sponsorSegments) {
+      if (pos >= seg.start && pos < seg.end - 0.35) {
+        const key = `${seg.start}:${seg.end}`;
+        if (this.skippedSponsorKeys.has(key)) continue;
+        this.skippedSponsorKeys.add(key);
+        if (dur > 0 && seg.end >= dur - 0.75) {
+          this.showToast(t("player.sponsorblock_skipped"));
+          void this.handleTrackEnded();
+        } else {
+          this.seek(seg.end);
+          this.showToast(t("player.sponsorblock_skipped"));
+        }
+        return;
+      }
+    }
+  }
+
   private updateActiveLyric(pos: number): void {
     if (this.videoMode) return;
-    const found = findActiveLyricIndex(this.lyrics, pos);
+    const found = findActiveLyricIndex(this.lyrics, pos + this.currentLyricsOffset);
     if (found !== this.activeLyricIndex) {
       this.activeLyricIndex = found;
     }

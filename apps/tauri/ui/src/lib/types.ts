@@ -102,6 +102,24 @@ export interface VideoStreamInfo {
   height: number;
 }
 
+export interface SponsorSegment {
+  start: number;
+  end: number;
+  category: string;
+}
+
+export interface ExternalTrackQuery {
+  title: string;
+  artist: string;
+  duration_secs?: number | null;
+}
+
+export interface ExternalPlaylistPreview {
+  name: string;
+  cover_url?: string | null;
+  tracks: ExternalTrackQuery[];
+}
+
 export interface SyncedLyricLine {
   time_secs: number;
   text: string;
@@ -123,6 +141,14 @@ export interface UserPlaylist {
 }
 
 export type ThemeMode = "system" | "dark" | "light";
+export type ThemePalette =
+  | "gyro"
+  | "amoled"
+  | "catppuccin"
+  | "nord"
+  | "rose-pine"
+  | "tokyo-night"
+  | "gruvbox";
 export type AppLanguage = "Auto" | "Es" | "En";
 export type AudioQuality = "High" | "Normal" | "Low";
 export type MainTab = "home" | "explore" | "collection";

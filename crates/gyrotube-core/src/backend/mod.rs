@@ -1,6 +1,8 @@
 mod catalog;
 mod lyrics;
 mod parsers;
+mod sponsorblock;
+mod spotify;
 mod streaming;
 #[cfg(test)]
 mod tests;
@@ -23,8 +25,9 @@ use crate::audio_cache;
 use crate::i18n::tr;
 use crate::innertube::{CatalogItem, InnerTubeClient, TrackKind};
 use crate::models::{
-    Album, Artist, ArtistDetails, Genre, LyricsData, Playlist, SearchResults, StreamInfo, Track,
-    VideoStreamInfo, cache_dir, clean_track_title, color_to_hex, parse_lrc, pick_cover_thumbs,
+    Album, Artist, ArtistDetails, Genre, LyricsData, Playlist, SearchResults, SponsorSegment,
+    StreamInfo, Track, VideoStreamInfo, cache_dir, clean_track_title, color_to_hex, parse_lrc,
+    pick_cover_thumbs,
 };
 
 const MUSIC_PROOF_TTL: Duration = Duration::from_secs(15 * 60);
@@ -77,6 +80,7 @@ enum AudioWork {
 type AudioLocks = Mutex<HashMap<(String, AudioWork), Arc<tokio::sync::Mutex<()>>>>;
 type HomeCacheMap = HashMap<Option<String>, (Instant, HomeFeed)>;
 type GenresCacheSlot = Option<(Instant, Vec<Genre>)>;
+type SponsorBlockCacheMap = HashMap<String, (Instant, Vec<SponsorSegment>)>;
 
 #[derive(Clone)]
 pub struct Backend {
@@ -86,6 +90,7 @@ pub struct Backend {
     home_cache: Arc<RwLock<HomeCacheMap>>,
     genres_cache: Arc<RwLock<GenresCacheSlot>>,
     stream_cache: Arc<RwLock<HashMap<String, (Instant, StreamInfo)>>>,
+    sponsorblock_cache: Arc<RwLock<SponsorBlockCacheMap>>,
     music_proofs: Arc<RwLock<HashMap<String, (Instant, Track)>>>,
     audio_locks: Arc<AudioLocks>,
 }
@@ -116,6 +121,7 @@ impl Backend {
             home_cache: Arc::new(RwLock::new(initial_home)),
             genres_cache: Arc::new(RwLock::new(None)),
             stream_cache: Arc::new(RwLock::new(HashMap::new())),
+            sponsorblock_cache: Arc::new(RwLock::new(HashMap::new())),
             music_proofs: Arc::default(),
             audio_locks: Arc::default(),
         }

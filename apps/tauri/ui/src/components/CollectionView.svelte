@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Plus } from "lucide-svelte";
+  import { Download, Plus } from "lucide-svelte";
   import { t } from "../lib/i18n.svelte";
   import { player } from "../lib/stores/player.svelte";
   import type { UserPlaylist } from "../lib/types";
@@ -22,6 +22,7 @@
     return { kind: "overview" };
   });
   let modalOpen = $state(false);
+  let spotifyImportOpen = $state(false);
   let editingPlaylist = $state<UserPlaylist | null>(null);
 
   let activePlaylist = $derived.by(() => {
@@ -101,10 +102,16 @@
           {t("collection.subtitle")}
         </p>
       </div>
-      <button type="button" class="pill-btn primary !px-3.5 sm:!px-4" onclick={openCreateModal}>
-        <Plus size={15} />
-        {t("collection.new_playlist")}
-      </button>
+      <div class="flex items-center gap-2 shrink-0">
+        <button type="button" class="pill-btn !px-3.5" onclick={() => (spotifyImportOpen = true)}>
+          <Download size={14} />
+          {t("spotify_import.button")}
+        </button>
+        <button type="button" class="pill-btn primary !px-3.5 sm:!px-4" onclick={openCreateModal}>
+          <Plus size={15} />
+          {t("collection.new_playlist")}
+        </button>
+      </div>
     </div>
 
     <CollectionPlaylistsGrid
@@ -144,6 +151,15 @@
       editing={editingPlaylist}
       onClose={() => (modalOpen = false)}
       onSave={handleSavePlaylist}
+    />
+  {/await}
+{/if}
+
+{#if spotifyImportOpen}
+  {#await import("./collection/SpotifyImportModal.svelte") then { default: SpotifyImportModal }}
+    <SpotifyImportModal
+      open={spotifyImportOpen}
+      onClose={() => (spotifyImportOpen = false)}
     />
   {/await}
 {/if}

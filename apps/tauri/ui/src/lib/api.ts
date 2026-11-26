@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type {
   Artist,
   ArtistDetails,
+  ExternalPlaylistPreview,
   Genre,
   HomeFeed,
   InitialAppData,
@@ -11,6 +12,7 @@ import type {
   SearchResults,
   SessionState,
   SpinStatus,
+  SponsorSegment,
   StreamInfo,
   Track,
   UserPlaylist,
@@ -87,6 +89,20 @@ export const api = {
     call("resolve_video_stream", { trackId, maxHeight }),
   findCounterpartTrack: (track: Track, wantVideo: boolean): Promise<Track | null> =>
     call("find_counterpart_track", { track, wantVideo }),
+  getSponsorBlockSegments: (trackId: string): Promise<SponsorSegment[]> =>
+    call("get_sponsorblock_segments", { trackId }),
+  fetchSpotifyPlaylist: (url: string): Promise<ExternalPlaylistPreview> =>
+    call("fetch_spotify_playlist", { url }),
+  matchExternalTrack: (
+    title: string,
+    artist: string,
+    durationSecs?: number | null,
+  ): Promise<Track | null> =>
+    call("match_external_track", {
+      title,
+      artist,
+      durationSecs: durationSecs ?? null,
+    }),
   prefetchAudio: (track: Track): Promise<void> => call("prefetch_audio", { track }),
   cancelStaleStreams: (keepIds: string[]): Promise<void> =>
     call("cancel_stale_streams", { keepIds }),

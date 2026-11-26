@@ -35,7 +35,17 @@
   );
 
   let waitingForFirstLyric = $derived(
-    isWaitingForFirstLyric(player.lyrics, player.activeLyricIndex, player.positionSecs),
+    isWaitingForFirstLyric(
+      player.lyrics,
+      player.activeLyricIndex,
+      player.positionSecs + player.currentLyricsOffset,
+    ),
+  );
+
+  let offsetLabel = $derived(
+    player.currentLyricsOffset === 0
+      ? "0.0s"
+      : `${player.currentLyricsOffset > 0 ? "+" : ""}${player.currentLyricsOffset.toFixed(1)}s`,
   );
 
   let selectedLineTexts = $derived.by(() => {
@@ -247,6 +257,47 @@
       <span>{t("lyrics.select_hint", { max: MAX_SELECTED_LYRIC_LINES })}</span>
       <span class="numeric opacity-85 shrink-0">{selectedIndices.length}/{MAX_SELECTED_LYRIC_LINES}</span>
     </div>
+  {:else if player.lyrics.type === "Synced" && player.currentTrack}
+    <div class="flex items-center justify-between gap-1.5 px-2 py-1 rounded-xl bg-[var(--surface)] border border-[var(--border)]">
+      <span class="text-[11px] font-semibold text-[var(--text-muted)] pl-1 truncate">
+        {t("lyrics.offset_label")}
+      </span>
+      <div class="flex items-center gap-1 shrink-0">
+        <button
+          type="button"
+          class="px-1.5 py-0.5 rounded-md text-[11px] font-bold numeric bg-[var(--bg)]/55 hover:bg-[var(--surface-hover)] text-[var(--text-muted)] hover:text-[var(--text)] transition-colors"
+          title={t("lyrics.offset_earlier")}
+          onclick={() => player.adjustLyricsOffset(-0.5)}
+        >-0.5s</button>
+        <button
+          type="button"
+          class="px-1.5 py-0.5 rounded-md text-[11px] font-bold numeric bg-[var(--bg)]/55 hover:bg-[var(--surface-hover)] text-[var(--text-muted)] hover:text-[var(--text)] transition-colors"
+          title={t("lyrics.offset_earlier")}
+          onclick={() => player.adjustLyricsOffset(-0.1)}
+        >-0.1s</button>
+        <button
+          type="button"
+          class="min-w-[46px] px-1.5 py-0.5 rounded-md text-[11px] font-extrabold numeric transition-colors {player.currentLyricsOffset !== 0
+            ? 'bg-[var(--accent-soft)] text-[var(--accent-bright)] border border-[var(--accent-border)]/60'
+            : 'text-[var(--text-muted)] hover:text-[var(--text)]'}"
+          title={t("lyrics.offset_reset")}
+          disabled={player.currentLyricsOffset === 0}
+          onclick={() => player.resetLyricsOffset()}
+        >{offsetLabel}</button>
+        <button
+          type="button"
+          class="px-1.5 py-0.5 rounded-md text-[11px] font-bold numeric bg-[var(--bg)]/55 hover:bg-[var(--surface-hover)] text-[var(--text-muted)] hover:text-[var(--text)] transition-colors"
+          title={t("lyrics.offset_later")}
+          onclick={() => player.adjustLyricsOffset(0.1)}
+        >+0.1s</button>
+        <button
+          type="button"
+          class="px-1.5 py-0.5 rounded-md text-[11px] font-bold numeric bg-[var(--bg)]/55 hover:bg-[var(--surface-hover)] text-[var(--text-muted)] hover:text-[var(--text)] transition-colors"
+          title={t("lyrics.offset_later")}
+          onclick={() => player.adjustLyricsOffset(0.5)}
+        >+0.5s</button>
+      </div>
+    </div>
   {/if}
 
   {#if player.lyricsLoading && player.currentTrack}
@@ -293,7 +344,7 @@
                 toggleLineSelection(i);
               } else {
                 autoScrollPaused = false;
-                player.seek(line.time_secs);
+                player.seek(Math.max(0, line.time_secs - player.currentLyricsOffset));
               }
             }}
           >

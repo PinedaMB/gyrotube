@@ -1,5 +1,5 @@
 use gyrotube_core::audio_streamer::AudioStreamer;
-use gyrotube_core::models::{Track, VideoStreamInfo, cache_dir};
+use gyrotube_core::models::{SponsorSegment, Track, VideoStreamInfo, cache_dir};
 use serde::Serialize;
 use tauri::State;
 
@@ -68,6 +68,14 @@ pub async fn find_counterpart_track(
         .backend
         .find_counterpart_track(&track, want_video)
         .await
+}
+
+#[tauri::command]
+pub async fn get_sponsorblock_segments(
+    state: State<'_, AppCoreState>,
+    track_id: String,
+) -> Result<Vec<SponsorSegment>, String> {
+    state.backend.fetch_sponsorblock_segments(&track_id).await
 }
 
 #[tauri::command]

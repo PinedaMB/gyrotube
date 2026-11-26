@@ -61,7 +61,17 @@
   }
 
   let waitingForFirstLyric = $derived(
-    isWaitingForFirstLyric(player.lyrics, player.activeLyricIndex, player.positionSecs),
+    isWaitingForFirstLyric(
+      player.lyrics,
+      player.activeLyricIndex,
+      player.positionSecs + player.currentLyricsOffset,
+    ),
+  );
+
+  let offsetLabel = $derived(
+    player.currentLyricsOffset === 0
+      ? "0.0s"
+      : `${player.currentLyricsOffset > 0 ? "+" : ""}${player.currentLyricsOffset.toFixed(1)}s`,
   );
 
   let plainStanzas = $derived(
@@ -295,21 +305,60 @@
 
     <!-- Cinema-grade lyrics (full-height on mobile, right column on desktop) -->
     <div class="flex-1 min-h-0 flex flex-col pt-2 lg:pt-0">
-      <div class="shrink-0 flex items-center gap-2.5 pb-1.5 lg:pb-2">
-        <span class="text-[12px] lg:text-[13px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">
-          {t("lyrics.title")}
-        </span>
-        {#if player.lyrics.type === "Synced"}
-          <span
-            class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10.5px] lg:text-[11px] font-bold bg-[var(--accent-soft)] text-[var(--accent-bright)]"
-          >
-            <span class="w-1.5 h-1.5 rounded-full bg-[var(--accent-bright)]"></span>
-            {t("lyrics.synced")}
+      <div class="shrink-0 flex flex-wrap items-center justify-between gap-2 pb-1.5 lg:pb-2">
+        <div class="flex items-center gap-2.5">
+          <span class="text-[12px] lg:text-[13px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">
+            {t("lyrics.title")}
           </span>
-        {:else if player.lyrics.type === "Plain"}
-          <span class="px-2.5 py-0.5 rounded-full text-[10.5px] lg:text-[11px] font-semibold bg-[var(--surface)] text-[var(--text-muted)]">
-            {t("lyrics.static")}
-          </span>
+          {#if player.lyrics.type === "Synced"}
+            <span
+              class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10.5px] lg:text-[11px] font-bold bg-[var(--accent-soft)] text-[var(--accent-bright)]"
+            >
+              <span class="w-1.5 h-1.5 rounded-full bg-[var(--accent-bright)]"></span>
+              {t("lyrics.synced")}
+            </span>
+          {:else if player.lyrics.type === "Plain"}
+            <span class="px-2.5 py-0.5 rounded-full text-[10.5px] lg:text-[11px] font-semibold bg-[var(--surface)] text-[var(--text-muted)]">
+              {t("lyrics.static")}
+            </span>
+          {/if}
+        </div>
+        {#if player.lyrics.type === "Synced" && player.currentTrack}
+          <div class="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-[var(--surface)] border border-[var(--border)]">
+            <button
+              type="button"
+              class="px-1.5 py-0.5 rounded-full text-[11px] font-bold numeric hover:bg-[var(--surface-hover)] text-[var(--text-muted)] hover:text-[var(--text)] transition-colors"
+              title={t("lyrics.offset_earlier")}
+              onclick={() => player.adjustLyricsOffset(-0.5)}
+            >-0.5s</button>
+            <button
+              type="button"
+              class="px-1.5 py-0.5 rounded-full text-[11px] font-bold numeric hover:bg-[var(--surface-hover)] text-[var(--text-muted)] hover:text-[var(--text)] transition-colors"
+              title={t("lyrics.offset_earlier")}
+              onclick={() => player.adjustLyricsOffset(-0.1)}
+            >-0.1s</button>
+            <button
+              type="button"
+              class="min-w-[44px] px-1.5 py-0.5 rounded-full text-[11px] font-extrabold numeric transition-colors {player.currentLyricsOffset !== 0
+                ? 'bg-[var(--accent-soft)] text-[var(--accent-bright)]'
+                : 'text-[var(--text-muted)]'}"
+              title={t("lyrics.offset_reset")}
+              disabled={player.currentLyricsOffset === 0}
+              onclick={() => player.resetLyricsOffset()}
+            >{offsetLabel}</button>
+            <button
+              type="button"
+              class="px-1.5 py-0.5 rounded-full text-[11px] font-bold numeric hover:bg-[var(--surface-hover)] text-[var(--text-muted)] hover:text-[var(--text)] transition-colors"
+              title={t("lyrics.offset_later")}
+              onclick={() => player.adjustLyricsOffset(0.1)}
+            >+0.1s</button>
+            <button
+              type="button"
+              class="px-1.5 py-0.5 rounded-full text-[11px] font-bold numeric hover:bg-[var(--surface-hover)] text-[var(--text-muted)] hover:text-[var(--text)] transition-colors"
+              title={t("lyrics.offset_later")}
+              onclick={() => player.adjustLyricsOffset(0.5)}
+            >+0.5s</button>
+          </div>
         {/if}
       </div>
 
@@ -347,7 +396,7 @@
                 style="opacity: {lineOpacity(i)};"
                 onclick={() => {
                   autoScrollPaused = false;
-                  player.seek(line.time_secs);
+                  player.seek(Math.max(0, line.time_secs - player.currentLyricsOffset));
                 }}
               >
                 {line.text}

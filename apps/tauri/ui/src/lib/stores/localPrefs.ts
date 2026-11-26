@@ -7,6 +7,8 @@ const KEYS = {
   hiddenTracks: "gyrotube.hidden_tracks_v1",
   downloadedPlaylists: "gyrotube.downloaded_playlists_v1",
   spinDisplayName: "gyrotube.spin_display_name_v1",
+  sponsorBlockEnabled: "gyrotube.sponsorblock_enabled_v1",
+  lyricsOffsets: "gyrotube.lyrics_offsets_v1",
 } as const;
 
 function readJson<T>(key: string): T | null {
@@ -97,4 +99,44 @@ export function writeSpinDisplayName(name: string): void {
   } catch {
     // ignore
   }
+}
+
+export function readSponsorBlockEnabled(): boolean {
+  if (typeof localStorage === "undefined") return true;
+  try {
+    const raw = localStorage.getItem(KEYS.sponsorBlockEnabled);
+    if (raw === "0" || raw === "false") return false;
+    return true;
+  } catch {
+    return true;
+  }
+}
+
+export function writeSponsorBlockEnabled(enabled: boolean): void {
+  if (typeof localStorage === "undefined") return;
+  try {
+    localStorage.setItem(KEYS.sponsorBlockEnabled, enabled ? "1" : "0");
+  } catch {
+    // ignore
+  }
+}
+
+export function readLyricsOffsets(): Record<string, number> {
+  const parsed = readJson<unknown>(KEYS.lyricsOffsets);
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+  const out: Record<string, number> = {};
+  for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
+    if (typeof v === "number" && Number.isFinite(v) && v !== 0) {
+      out[k] = Math.max(-10, Math.min(10, Math.round(v * 10) / 10));
+    }
+  }
+  return out;
+}
+
+export function writeLyricsOffsets(map: Record<string, number>): void {
+  const entries = Object.entries(map).filter(
+    ([, v]) => typeof v === "number" && Number.isFinite(v) && v !== 0,
+  );
+  const trimmed = entries.slice(-200);
+  writeJson(KEYS.lyricsOffsets, Object.fromEntries(trimmed));
 }

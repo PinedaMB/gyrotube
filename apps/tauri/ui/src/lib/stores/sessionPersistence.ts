@@ -1,11 +1,22 @@
 import { getAndroidBridge } from "../androidBridge";
 import { api, isTauriRuntime } from "../api";
-import type { SessionState, ThemeMode } from "../types";
+import type { SessionState, ThemeMode, ThemePalette } from "../types";
 
 const CHART_COUNTRY_KEY = "gyrotube.chartCountry";
 const THEME_MODE_KEY = "gyrotube.themeMode";
+const THEME_PALETTE_KEY = "gyrotube.themePalette";
 const NAV_COLLAPSED_KEY = "gyrotube.navCollapsed";
 const SIDEBAR_COLLAPSED_KEY = "gyrotube.sidebarCollapsed";
+
+const VALID_PALETTES = new Set<ThemePalette>([
+  "gyro",
+  "amoled",
+  "catppuccin",
+  "nord",
+  "rose-pine",
+  "tokyo-night",
+  "gruvbox",
+]);
 
 export function readNavCollapsed(): boolean {
   if (typeof localStorage === "undefined") return false;
@@ -56,6 +67,17 @@ export function readThemeMode(): ThemeMode {
   return "system";
 }
 
+export function readThemePalette(): ThemePalette {
+  if (typeof localStorage === "undefined") return "gyro";
+  try {
+    const saved = localStorage.getItem(THEME_PALETTE_KEY) as ThemePalette | null;
+    if (saved && VALID_PALETTES.has(saved)) return saved;
+  } catch {
+    // ignore storage errors
+  }
+  return "gyro";
+}
+
 let systemThemeMediaBound = false;
 let lastAppliedThemeMode: ThemeMode = "system";
 
@@ -66,14 +88,24 @@ function syncAndroidSystemBars(mode: ThemeMode): void {
     typeof window.matchMedia === "function" &&
     window.matchMedia("(prefers-color-scheme: dark)").matches;
   const isDark = mode === "dark" || (mode === "system" && prefersDark);
-  bridge.setSystemBarsTheme(isDark ? "#1e1c26" : "#ffffff", isDark);
+  let barColor = isDark ? "#1e1c26" : "#ffffff";
+  if (typeof document !== "undefined" && typeof getComputedStyle === "function") {
+    const computed = getComputedStyle(document.documentElement)
+      .getPropertyValue("--bg-elevated")
+      .trim();
+    if (/^#[0-9a-fA-F]{6}$/.test(computed)) {
+      barColor = computed;
+    }
+  }
+  bridge.setSystemBarsTheme(barColor, isDark);
 }
 
-export function applyThemeToDocument(mode: ThemeMode): void {
+export function applyThemeToDocument(mode: ThemeMode, palette?: ThemePalette): void {
   lastAppliedThemeMode = mode;
   if (typeof localStorage !== "undefined") {
     try {
       localStorage.setItem(THEME_MODE_KEY, mode);
+      if (palette) localStorage.setItem(THEME_PALETTE_KEY, palette);
     } catch {
       // ignore storage errors
     }
@@ -86,6 +118,13 @@ export function applyThemeToDocument(mode: ThemeMode): void {
   } else {
     root.setAttribute("data-theme", mode);
     root.style.colorScheme = mode;
+  }
+  if (palette) {
+    if (palette === "gyro") {
+      root.removeAttribute("data-palette");
+    } else {
+      root.setAttribute("data-palette", palette);
+    }
   }
   syncAndroidSystemBars(mode);
   if (!systemThemeMediaBound && typeof window !== "undefined" && typeof window.matchMedia === "function") {

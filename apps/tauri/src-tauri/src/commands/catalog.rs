@@ -1,6 +1,7 @@
 use gyrotube_core::backend::HomeFeed;
 use gyrotube_core::models::{
-    ArtistDetails, Genre, LyricsData, Playlist, RelatedFeed, SearchResults, SyncedLyricLine, Track,
+    ArtistDetails, ExternalPlaylistPreview, Genre, LyricsData, Playlist, RelatedFeed,
+    SearchResults, SyncedLyricLine, Track,
 };
 use serde::Serialize;
 use tauri::State;
@@ -143,4 +144,25 @@ pub async fn get_lyrics(
         Ok(LyricsData::Plain(text)) => Ok(LyricsPayload::Plain { text }),
         Err(_) => Ok(LyricsPayload::None),
     }
+}
+
+#[tauri::command]
+pub async fn fetch_spotify_playlist(
+    state: State<'_, AppCoreState>,
+    url: String,
+) -> Result<ExternalPlaylistPreview, String> {
+    state.backend.fetch_spotify_playlist(&url).await
+}
+
+#[tauri::command]
+pub async fn match_external_track(
+    state: State<'_, AppCoreState>,
+    title: String,
+    artist: String,
+    duration_secs: Option<u32>,
+) -> Result<Option<Track>, String> {
+    state
+        .backend
+        .match_external_track(&title, &artist, duration_secs)
+        .await
 }

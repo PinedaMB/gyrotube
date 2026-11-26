@@ -81,6 +81,29 @@ pub struct VideoStreamInfo {
     pub height: u32,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SponsorSegment {
+    pub start: f64,
+    pub end: f64,
+    pub category: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExternalTrackQuery {
+    pub title: String,
+    pub artist: String,
+    #[serde(default)]
+    pub duration_secs: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExternalPlaylistPreview {
+    pub name: String,
+    #[serde(default)]
+    pub cover_url: Option<String>,
+    pub tracks: Vec<ExternalTrackQuery>,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct SearchResults {
     pub artists: Vec<Artist>,
