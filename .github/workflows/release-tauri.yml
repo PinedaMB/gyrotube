@@ -252,9 +252,46 @@ jobs:
           cargo tauri android init --ci
           bash android-templates/apply-android-config.sh
 
+      - name: Configure Gradle Maven Central mirror (avoid CI 429)
+        run: |
+          mkdir -p "${HOME}/.gradle/init.d"
+          cat <<'EOF' > "${HOME}/.gradle/init.d/maven-mirror.gradle"
+          def mirrorUrl = "https://maven-central.storage-download.googleapis.com/maven2/"
+          def prependMirror = { RepositoryHandler repos ->
+              def mirror = repos.maven {
+                  name = "GoogleMavenCentralMirror"
+                  url = uri(mirrorUrl)
+              }
+              repos.remove(mirror)
+              repos.addFirst(mirror)
+              repos.withType(MavenArtifactRepository).configureEach { repo ->
+                  if (repo.url.toString().startsWith("https://repo.maven.apache.org/maven2")) {
+                      repo.url = uri(mirrorUrl)
+                  }
+              }
+          }
+          gradle.beforeSettings { settings ->
+              prependMirror(settings.pluginManagement.repositories)
+          }
+          allprojects {
+              prependMirror(buildscript.repositories)
+              prependMirror(repositories)
+          }
+          EOF
+
       - name: Build Android APK
         working-directory: apps/tauri
-        run: cargo tauri android build --apk --target aarch64
+        run: |
+          for attempt in 1 2 3; do
+            if cargo tauri android build --apk --target aarch64; then
+              exit 0
+            fi
+            if [[ "${attempt}" -eq 3 ]]; then
+              exit 1
+            fi
+            echo "Android build attempt ${attempt} failed (likely transient Maven/Gradle error), retrying in $((attempt * 15))s..."
+            sleep $((attempt * 15))
+          done
 
       - name: Align & sign Android APK
         id: sign
@@ -367,7 +404,7 @@ jobs:
 
           manifest = {
               "version": version,
-              "notes": f"GyroTube {tag}",
+              "notes": f"Gyro {tag}",
               "pub_date": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
               "platforms": platforms,
           }
