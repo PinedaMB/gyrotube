@@ -31,6 +31,7 @@ import java.io.FileOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.concurrent.atomic.AtomicBoolean
+import org.json.JSONObject
 
 class MainActivity : TauriActivity() {
   // Handle Back presses ourselves so exhausting the WebView history moves the app
@@ -168,7 +169,7 @@ class MainActivity : TauriActivity() {
 
   private fun captureSpinDeepLink(intent: Intent?) {
     val uri = intent?.data ?: return
-    if (uri.scheme.equals("gyrotube", ignoreCase = true) &&
+    if ((uri.scheme.equals("gyro", ignoreCase = true) || uri.scheme.equals("gyrotube", ignoreCase = true)) &&
       uri.host.equals("spin", ignoreCase = true)
     ) {
       val code = uri.pathSegments.firstOrNull()?.trim()
@@ -182,10 +183,10 @@ class MainActivity : TauriActivity() {
     val code = pendingSpinCode ?: return
     val wv = activeWebView ?: return
     pendingSpinCode = null
-    val escaped = code.replace("\\", "\\\\").replace("'", "\\'")
+    val jsArg = JSONObject.quote(code)
     runOnUiThread {
       wv.evaluateJavascript(
-        "if (window.__GYROTUBE_SPIN_LINK__) { window.__GYROTUBE_SPIN_LINK__('$escaped'); }",
+        "if (window.__GYROTUBE_SPIN_LINK__) { window.__GYROTUBE_SPIN_LINK__($jsArg); }",
         null
       )
     }
@@ -228,16 +229,29 @@ class MainActivity : TauriActivity() {
   }
 
   private fun notifyUpdateProgress(status: String, pct: Int, error: String = "") {
-    val safeErr = error
-      .replace("\\", "\\\\")
-      .replace("'", "\\'")
-      .replace("\n", " ")
-      .replace("\r", " ")
+    val jsStatus = JSONObject.quote(status)
+    val jsErr = JSONObject.quote(error)
     runOnUiThread {
       activeWebView?.evaluateJavascript(
-        "if (window.__GYROTUBE_ANDROID_UPDATE__) { window.__GYROTUBE_ANDROID_UPDATE__('$status', $pct, '$safeErr'); }",
+        "if (window.__GYROTUBE_ANDROID_UPDATE__) { window.__GYROTUBE_ANDROID_UPDATE__($jsStatus, $pct, $jsErr); }",
         null
       )
+    }
+  }
+
+  private fun isTrustedApkUrl(rawUrl: String): Boolean {
+    return try {
+      val parsed = URL(rawUrl)
+      if (!parsed.protocol.equals("https", ignoreCase = true)) return false
+      val host = parsed.host.lowercase(java.util.Locale.US)
+      if (host == "github.com") {
+        return parsed.path.startsWith("/PinedaMB/gyrotube/releases/")
+      }
+      host == "objects.githubusercontent.com" ||
+        host == "release-assets.githubusercontent.com" ||
+        host == "github-releases.githubusercontent.com"
+    } catch (_: Throwable) {
+      false
     }
   }
 
@@ -287,8 +301,8 @@ class MainActivity : TauriActivity() {
     @JavascriptInterface
     fun downloadAndInstallApk(url: String) {
       val trimmed = url.trim()
-      if (!trimmed.startsWith("https://")) {
-        notifyUpdateProgress("error", 0, "Invalid update URL")
+      if (!isTrustedApkUrl(trimmed)) {
+        notifyUpdateProgress("error", 0, "Untrusted update URL")
         return
       }
       if (!apkDownloading.compareAndSet(false, true)) return
@@ -299,11 +313,14 @@ class MainActivity : TauriActivity() {
           var currentUrl = trimmed
           var conn: HttpURLConnection? = null
           for (redirect in 0 until 6) {
+            if (!isTrustedApkUrl(currentUrl)) {
+              throw IllegalStateException("Untrusted redirect URL")
+            }
             val c = (URL(currentUrl).openConnection() as HttpURLConnection).apply {
               instanceFollowRedirects = false
               connectTimeout = 15000
               readTimeout = 30000
-              setRequestProperty("User-Agent", "GyroTube-Android")
+              setRequestProperty("User-Agent", "Gyro-Android")
             }
             val code = c.responseCode
             if (code in 300..399) {
@@ -322,9 +339,14 @@ class MainActivity : TauriActivity() {
             if (activeConn.responseCode !in 200..299) {
               throw IllegalStateException("HTTP ${activeConn.responseCode}")
             }
+            val maxApkBytes = 150L * 1024L * 1024L
             val total = activeConn.contentLengthLong
-            val tmpFile = File(cacheDir, "gyrotube-update.apk.part")
-            val outFile = File(cacheDir, "gyrotube-update.apk")
+            if (total > maxApkBytes) {
+              throw IllegalStateException("Update APK exceeds size limit")
+            }
+            val updatesDir = File(cacheDir, "updates").apply { mkdirs() }
+            val tmpFile = File(updatesDir, "gyro-update.apk.part")
+            val outFile = File(updatesDir, "gyro-update.apk")
             if (tmpFile.exists()) tmpFile.delete()
 
             activeConn.inputStream.use { input ->
@@ -336,8 +358,11 @@ class MainActivity : TauriActivity() {
                 while (true) {
                   val read = input.read(buf)
                   if (read <= 0) break
-                  output.write(buf, 0, read)
                   downloaded += read
+                  if (downloaded > maxApkBytes) {
+                    throw IllegalStateException("Update APK exceeds size limit")
+                  }
+                  output.write(buf, 0, read)
                   val now = System.currentTimeMillis()
                   val pct = if (total > 0L) ((downloaded * 100L) / total).toInt().coerceIn(0, 100) else -1
                   if (pct != lastPct && (now - lastNotifyMs >= 180L || pct == 100)) {
@@ -437,9 +462,14 @@ class MainActivity : TauriActivity() {
         if (bytes.isEmpty()) return "error:Empty image"
         val cleanName = filename
           .replace(Regex("[^A-Za-z0-9._-]"), "-")
-          .ifBlank { "gyrotube-lyrics.png" }
+          .ifBlank { "gyro-lyrics.png" }
           .let { if (it.endsWith(".png", ignoreCase = true)) it else "$it.png" }
-        val shareFile = File(cacheDir, cleanName)
+        val sharedDir = File(cacheDir, "shared").apply { mkdirs() }
+        // Keep shared cache clean by removing previous temporary cards
+        sharedDir.listFiles()?.forEach { old ->
+          if (old.isFile && old.name != cleanName) old.delete()
+        }
+        val shareFile = File(sharedDir, cleanName)
         FileOutputStream(shareFile).use { it.write(bytes) }
         val uri = FileProvider.getUriForFile(
           this@MainActivity,

@@ -2,6 +2,7 @@ use serde::Deserialize;
 use tauri::State;
 
 #[derive(Debug, Clone, Deserialize)]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub struct MprisStatePayload {
     pub track_id: Option<String>,
     pub title: Option<String>,

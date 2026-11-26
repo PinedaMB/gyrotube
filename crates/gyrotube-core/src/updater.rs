@@ -132,7 +132,7 @@ pub async fn check_github_release(current_version: &str) -> Result<UpdateCheckRe
         .get(GITHUB_LATEST_RELEASE_URL)
         .header(
             reqwest::header::USER_AGENT,
-            format!("GyroTube/{current_version}"),
+            format!("Gyro/{current_version}"),
         )
         .header(reqwest::header::ACCEPT, "application/vnd.github+json")
         .send()

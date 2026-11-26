@@ -234,6 +234,7 @@ class PlayerStore {
   private routeDepth = 0;
   private routerBound = false;
   private engine: DualDeckAudioEngine;
+  private audioDuckFactor = 1.0;
 
   currentTrack = $derived(
     this.currentIndex != null && this.currentIndex >= 0 && this.currentIndex < this.queue.length
@@ -606,13 +607,21 @@ class PlayerStore {
   public setVolume(v: number): void {
     if (device.isAndroid) {
       this.volume = 1.0;
-      this.engine.setVolume(1.0);
+      this.engine.setVolume(this.audioDuckFactor);
       return;
     }
     this.volume = Math.max(0, Math.min(1, v));
-    this.engine.setVolume(this.volume);
+    this.engine.setVolume(this.volume * this.audioDuckFactor);
     void this.persistSession();
     void this.syncMprisState();
+  }
+
+  private setAudioDucking(ducked: boolean): void {
+    const next = ducked ? 0.25 : 1.0;
+    if (this.audioDuckFactor === next) return;
+    this.audioDuckFactor = next;
+    const base = device.isAndroid ? 1.0 : this.volume;
+    this.engine.setVolume(Math.max(0, Math.min(1, base * this.audioDuckFactor)));
   }
 
   private formatErrorMessage(raw: string): string {
@@ -2303,6 +2312,8 @@ class PlayerStore {
         else if (action === "toggle") void this.togglePlay();
         else if (action === "play" && !this.isPlaying) void this.togglePlay();
         else if (action === "pause" && this.isPlaying) void this.togglePlay();
+        else if (action === "duck") this.setAudioDucking(true);
+        else if (action === "unduck") this.setAudioDucking(false);
         else if (action.startsWith("seek:")) {
           const ms = Number(action.slice(5));
           if (Number.isFinite(ms) && ms >= 0) {

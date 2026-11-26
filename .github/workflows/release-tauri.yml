@@ -210,6 +210,11 @@ jobs:
           distribution: temurin
           java-version: 17
 
+      - name: Cache Gradle & Maven dependencies
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-home-cache-cleanup: true
+
       - name: Install Android NDK & Build-Tools
         run: |
           SDKMANAGER="${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager"
@@ -287,7 +292,7 @@ jobs:
           fi
 
           ALIGNED_APK="${OUT_DIR}/.aligned.apk"
-          FINAL_APK="${OUT_DIR}/GyroTube-${TAG}-android-aarch64.apk"
+          FINAL_APK="${OUT_DIR}/Gyro-${TAG}-android-aarch64.apk"
 
           "${BUILD_TOOLS}/zipalign" -f -p 4 "${SRC_APK}" "${ALIGNED_APK}"
           "${BUILD_TOOLS}/apksigner" sign \

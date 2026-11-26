@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Builds GyroTube Android APK (aarch64) and copies it into <repo>/output/android/.
+# Builds Gyro Android APK (aarch64) and copies it into <repo>/output/android/.
 # Usage:
-#   ./scripts/build-android.sh           # Signed Release APK -> output/android/gyrotube-android-release.apk
-#   ./scripts/build-android.sh --debug   # Signed Debug APK   -> output/android/gyrotube-android-debug.apk
+#   ./scripts/build-android.sh           # Signed Release APK -> output/android/gyro-android-release.apk
+#   ./scripts/build-android.sh --debug   # Signed Debug APK   -> output/android/gyro-android-debug.apk
 #
 # Optional signing overrides for release builds:
 #   ANDROID_KEYSTORE, ANDROID_KEYSTORE_PASS, ANDROID_KEY_ALIAS, ANDROID_KEY_PASS
@@ -56,7 +56,7 @@ bash "${TAURI_DIR}/android-templates/apply-android-config.sh"
 mkdir -p "${OUT_DIR}"
 if [[ "${MODE}" == "debug" ]]; then
   SRC_APK="${TAURI_DIR}/src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk"
-  DEST_APK="${OUT_DIR}/gyrotube-android-debug.apk"
+  DEST_APK="${OUT_DIR}/gyro-android-debug.apk"
   if [[ ! -f "${SRC_APK}" ]]; then
     echo "Error: expected APK not found at ${SRC_APK}" >&2
     exit 1
@@ -64,7 +64,7 @@ if [[ "${MODE}" == "debug" ]]; then
   cp -f "${SRC_APK}" "${DEST_APK}"
 else
   SRC_APK="${TAURI_DIR}/src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk"
-  DEST_APK="${OUT_DIR}/gyrotube-android-release.apk"
+  DEST_APK="${OUT_DIR}/gyro-android-release.apk"
   if [[ ! -f "${SRC_APK}" ]]; then
     echo "Error: expected APK not found at ${SRC_APK}" >&2
     exit 1
@@ -90,10 +90,10 @@ else
         -keyalg RSA \
         -keysize 2048 \
         -validity 10000 \
-        -dname "CN=GyroTube Local,O=GyroTube,C=US"
+        -dname "CN=Gyro Local,O=Gyro,C=US"
     fi
 
-    ALIGNED_APK="${OUT_DIR}/.gyrotube-android-release-aligned.apk"
+    ALIGNED_APK="${OUT_DIR}/.gyro-android-release-aligned.apk"
     rm -f "${ALIGNED_APK}" "${DEST_APK}" "${DEST_APK}.idsig"
     "${ZIPALIGN}" -f -p 4 "${SRC_APK}" "${ALIGNED_APK}"
     "${APKSIGNER}" -J-enable-native-access=ALL-UNNAMED sign \
@@ -106,7 +106,7 @@ else
     rm -f "${ALIGNED_APK}" "${DEST_APK}.idsig"
   else
     echo "Warning: zipalign/apksigner not found; copying unsigned release APK." >&2
-    DEST_APK="${OUT_DIR}/gyrotube-android-release-unsigned.apk"
+    DEST_APK="${OUT_DIR}/gyro-android-release-unsigned.apk"
     cp -f "${SRC_APK}" "${DEST_APK}"
   fi
 fi

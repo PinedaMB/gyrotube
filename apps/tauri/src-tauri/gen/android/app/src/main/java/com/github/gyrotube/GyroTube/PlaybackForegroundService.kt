@@ -13,6 +13,8 @@ import android.content.pm.ServiceInfo
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.drawable.Icon
+import android.media.AudioAttributes
+import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.media.MediaMetadata
 import android.media.session.MediaSession
@@ -22,6 +24,7 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.os.PowerManager
+import java.io.ByteArrayOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.concurrent.Executors
@@ -33,10 +36,15 @@ import java.util.concurrent.Executors
 class PlaybackForegroundService : Service() {
     private var wakeLock: PowerManager.WakeLock? = null
     private var mediaSession: MediaSession? = null
+    private var audioManager: AudioManager? = null
+    private var audioFocusRequest: AudioFocusRequest? = null
+    private var hasAudioFocus = false
+    private var pausedByTransientFocus = false
+    private var isDucked = false
     private val mainHandler = Handler(Looper.getMainLooper())
     private val artExecutor = Executors.newSingleThreadExecutor()
 
-    private var currentTitle = "GyroTube"
+    private var currentTitle = "Gyro"
     private var currentArtist = ""
     private var currentPlaying = false
     private var currentPositionMs = 0L
@@ -44,6 +52,48 @@ class PlaybackForegroundService : Service() {
     private var currentCoverUrl: String? = null
     private var currentCoverBitmap: Bitmap? = null
     private var noisyReceiverRegistered = false
+
+    private val audioFocusChangeListener = AudioManager.OnAudioFocusChangeListener { focusChange ->
+        when (focusChange) {
+            AudioManager.AUDIOFOCUS_LOSS -> {
+                hasAudioFocus = false
+                pausedByTransientFocus = false
+                if (isDucked) {
+                    isDucked = false
+                    onMediaAction?.invoke("unduck")
+                }
+                if (currentPlaying) {
+                    onMediaAction?.invoke("pause")
+                }
+            }
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
+                hasAudioFocus = false
+                if (currentPlaying) {
+                    pausedByTransientFocus = true
+                    onMediaAction?.invoke("pause")
+                }
+            }
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
+                if (currentPlaying && !isDucked) {
+                    isDucked = true
+                    onMediaAction?.invoke("duck")
+                }
+            }
+            AudioManager.AUDIOFOCUS_GAIN -> {
+                hasAudioFocus = true
+                if (isDucked) {
+                    isDucked = false
+                    onMediaAction?.invoke("unduck")
+                }
+                if (pausedByTransientFocus) {
+                    pausedByTransientFocus = false
+                    if (!currentPlaying) {
+                        onMediaAction?.invoke("play")
+                    }
+                }
+            }
+        }
+    }
 
     private val becomingNoisyReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -75,17 +125,28 @@ class PlaybackForegroundService : Service() {
         super.onCreate()
         createNotificationChannel()
         val pm = getSystemService(PowerManager::class.java)
-        wakeLock = pm?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "GyroTube::PlaybackWakeLock")?.apply {
+        wakeLock = pm?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Gyro::PlaybackWakeLock")?.apply {
             setReferenceCounted(false)
         }
-        mediaSession = MediaSession(this, "GyroTubeSession").apply {
+        audioManager = getSystemService(AudioManager::class.java)
+        mediaSession = MediaSession(this, "GyroSession").apply {
             setCallback(object : MediaSession.Callback() {
                 override fun onPlay() {
+                    pausedByTransientFocus = false
                     onMediaAction?.invoke("play")
                 }
 
                 override fun onPause() {
+                    pausedByTransientFocus = false
                     onMediaAction?.invoke("pause")
+                }
+
+                override fun onStop() {
+                    pausedByTransientFocus = false
+                    abandonAudioFocus()
+                    onMediaAction?.invoke("pause")
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                    stopSelf()
                 }
 
                 override fun onSkipToNext() {
@@ -132,7 +193,7 @@ class PlaybackForegroundService : Service() {
         }
 
         if (intent != null) {
-            currentTitle = intent.getStringExtra(EXTRA_TITLE)?.takeIf { it.isNotBlank() } ?: "GyroTube"
+            currentTitle = intent.getStringExtra(EXTRA_TITLE)?.takeIf { it.isNotBlank() } ?: "Gyro"
             currentArtist = intent.getStringExtra(EXTRA_ARTIST) ?: ""
             currentPlaying = intent.getBooleanExtra(EXTRA_PLAYING, true)
             if (intent.hasExtra(EXTRA_POSITION_MS)) {
@@ -151,39 +212,128 @@ class PlaybackForegroundService : Service() {
             }
         }
 
-        updateSessionAndNotification(startInForeground = true)
+        updateSessionAndNotification(startInForeground = currentPlaying)
 
         if (currentPlaying) {
+            requestAudioFocus()
             if (wakeLock?.isHeld == false) {
                 wakeLock?.acquire(4 * 60 * 60 * 1000L)
             }
-        } else if (wakeLock?.isHeld == true) {
-            wakeLock?.release()
+        } else {
+            if (!pausedByTransientFocus) {
+                abandonAudioFocus()
+            }
+            if (wakeLock?.isHeld == true) {
+                wakeLock?.release()
+            }
+            // Detach foreground lock while paused so the user can dismiss the notification
+            stopForeground(STOP_FOREGROUND_DETACH)
         }
 
         return START_STICKY
     }
 
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        if (!currentPlaying) {
+            abandonAudioFocus()
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
+        }
+        super.onTaskRemoved(rootIntent)
+    }
+
+    private fun requestAudioFocus() {
+        if (hasAudioFocus) return
+        val am = audioManager ?: return
+        val attrs = AudioAttributes.Builder()
+            .setUsage(AudioAttributes.USAGE_MEDIA)
+            .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+            .build()
+        val req = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+            .setAudioAttributes(attrs)
+            .setAcceptsDelayedFocusGain(true)
+            .setWillPauseWhenDucked(false)
+            .setOnAudioFocusChangeListener(audioFocusChangeListener, mainHandler)
+            .build()
+        audioFocusRequest = req
+        hasAudioFocus = am.requestAudioFocus(req) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+    }
+
+    private fun abandonAudioFocus() {
+        val am = audioManager ?: return
+        audioFocusRequest?.let { am.abandonAudioFocusRequest(it) }
+        audioFocusRequest = null
+        hasAudioFocus = false
+    }
+
+    private fun isAllowedCoverUrl(rawUrl: String): Boolean {
+        return try {
+            val parsed = URL(rawUrl)
+            if (parsed.protocol.equals("https", ignoreCase = true)) return true
+            parsed.protocol.equals("http", ignoreCase = true) &&
+                (parsed.host == "127.0.0.1" || parsed.host.equals("localhost", ignoreCase = true))
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
+    private fun decodeDownsampledBitmap(bytes: ByteArray, maxDim: Int): Bitmap? {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+        val w = bounds.outWidth
+        val h = bounds.outHeight
+        if (w <= 0 || h <= 0) return null
+        var sampleSize = 1
+        while ((w / sampleSize) > maxDim * 2 || (h / sampleSize) > maxDim * 2) {
+            sampleSize *= 2
+        }
+        val opts = BitmapFactory.Options().apply {
+            inSampleSize = sampleSize
+            inPreferredConfig = Bitmap.Config.RGB_565
+        }
+        return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
+    }
+
     private fun fetchCoverArtAsync(url: String) {
+        if (!isAllowedCoverUrl(url)) return
         artExecutor.execute {
+            var conn: HttpURLConnection? = null
             try {
-                val conn = (URL(url).openConnection() as HttpURLConnection).apply {
+                conn = (URL(url).openConnection() as HttpURLConnection).apply {
                     connectTimeout = 4000
                     readTimeout = 4000
-                    setRequestProperty("User-Agent", "GyroTube/0.1 (Android)")
+                    setRequestProperty("User-Agent", "Gyro/1.0 (Android)")
                 }
-                val bmp = conn.inputStream.use { BitmapFactory.decodeStream(it) }
-                conn.disconnect()
+                if (conn.responseCode !in 200..299) return@execute
+                val maxCoverBytes = 5 * 1024 * 1024
+                if (conn.contentLength > maxCoverBytes) return@execute
+                val baos = ByteArrayOutputStream()
+                conn.inputStream.use { input ->
+                    val buf = ByteArray(8192)
+                    var total = 0
+                    while (true) {
+                        val read = input.read(buf)
+                        if (read <= 0) break
+                        total += read
+                        if (total > maxCoverBytes) return@execute
+                        baos.write(buf, 0, read)
+                    }
+                }
+                val bmp = decodeDownsampledBitmap(baos.toByteArray(), 512)
                 if (bmp != null) {
                     mainHandler.post {
                         if (currentCoverUrl == url) {
                             currentCoverBitmap = bmp
                             updateSessionAndNotification(startInForeground = false)
+                        } else {
+                            bmp.recycle()
                         }
                     }
                 }
             } catch (_: Throwable) {
                 // Ignore cover fetch failures; notification stays visible without artwork
+            } finally {
+                conn?.disconnect()
             }
         }
     }
@@ -254,6 +404,7 @@ class PlaybackForegroundService : Service() {
     }
 
     override fun onDestroy() {
+        abandonAudioFocus()
         if (noisyReceiverRegistered) {
             try {
                 unregisterReceiver(becomingNoisyReceiver)
