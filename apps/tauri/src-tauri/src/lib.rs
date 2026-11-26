@@ -22,12 +22,12 @@ use commands::{AppCoreState, SpinCommandEvent, SpinRemoteSyncEvent};
 fn build_tray_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
     use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 
-    let show_i = MenuItem::with_id(app, "show", tr("Mostrar GyroTube", "Show GyroTube"), true, None::<&str>)?;
+    let show_i = MenuItem::with_id(app, "show", tr("Mostrar Gyro", "Show Gyro"), true, None::<&str>)?;
     let play_i = MenuItem::with_id(app, "toggle_play", tr("Reproducir / Pausar", "Play / Pause"), true, None::<&str>)?;
     let prev_i = MenuItem::with_id(app, "prev", tr("Anterior", "Previous"), true, None::<&str>)?;
     let next_i = MenuItem::with_id(app, "next", tr("Siguiente", "Next"), true, None::<&str>)?;
     let sep_i = PredefinedMenuItem::separator(app)?;
-    let quit_i = MenuItem::with_id(app, "quit", tr("Salir de GyroTube", "Quit GyroTube"), true, None::<&str>)?;
+    let quit_i = MenuItem::with_id(app, "quit", tr("Salir de Gyro", "Quit Gyro"), true, None::<&str>)?;
 
     Menu::with_items(app, &[&show_i, &play_i, &prev_i, &next_i, &sep_i, &quit_i])
 }
@@ -157,7 +157,7 @@ pub fn run() {
 
                 let mut tray_builder = TrayIconBuilder::with_id("gyrotube-tray")
                     .menu(&menu)
-                    .tooltip("GyroTube")
+                    .tooltip("Gyro")
                     .show_menu_on_left_click(false)
                     .on_menu_event(|app, event| match event.id.as_ref() {
                         "show" => {

@@ -125,7 +125,7 @@ pub async fn save_backup_json(
         .collect();
     let clean_name = sanitized.trim_matches(['.', '-', '_']);
     let final_name = if clean_name.is_empty() {
-        "gyrotube-library.json".to_string()
+        "gyro-library.json".to_string()
     } else if clean_name.to_ascii_lowercase().ends_with(".json") {
         clean_name.to_string()
     } else {

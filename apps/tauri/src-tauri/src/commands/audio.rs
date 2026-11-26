@@ -185,7 +185,7 @@ pub async fn save_lyrics_card_png(
         .collect();
     let clean_name = sanitized.trim_matches(['.', '-', '_']);
     let final_name = if clean_name.is_empty() {
-        "gyrotube-lyrics.png".to_string()
+        "gyro-lyrics.png".to_string()
     } else if clean_name.to_ascii_lowercase().ends_with(".png") {
         clean_name.to_string()
     } else {
@@ -198,10 +198,10 @@ pub async fn save_lyrics_card_png(
         .or_else(|_| app.path().download_dir())
         .or_else(|_| app.path().document_dir())
         .map_err(|e| format!("No se pudo localizar la carpeta de imágenes: {e}"))?;
-    let target_dir = base_dir.join("GyroTube");
+    let target_dir = base_dir.join("Gyro");
     tokio::fs::create_dir_all(&target_dir)
         .await
-        .map_err(|e| format!("No se pudo crear la carpeta GyroTube: {e}"))?;
+        .map_err(|e| format!("No se pudo crear la carpeta Gyro: {e}"))?;
     let target_path = target_dir.join(&final_name);
     tokio::fs::write(&target_path, png_bytes)
         .await

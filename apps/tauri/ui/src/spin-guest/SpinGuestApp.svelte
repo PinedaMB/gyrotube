@@ -178,7 +178,7 @@
           </span>
         </span>
         <div class="flex items-center gap-2 min-w-0">
-          <span class="font-extrabold text-[18px] sm:text-[20px] tracking-tight truncate">GyroTube</span>
+          <span class="font-extrabold text-[18px] sm:text-[20px] tracking-tight truncate">Gyro</span>
           <span class="inline-flex items-center gap-1.5 text-[11px] font-bold tracking-wider uppercase px-2.5 py-0.5 rounded-full bg-[var(--gold-soft)] border border-[var(--gold-border)] text-[var(--gold-bright)]">
             <SpinIcon size={12} spinning={isPlaying} />
             SPIN

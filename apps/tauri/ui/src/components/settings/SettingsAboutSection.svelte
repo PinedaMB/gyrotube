@@ -75,18 +75,18 @@
         class="shrink-0 rounded-2xl focus:outline-none cursor-default transition-transform duration-150 {logoPop
           ? 'scale-90 rotate-12'
           : ''}"
-        aria-label="GyroTube"
+        aria-label="Gyro"
         onclick={handleLogoTap}
       >
         <img
           src="/gyrotube.svg"
-          alt="GyroTube"
+          alt="Gyro"
           class="w-12 h-12 drop-shadow-[0_4px_12px_rgba(16,185,129,0.3)] select-none"
         />
       </button>
       <div class="min-w-0 flex-1">
         <div class="flex items-center gap-2 flex-wrap">
-          <span class="text-[16px] font-extrabold tracking-tight">GyroTube</span>
+          <span class="text-[16px] font-extrabold tracking-tight">Gyro</span>
           <button
             type="button"
             class="px-2 py-0.5 rounded-full text-[10.5px] font-bold numeric bg-[var(--accent-soft)] text-[var(--accent-bright)] border border-[var(--accent-border)]/40 cursor-default transition-transform duration-100 active:scale-90"

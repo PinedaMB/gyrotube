@@ -141,7 +141,7 @@
     busy = true;
     try {
       const filename = lyricsCardFilename(player.currentTrack?.title ?? "lyrics");
-      const title = player.currentTrack?.title ?? "GyroTube";
+      const title = player.currentTrack?.title ?? "Gyro";
 
       // 1. Android native Share Sheet via FileProvider
       const bridge = getAndroidBridge();

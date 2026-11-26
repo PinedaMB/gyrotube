@@ -2321,7 +2321,7 @@ class PlayerStore {
     const durMs = Math.max(0, Math.round(durSecs * 1000));
     bridge.setPlaybackActive(
       keepPlaying,
-      cur?.title ?? "GyroTube",
+      cur?.title ?? "Gyro",
       cur?.artist ?? "",
       this.trackCoverUrl(cur, false) ?? "",
       Boolean(cur),

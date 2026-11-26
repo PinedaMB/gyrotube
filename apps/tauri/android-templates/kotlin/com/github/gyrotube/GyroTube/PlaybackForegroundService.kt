@@ -36,7 +36,7 @@ class PlaybackForegroundService : Service() {
     private val mainHandler = Handler(Looper.getMainLooper())
     private val artExecutor = Executors.newSingleThreadExecutor()
 
-    private var currentTitle = "GyroTube"
+    private var currentTitle = "Gyro"
     private var currentArtist = ""
     private var currentPlaying = false
     private var currentPositionMs = 0L
@@ -132,7 +132,7 @@ class PlaybackForegroundService : Service() {
         }
 
         if (intent != null) {
-            currentTitle = intent.getStringExtra(EXTRA_TITLE)?.takeIf { it.isNotBlank() } ?: "GyroTube"
+            currentTitle = intent.getStringExtra(EXTRA_TITLE)?.takeIf { it.isNotBlank() } ?: "Gyro"
             currentArtist = intent.getStringExtra(EXTRA_ARTIST) ?: ""
             currentPlaying = intent.getBooleanExtra(EXTRA_PLAYING, true)
             if (intent.hasExtra(EXTRA_POSITION_MS)) {

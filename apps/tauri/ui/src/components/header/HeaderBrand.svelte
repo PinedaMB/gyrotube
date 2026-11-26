@@ -28,7 +28,7 @@
       class="w-7 h-7 md:w-6 md:h-6 shrink-0 drop-shadow-[0_2px_8px_rgba(33,144,164,0.45)]"
     />
     <span class="font-extrabold text-[16.5px] md:text-[15.5px] tracking-[-0.02em]">
-      GyroTube
+      Gyro
     </span>
     <span
       class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] md:text-[10.5px] font-bold tracking-wide bg-[var(--accent-soft)] text-[var(--accent-bright)] border border-[var(--accent-border)]/40"

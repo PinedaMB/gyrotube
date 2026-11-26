@@ -273,8 +273,8 @@
     const track = player.currentTrack;
     const title =
       track && player.isPlaying
-        ? `${track.title}${track.artist ? ` — ${track.artist}` : ""} · GyroTube`
-        : "GyroTube";
+        ? `${track.title}${track.artist ? ` — ${track.artist}` : ""} · Gyro`
+        : "Gyro";
     void getCurrentWindow().setTitle(title).catch(() => {});
   });
 </script>

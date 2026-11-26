@@ -381,7 +381,7 @@
   "updater.installing": "Descargando actualización… {pct}%",
   "updater.installing_indeterminate": "Descargando actualización…",
   "updater.label": "Actualizaciones",
-  "updater.toast_available": "GyroTube v{version} disponible en Ajustes",
+  "updater.toast_available": "Gyro v{version} disponible en Ajustes",
   "updater.up_to_date": "Estás al día",
   "url.import_failed": "No se pudo importar esa playlist",
   "url.import_label": "Enlace de playlist o álbum de YouTube Music",

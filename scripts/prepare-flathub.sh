@@ -3,8 +3,8 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 FLATPAK_DIR="$ROOT_DIR/flatpak"
-METAINFO="$ROOT_DIR/apps/tauri/src-tauri/linux/io.github.pinedamb.gyrotube.metainfo.xml"
-DESKTOP="$ROOT_DIR/apps/tauri/src-tauri/linux/io.github.pinedamb.gyrotube.desktop"
+METAINFO="$ROOT_DIR/apps/tauri/src-tauri/linux/io.github.pinedamb.gyro.metainfo.xml"
+DESKTOP="$ROOT_DIR/apps/tauri/src-tauri/linux/io.github.pinedamb.gyro.desktop"
 
 echo "==> 1. Validating AppStream MetaInfo..."
 appstreamcli validate --pedantic --explain "$METAINFO"
@@ -15,7 +15,7 @@ if command -v desktop-file-validate >/dev/null 2>&1; then
 fi
 
 echo "==> 3. Pinning latest yt-dlp release URL + sha256 in manifest..."
-MANIFEST="$FLATPAK_DIR/io.github.pinedamb.gyrotube.yml"
+MANIFEST="$FLATPAK_DIR/io.github.pinedamb.gyro.yml"
 if command -v curl >/dev/null 2>&1 && command -v sha256sum >/dev/null 2>&1; then
   YTDLP_TAG="$(curl -fsSL https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest | python3 -c 'import json,sys; print(json.load(sys.stdin)["tag_name"])' 2>/dev/null || true)"
   if [ -n "$YTDLP_TAG" ]; then
@@ -58,10 +58,10 @@ fi
 
 echo ""
 echo "==> Next steps to test locally & submit to Flathub:"
-echo "  1. Pin the exact v1.0.5 git commit hash and yt-dlp release URL + sha256 in flatpak/io.github.pinedamb.gyrotube.yml"
+echo "  1. Pin the exact v1.0.5 git commit hash and yt-dlp release URL + sha256 in flatpak/io.github.pinedamb.gyro.yml"
 echo "  2. Build & test locally:"
-echo "     flatpak-builder --user --install --force-clean build-dir flatpak/io.github.pinedamb.gyrotube.yml"
+echo "     flatpak-builder --user --install --force-clean build-dir flatpak/io.github.pinedamb.gyro.yml"
 echo "  3. Run Flathub linter:"
-echo "     flatpak run --command=flatpak-builder-lint org.flatpak.Builder manifest flatpak/io.github.pinedamb.gyrotube.yml"
+echo "     flatpak run --command=flatpak-builder-lint org.flatpak.Builder manifest flatpak/io.github.pinedamb.gyro.yml"
 echo "     flatpak run --command=flatpak-builder-lint org.flatpak.Builder repo repo"
 echo "  4. Fork https://github.com/flathub/flathub (branch: new-pr), add flatpak/* files, and open a PR."

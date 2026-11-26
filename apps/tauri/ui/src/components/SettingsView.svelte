@@ -72,7 +72,7 @@
     try {
       const json = player.exportLibraryJson();
       const date = new Date().toISOString().slice(0, 10);
-      const filename = `gyrotube-library-${date}.json`;
+      const filename = `gyro-library-${date}.json`;
 
       // 1. Android native bridge -> saves directly to Downloads/GyroTube via MediaStore
       const androidBridge =
@@ -179,7 +179,7 @@
       </div>
     </div>
     <span class="px-2.5 py-1 rounded-full text-[11px] font-bold numeric bg-[var(--surface)] border border-[var(--border)] text-[var(--text-muted)] shrink-0">
-      GyroTube v{updater.currentVersion}
+      Gyro v{updater.currentVersion}
     </span>
   </header>
 

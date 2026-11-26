@@ -221,11 +221,11 @@ mod linux {
         }
 
         async fn identity(&self) -> fdo::Result<String> {
-            Ok("GyroTube".into())
+            Ok("Gyro".into())
         }
 
         async fn desktop_entry(&self) -> fdo::Result<String> {
-            Ok(std::env::var("FLATPAK_ID").unwrap_or_else(|_| "GyroTube".into()))
+            Ok(std::env::var("FLATPAK_ID").unwrap_or_else(|_| "Gyro".into()))
         }
 
         async fn supported_uri_schemes(&self) -> fdo::Result<Vec<String>> {
@@ -437,7 +437,7 @@ mod linux {
                     app,
                     state: Arc::clone(&state),
                 };
-                let Ok(server) = Server::new("GyroTube", player).await else {
+                let Ok(server) = Server::new("Gyro", player).await else {
                     return;
                 };
 

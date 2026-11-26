@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <component type="desktop-application">
-  <id>io.github.pinedamb.gyrotube</id>
+  <id>io.github.pinedamb.gyro</id>
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>MIT</project_license>
-  <name>GyroTube</name>
+  <name>Gyro</name>
   <summary>Fast, modern YouTube Music client with lyrics and SPIN Mode</summary>
   <developer id="io.github.pinedamb">
     <name>PinedaMB</name>
@@ -13,7 +13,7 @@
   <url type="vcs-browser">https://github.com/PinedaMB/gyrotube</url>
   <description>
     <p>
-      GyroTube is a fast, privacy-first YouTube Music desktop client built with Rust, Tauri, and Svelte.
+      Gyro is a fast, privacy-first YouTube Music desktop client built with Rust, Tauri, and Svelte.
       Enjoy distraction-free music streaming with synced karaoke lyrics, offline downloads, local playlists,
       dual-deck crossfade, and collaborative SPIN listening rooms.
     </p>
@@ -25,7 +25,7 @@
       <li>MPRIS media controls and system tray integration</li>
     </ul>
   </description>
-  <launchable type="desktop-id">io.github.pinedamb.gyrotube.desktop</launchable>
+  <launchable type="desktop-id">io.github.pinedamb.gyro.desktop</launchable>
   <branding>
     <color type="primary" scheme_preference="light">#10b981</color>
     <color type="primary" scheme_preference="dark">#065f46</color>

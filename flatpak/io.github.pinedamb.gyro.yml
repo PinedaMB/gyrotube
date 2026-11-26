@@ -1,4 +1,4 @@
-app-id: io.github.pinedamb.gyrotube
+app-id: io.github.pinedamb.gyro
 runtime: org.gnome.Platform
 runtime-version: '51'
 sdk: org.gnome.Sdk
@@ -14,9 +14,9 @@ finish-args:
   - --socket=fallback-x11
   - --socket=pulseaudio
   - --device=dri
-  - --own-name=org.mpris.MediaPlayer2.GyroTube
+  - --own-name=org.mpris.MediaPlayer2.Gyro
   - --talk-name=org.kde.StatusNotifierWatcher
-  - --filesystem=xdg-pictures/GyroTube:create
+  - --filesystem=xdg-pictures/Gyro:create
   - --filesystem=xdg-download:create
 
 modules:
@@ -53,14 +53,14 @@ modules:
       - cargo --offline build --release --manifest-path apps/tauri/src-tauri/Cargo.toml --features tauri/custom-protocol
       # 3. Install binary, desktop entry, AppStream MetaInfo, and icons
       - install -Dm755 target/release/gyrotube-tauri /app/bin/gyrotube-tauri
-      - install -Dm644 apps/tauri/src-tauri/linux/io.github.pinedamb.gyrotube.desktop /app/share/applications/io.github.pinedamb.gyrotube.desktop
-      - install -Dm644 apps/tauri/src-tauri/linux/io.github.pinedamb.gyrotube.metainfo.xml /app/share/metainfo/io.github.pinedamb.gyrotube.metainfo.xml
-      - install -Dm644 gyrotube.svg /app/share/icons/hicolor/scalable/apps/io.github.pinedamb.gyrotube.svg
-      - install -Dm644 apps/tauri/src-tauri/icons/32x32.png /app/share/icons/hicolor/32x32/apps/io.github.pinedamb.gyrotube.png
-      - install -Dm644 apps/tauri/src-tauri/icons/64x64.png /app/share/icons/hicolor/64x64/apps/io.github.pinedamb.gyrotube.png
-      - install -Dm644 apps/tauri/src-tauri/icons/128x128.png /app/share/icons/hicolor/128x128/apps/io.github.pinedamb.gyrotube.png
-      - install -Dm644 apps/tauri/src-tauri/icons/128x128@2x.png /app/share/icons/hicolor/256x256/apps/io.github.pinedamb.gyrotube.png
-      - install -Dm644 apps/tauri/src-tauri/icons/icon.png /app/share/icons/hicolor/512x512/apps/io.github.pinedamb.gyrotube.png
+      - install -Dm644 apps/tauri/src-tauri/linux/io.github.pinedamb.gyro.desktop /app/share/applications/io.github.pinedamb.gyro.desktop
+      - install -Dm644 apps/tauri/src-tauri/linux/io.github.pinedamb.gyro.metainfo.xml /app/share/metainfo/io.github.pinedamb.gyro.metainfo.xml
+      - install -Dm644 gyrotube.svg /app/share/icons/hicolor/scalable/apps/io.github.pinedamb.gyro.svg
+      - install -Dm644 apps/tauri/src-tauri/icons/32x32.png /app/share/icons/hicolor/32x32/apps/io.github.pinedamb.gyro.png
+      - install -Dm644 apps/tauri/src-tauri/icons/64x64.png /app/share/icons/hicolor/64x64/apps/io.github.pinedamb.gyro.png
+      - install -Dm644 apps/tauri/src-tauri/icons/128x128.png /app/share/icons/hicolor/128x128/apps/io.github.pinedamb.gyro.png
+      - install -Dm644 apps/tauri/src-tauri/icons/128x128@2x.png /app/share/icons/hicolor/256x256/apps/io.github.pinedamb.gyro.png
+      - install -Dm644 apps/tauri/src-tauri/icons/icon.png /app/share/icons/hicolor/512x512/apps/io.github.pinedamb.gyro.png
     sources:
       - type: git
         url: https://github.com/PinedaMB/gyrotube.git

@@ -369,7 +369,7 @@ export async function renderLyricsCard(
   ctx.textBaseline = "middle";
   ctx.fillStyle = pal.text;
   ctx.font = `800 42px ${fontFamily}`;
-  ctx.fillText(truncateText(ctx, opts.title || "GyroTube", metaMaxW), metaX, headerCenterY - 22);
+  ctx.fillText(truncateText(ctx, opts.title || "Gyro", metaMaxW), metaX, headerCenterY - 22);
 
   ctx.fillStyle = pal.muted;
   ctx.font = `600 32px ${fontFamily}`;
@@ -464,7 +464,7 @@ export async function renderLyricsCard(
   ctx.fillStyle = pal.text;
   ctx.globalAlpha = 0.88;
   ctx.font = `800 31px ${fontFamily}`;
-  ctx.fillText("GyroTube", pad + (logoImg ? logoSize + 15 : 46), footerY + 1);
+  ctx.fillText("Gyro", pad + (logoImg ? logoSize + 15 : 46), footerY + 1);
   ctx.globalAlpha = 1;
 }
 
@@ -480,5 +480,5 @@ export function lyricsCardFilename(title: string): string {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 40);
-  return `gyrotube-lyrics-${slug || "card"}.png`;
+  return `gyro-lyrics-${slug || "card"}.png`;
 }

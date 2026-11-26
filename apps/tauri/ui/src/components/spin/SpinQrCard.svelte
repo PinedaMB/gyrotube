@@ -37,7 +37,7 @@
     if (typeof navigator !== "undefined" && typeof navigator.share === "function") {
       try {
         await navigator.share({
-          title: "GyroTube SPIN",
+          title: "Gyro SPIN",
           text: value,
           url: link,
         });

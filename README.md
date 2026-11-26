@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="gyrotube.svg" width="104" height="104" alt="GyroTube logo" />
+  <img src="gyrotube.svg" width="104" height="104" alt="Gyro logo" />
 </p>
 
-<h1 align="center">GyroTube</h1>
+<h1 align="center">Gyro</h1>
 
 <p align="center">
   <strong>Your music, without distractions, on every device.</strong><br />

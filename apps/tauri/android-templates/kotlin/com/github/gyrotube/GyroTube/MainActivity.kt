@@ -399,7 +399,7 @@ class MainActivity : TauriActivity() {
           val values = ContentValues().apply {
             put(MediaStore.Images.Media.DISPLAY_NAME, cleanName)
             put(MediaStore.Images.Media.MIME_TYPE, "image/png")
-            put(MediaStore.Images.Media.RELATIVE_PATH, "${Environment.DIRECTORY_PICTURES}/GyroTube")
+            put(MediaStore.Images.Media.RELATIVE_PATH, "${Environment.DIRECTORY_PICTURES}/Gyro")
             put(MediaStore.Images.Media.IS_PENDING, 1)
           }
           val resolver = contentResolver
@@ -419,7 +419,7 @@ class MainActivity : TauriActivity() {
           }
           "ok"
         } else {
-          val dir = File(getExternalFilesDir(Environment.DIRECTORY_PICTURES), "GyroTube")
+          val dir = File(getExternalFilesDir(Environment.DIRECTORY_PICTURES), "Gyro")
           dir.mkdirs()
           val outFile = File(dir, cleanName)
           FileOutputStream(outFile).use { it.write(bytes) }
@@ -456,7 +456,7 @@ class MainActivity : TauriActivity() {
               }
               addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
-            val chooser = Intent.createChooser(sendIntent, title.ifBlank { "GyroTube" }).apply {
+            val chooser = Intent.createChooser(sendIntent, title.ifBlank { "Gyro" }).apply {
               addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
             startActivity(chooser)
@@ -484,7 +484,7 @@ class MainActivity : TauriActivity() {
           val values = ContentValues().apply {
             put(MediaStore.Downloads.DISPLAY_NAME, cleanName)
             put(MediaStore.Downloads.MIME_TYPE, "application/json")
-            put(MediaStore.Downloads.RELATIVE_PATH, "${Environment.DIRECTORY_DOWNLOADS}/GyroTube")
+            put(MediaStore.Downloads.RELATIVE_PATH, "${Environment.DIRECTORY_DOWNLOADS}/Gyro")
             put(MediaStore.Downloads.IS_PENDING, 1)
           }
           val resolver = contentResolver
@@ -504,7 +504,7 @@ class MainActivity : TauriActivity() {
           }
           "ok"
         } else {
-          val dir = File(getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "GyroTube")
+          val dir = File(getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "Gyro")
           dir.mkdirs()
           val outFile = File(dir, cleanName)
           FileOutputStream(outFile).use { it.write(bytes) }
@@ -539,7 +539,7 @@ class MainActivity : TauriActivity() {
           return@runOnUiThread
         }
         val intent = Intent(this@MainActivity, PlaybackForegroundService::class.java).apply {
-          putExtra(PlaybackForegroundService.EXTRA_TITLE, title.ifBlank { "GyroTube" })
+          putExtra(PlaybackForegroundService.EXTRA_TITLE, title.ifBlank { "Gyro" })
           putExtra(PlaybackForegroundService.EXTRA_ARTIST, artist)
           putExtra(PlaybackForegroundService.EXTRA_COVER_URL, coverUrl)
           putExtra(PlaybackForegroundService.EXTRA_PLAYING, playing)
