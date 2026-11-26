@@ -14,7 +14,28 @@ if command -v desktop-file-validate >/dev/null 2>&1; then
   desktop-file-validate "$DESKTOP"
 fi
 
-echo "==> 3. Checking offline source generators..."
+echo "==> 3. Pinning latest yt-dlp release URL + sha256 in manifest..."
+MANIFEST="$FLATPAK_DIR/io.github.pinedamb.gyrotube.yml"
+if command -v curl >/dev/null 2>&1 && command -v sha256sum >/dev/null 2>&1; then
+  YTDLP_TAG="$(curl -fsSL https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest | python3 -c 'import json,sys; print(json.load(sys.stdin)["tag_name"])' 2>/dev/null || true)"
+  if [ -n "$YTDLP_TAG" ]; then
+    YTDLP_URL="https://github.com/yt-dlp/yt-dlp/releases/download/${YTDLP_TAG}/yt-dlp"
+    YTDLP_SHA="$(curl -fsSL "$YTDLP_URL" | sha256sum | awk '{print $1}')"
+    if [ -n "$YTDLP_SHA" ]; then
+      python3 - "$MANIFEST" "$YTDLP_URL" "$YTDLP_SHA" <<'PY'
+import re, sys
+path, url, sha = sys.argv[1:4]
+text = open(path, encoding="utf-8").read()
+text = re.sub(r"https://github\.com/yt-dlp/yt-dlp/releases/\S+", url, text, count=1)
+text = re.sub(r"sha256:\s*\S+", f"sha256: {sha}", text, count=1)
+open(path, "w", encoding="utf-8").write(text)
+PY
+      echo "  Pinned yt-dlp ${YTDLP_TAG} (sha256=${YTDLP_SHA})"
+    fi
+  fi
+fi
+
+echo "==> 4. Checking offline source generators..."
 if command -v flatpak-cargo-generator >/dev/null 2>&1; then
   echo "Generating flatpak/cargo-sources.json from Cargo.lock..."
   flatpak-cargo-generator "$ROOT_DIR/Cargo.lock" -o "$FLATPAK_DIR/cargo-sources.json"
