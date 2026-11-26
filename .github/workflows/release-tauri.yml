@@ -272,6 +272,7 @@ jobs:
           }
           gradle.beforeSettings { settings ->
               prependMirror(settings.pluginManagement.repositories)
+              settings.pluginManagement.repositories.gradlePluginPortal()
           }
           allprojects {
               prependMirror(buildscript.repositories)
