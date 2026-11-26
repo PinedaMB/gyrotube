@@ -3,7 +3,9 @@ use gyrotube_core::models::{Track, VideoStreamInfo, cache_dir};
 use serde::Serialize;
 use tauri::State;
 
-use super::AppCoreState;
+use super::{AppCoreState, sanitize_export_filename};
+
+const MAX_LYRICS_PNG_BYTES: usize = 20 * 1024 * 1024;
 
 #[derive(Serialize)]
 pub struct StreamPayload {
@@ -27,7 +29,7 @@ pub async fn resolve_audio_stream(
         streamer.serve_local_file(&track.id, std::path::PathBuf::from(&info.url))?
     };
     eprintln!(
-        "[gyrotube-tauri] audio stream resolved: id={} quality={} url={}",
+        "[gyro] audio stream resolved: id={} quality={} url={}",
         track.id, info.quality_label, stream_url
     );
     if let Ok(mut lease) = state.active_audio_lease.lock() {
@@ -50,7 +52,7 @@ pub async fn resolve_video_stream(
         .resolve_video_stream(&track_id, max_height.unwrap_or(720))
         .await?;
     eprintln!(
-        "[gyrotube-tauri] video stream resolved: id={} quality={} url={}",
+        "[gyro] video stream resolved: id={} quality={} url={}",
         track_id, info.quality_label, info.url
     );
     Ok(info)
@@ -173,24 +175,10 @@ pub async fn save_lyrics_card_png(
     if png_bytes.is_empty() {
         return Err("Empty PNG payload".to_string());
     }
-    let sanitized: String = filename
-        .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-') {
-                c
-            } else {
-                '-'
-            }
-        })
-        .collect();
-    let clean_name = sanitized.trim_matches(['.', '-', '_']);
-    let final_name = if clean_name.is_empty() {
-        "gyro-lyrics.png".to_string()
-    } else if clean_name.to_ascii_lowercase().ends_with(".png") {
-        clean_name.to_string()
-    } else {
-        format!("{clean_name}.png")
-    };
+    if png_bytes.len() > MAX_LYRICS_PNG_BYTES {
+        return Err("PNG payload exceeds 20 MiB limit".to_string());
+    }
+    let final_name = sanitize_export_filename(&filename, "gyro-lyrics.png", ".png");
 
     let base_dir = app
         .path()

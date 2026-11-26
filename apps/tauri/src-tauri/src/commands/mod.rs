@@ -128,3 +128,52 @@ pub fn open_external_url(url: String) -> Result<(), String> {
         Err("No soportado en esta plataforma".into())
     }
 }
+
+pub(crate) fn sanitize_export_filename(
+    filename: &str,
+    default_name: &str,
+    required_ext: &str,
+) -> String {
+    let sanitized: String = filename
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-') {
+                c
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    let clean_name = sanitized.trim_matches(['.', '-', '_']);
+    if clean_name.is_empty() {
+        default_name.to_string()
+    } else if clean_name
+        .to_ascii_lowercase()
+        .ends_with(&required_ext.to_ascii_lowercase())
+    {
+        clean_name.to_string()
+    } else {
+        format!("{clean_name}{required_ext}")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::sanitize_export_filename;
+
+    #[test]
+    fn sanitize_export_filename_strips_traversal_and_enforces_ext() {
+        assert_eq!(
+            sanitize_export_filename("../../etc/passwd", "gyro-library.json", ".json"),
+            "etc-passwd.json"
+        );
+        assert_eq!(
+            sanitize_export_filename("...", "gyro-lyrics.png", ".png"),
+            "gyro-lyrics.png"
+        );
+        assert_eq!(
+            sanitize_export_filename("my-card.PNG", "gyro-lyrics.png", ".png"),
+            "my-card.PNG"
+        );
+    }
+}

@@ -38,7 +38,7 @@ fn build_spin_payload(spin: &SpinState) -> SpinStatusPayload {
         RemoteRole::Idle => ("idle", None, None),
         RemoteRole::Host(code) => {
             let ticket = format!("GYRO-{code}");
-            let deep_link = format!("gyrotube://spin/{ticket}");
+            let deep_link = format!("gyro://spin/{ticket}");
             let qr = ticket_qr_svg(&deep_link);
             ("host", Some(ticket), qr)
         }

@@ -121,7 +121,9 @@ pub fn normalize_room_code(input: &str) -> Result<String, String> {
         return Ok(trimmed.trim_end_matches('/').to_string());
     }
     let trimmed = trimmed
-        .strip_prefix("gyrotube://spin/")
+        .strip_prefix("gyro://spin/")
+        .or_else(|| trimmed.strip_prefix("GYRO://SPIN/"))
+        .or_else(|| trimmed.strip_prefix("gyrotube://spin/"))
         .or_else(|| trimmed.strip_prefix("GYROTUBE://SPIN/"))
         .unwrap_or(trimmed)
         .trim_matches('/');
@@ -742,5 +744,15 @@ mod tests {
             Ok::<_, anyhow::Error>(())
         })
         .await?
+    }
+
+    #[test]
+    fn normalize_room_code_accepts_gyro_and_legacy_deep_links() {
+        let endpoint_id = iroh::SecretKey::from_bytes(&[7u8; 32]).public();
+        let addr = EndpointAddr::new(endpoint_id);
+        let code = encode_ticket(addr, &[3u8; 16]);
+        assert_eq!(normalize_room_code(&format!("gyro://spin/GYRO-{code}")).unwrap(), code);
+        assert_eq!(normalize_room_code(&format!("GYRO://SPIN/GYRO-{code}")).unwrap(), code);
+        assert_eq!(normalize_room_code(&format!("gyrotube://spin/GYRO-{code}")).unwrap(), code);
     }
 }

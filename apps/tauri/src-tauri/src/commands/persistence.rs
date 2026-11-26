@@ -11,7 +11,9 @@ use gyrotube_core::models::{
 use serde::Serialize;
 use tauri::State;
 
-use super::AppCoreState;
+use super::{AppCoreState, sanitize_export_filename};
+
+const MAX_BACKUP_JSON_BYTES: usize = 50 * 1024 * 1024;
 
 #[derive(Serialize)]
 pub struct InitialAppData {
@@ -113,24 +115,10 @@ pub async fn save_backup_json(
     if json_content.is_empty() {
         return Err("Empty backup payload".to_string());
     }
-    let sanitized: String = filename
-        .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-') {
-                c
-            } else {
-                '-'
-            }
-        })
-        .collect();
-    let clean_name = sanitized.trim_matches(['.', '-', '_']);
-    let final_name = if clean_name.is_empty() {
-        "gyro-library.json".to_string()
-    } else if clean_name.to_ascii_lowercase().ends_with(".json") {
-        clean_name.to_string()
-    } else {
-        format!("{clean_name}.json")
-    };
+    if json_content.len() > MAX_BACKUP_JSON_BYTES {
+        return Err("Backup payload exceeds 50 MiB limit".to_string());
+    }
+    let final_name = sanitize_export_filename(&filename, "gyro-library.json", ".json");
 
     let base_dir = app
         .path()

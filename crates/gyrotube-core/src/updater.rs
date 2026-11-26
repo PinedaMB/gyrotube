@@ -121,7 +121,7 @@ fn pick_platform_asset(assets: &[GithubAsset]) -> Option<String> {
     }
 }
 
-/// Checks GitHub Releases (`releases/latest`) for a newer version of GyroTube.
+/// Checks GitHub Releases (`releases/latest`) for a newer version of Gyro.
 pub async fn check_github_release(current_version: &str) -> Result<UpdateCheckResult, String> {
     let client = crate::tls::http_client_builder()
         .timeout(std::time::Duration::from_secs(10))

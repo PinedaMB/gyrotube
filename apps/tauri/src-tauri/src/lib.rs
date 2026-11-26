@@ -270,5 +270,5 @@ pub fn run() {
             mpris::mpris_sync_state,
         ])
         .run(tauri::generate_context!())
-        .expect("error while running GyroTube Tauri application");
+        .expect("error while running Gyro Tauri application");
 }

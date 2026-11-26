@@ -135,15 +135,22 @@ pub fn start_jam_server(
         let (shutdown_tx, mut shutdown_rx) = oneshot::channel::<()>();
         let _ = ready_tx.send(Ok((port, shutdown_tx)));
 
+        const MAX_CONCURRENT_CONNS: usize = 64;
+        let conn_limit = Arc::new(tokio::sync::Semaphore::new(MAX_CONCURRENT_CONNS));
+
         loop {
             tokio::select! {
                 _ = &mut shutdown_rx => break,
                 accepted = listener.accept() => {
                     if let Ok((stream, peer)) = accepted {
+                        let Ok(permit) = Arc::clone(&conn_limit).try_acquire_owned() else {
+                            continue;
+                        };
                         let backend = backend.clone();
                         let snapshot = Arc::clone(&snapshot);
                         let cmd_tx = cmd_tx.clone();
                         tokio::spawn(async move {
+                            let _permit = permit;
                             handle_connection(stream, peer, backend, snapshot, cmd_tx, session_id).await;
                         });
                     }
@@ -223,8 +230,12 @@ async fn handle_connection(
     }
     body.truncate(content_length);
 
+    const MAX_TRACKED_GUESTS: usize = 128;
     let guest_ip = peer.ip().to_string();
-    if let Ok(mut snap) = snapshot.write() {
+    if let Ok(mut snap) = snapshot.write()
+        && !snap.guests.contains(&guest_ip)
+        && snap.guests.len() < MAX_TRACKED_GUESTS
+    {
         snap.guests.insert(guest_ip.clone());
         snap.guest_count = snap.guests.len();
         snap.guest_list = snap.guests.iter().cloned().collect();
