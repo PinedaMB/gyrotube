@@ -9,3 +9,4 @@
 /build-dir/
 /.flatpak-builder/
 /flatpak/shared-modules/
+/apps/tauri/src-tauri/gen/
