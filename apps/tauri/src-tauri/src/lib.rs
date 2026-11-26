@@ -44,8 +44,30 @@ pub(crate) fn refresh_tray_menu(app: &tauri::AppHandle) {
 #[cfg(not(desktop))]
 pub(crate) fn refresh_tray_menu(_app: &tauri::AppHandle) {}
 
+#[cfg(target_os = "linux")]
+fn configure_linux_audio_env() {
+    // SAFETY: Called once at the very start of `run()` before spawning any background threads
+    // or starting Tauri/WebKitGTK.
+    unsafe {
+        if std::env::var_os("PULSE_PROP").is_none() {
+            std::env::set_var("PULSE_PROP", "media.role=music");
+        }
+        if std::env::var_os("APPIMAGE").is_some()
+            && std::env::var_os("GST_PLUGIN_FEATURE_RANK").is_none()
+        {
+            std::env::set_var(
+                "GST_PLUGIN_FEATURE_RANK",
+                "pulsesink:MAX,alsasink:NONE,jackaudiosink:NONE,openalsink:NONE,oss4sink:NONE,osssink:NONE,vaapidecodebin:NONE,vaapipostproc:NONE,vaapih264dec:NONE,vaapivp9dec:NONE,vaapiav1dec:NONE,vah264dec:NONE,vavp9dec:NONE,vaav1dec:NONE",
+            );
+        }
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    #[cfg(target_os = "linux")]
+    configure_linux_audio_env();
+
     #[cfg(desktop)]
     let mut instance_guard = match single_instance::SingleInstanceGuard::acquire_or_notify_existing()
     {
