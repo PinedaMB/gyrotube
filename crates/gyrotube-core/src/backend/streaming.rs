@@ -383,7 +383,7 @@ impl Backend {
             let fmt = format!(
                 "bestvideo[vcodec^=avc1][height<={max_height}]/bestvideo[ext=mp4][height<={max_height}]/bestvideo[ext=webm][height<={max_height}]/18"
             );
-            let mut cmd = tokio::process::Command::new("yt-dlp");
+            let mut cmd = crate::audio_streamer::ytdlp_command();
             cmd.kill_on_drop(true)
                 .args([
                     "--ignore-config",
@@ -539,7 +539,7 @@ impl Backend {
             crate::models::AudioQuality::Normal => "250/249/140/bestaudio",
             crate::models::AudioQuality::Low => "249/139/250/worstaudio/bestaudio",
         };
-        let mut cmd = tokio::process::Command::new("yt-dlp");
+        let mut cmd = crate::audio_streamer::ytdlp_command();
         cmd.kill_on_drop(true)
             .args([
                 "--ignore-config",
@@ -646,7 +646,7 @@ impl Backend {
         let staging = tempfile::tempdir_in(streams_dir)
             .map_err(|e| format!("Error al preparar descarga de audio: {e}"))?;
 
-        let mut command = tokio::process::Command::new("yt-dlp");
+        let mut command = crate::audio_streamer::ytdlp_command();
         command
             .kill_on_drop(true)
             .args([

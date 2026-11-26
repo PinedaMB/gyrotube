@@ -21,6 +21,25 @@ const SUBSEQUENT_HTTP_BLOCK_BYTES: u64 = 512 * 1024;
 const READY_THRESHOLD_BYTES: u64 = 32 * 1024;
 const FALLBACK_SEEKABLE_BYTES: u64 = 32 * 1024 * 1024;
 
+#[cfg(not(target_os = "android"))]
+pub(crate) fn ytdlp_command() -> Command {
+    let mut cmd = Command::new("yt-dlp");
+    // Inside a Linux AppImage, AppRun injects LD_LIBRARY_PATH pointing to bundled libs
+    // (often built on Ubuntu), which breaks host Python/yt-dlp/node on other distros (e.g. Fedora).
+    if std::env::var_os("APPIMAGE").is_some() {
+        cmd.env_remove("LD_LIBRARY_PATH")
+            .env_remove("LD_PRELOAD")
+            .env_remove("PYTHONHOME")
+            .env_remove("PYTHONPATH");
+        if let Some(orig) = std::env::var_os("APPIMAGE_ORIG_LD_LIBRARY_PATH")
+            && !orig.is_empty()
+        {
+            cmd.env("LD_LIBRARY_PATH", orig);
+        }
+    }
+    cmd
+}
+
 #[derive(Clone, Debug)]
 pub struct ChunkProgress {
     pub written: u64,
@@ -581,7 +600,7 @@ impl AudioStreamer {
             .map_err(|e| format!("Failed to open yt-dlp pipe staging file: {e}"))?;
 
         let watch_url = format!("https://music.youtube.com/watch?v={video_id}");
-        let mut child = Command::new("yt-dlp")
+        let mut child = ytdlp_command()
             .kill_on_drop(true)
             .args([
                 "--ignore-config",
@@ -832,7 +851,7 @@ async fn refresh_ytdlp_audio_stream(
     let watch_url = format!("https://music.youtube.com/watch?v={video_id}");
     let out = tokio::time::timeout(
         Duration::from_secs(10),
-        Command::new("yt-dlp")
+        ytdlp_command()
             .kill_on_drop(true)
             .args([
                 "--ignore-config",
