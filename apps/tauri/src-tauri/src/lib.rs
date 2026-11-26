@@ -52,13 +52,25 @@ fn configure_linux_audio_env() {
         if std::env::var_os("PULSE_PROP").is_none() {
             std::env::set_var("PULSE_PROP", "media.role=music");
         }
-        if std::env::var_os("APPIMAGE").is_some()
-            && std::env::var_os("GST_PLUGIN_FEATURE_RANK").is_none()
-        {
-            std::env::set_var(
-                "GST_PLUGIN_FEATURE_RANK",
-                "pulsesink:MAX,alsasink:NONE,jackaudiosink:NONE,openalsink:NONE,oss4sink:NONE,osssink:NONE,vaapidecodebin:NONE,vaapipostproc:NONE,vaapih264dec:NONE,vaapivp9dec:NONE,vaapiav1dec:NONE,vah264dec:NONE,vavp9dec:NONE,vaav1dec:NONE",
-            );
+        if std::env::var_os("APPIMAGE").is_some() {
+            if std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none() {
+                std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+            }
+            if std::env::var_os("GST_REGISTRY_1_0").is_none()
+                && let Some(cache_dir) = gyrotube_core::models::cache_dir()
+            {
+                let _ = std::fs::create_dir_all(&cache_dir);
+                std::env::set_var(
+                    "GST_REGISTRY_1_0",
+                    cache_dir.join("gst-registry-appimage.bin"),
+                );
+            }
+            if std::env::var_os("GST_PLUGIN_FEATURE_RANK").is_none() {
+                std::env::set_var(
+                    "GST_PLUGIN_FEATURE_RANK",
+                    "pulsesink:MAX,alsasink:NONE,jackaudiosink:NONE,openalsink:NONE,oss4sink:NONE,osssink:NONE,vaapidecodebin:NONE,vaapipostproc:NONE,vaapih264dec:NONE,vaapivp9dec:NONE,vaapiav1dec:NONE,vah264dec:NONE,vavp9dec:NONE,vaav1dec:NONE",
+                );
+            }
         }
     }
 }

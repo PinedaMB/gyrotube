@@ -13,8 +13,6 @@ import android.content.pm.ServiceInfo
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.drawable.Icon
-import android.media.AudioAttributes
-import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.media.MediaMetadata
 import android.media.session.MediaSession
@@ -36,11 +34,6 @@ import java.util.concurrent.Executors
 class PlaybackForegroundService : Service() {
     private var wakeLock: PowerManager.WakeLock? = null
     private var mediaSession: MediaSession? = null
-    private var audioManager: AudioManager? = null
-    private var audioFocusRequest: AudioFocusRequest? = null
-    private var hasAudioFocus = false
-    private var pausedByTransientFocus = false
-    private var isDucked = false
     private val mainHandler = Handler(Looper.getMainLooper())
     private val artExecutor = Executors.newSingleThreadExecutor()
 
@@ -52,48 +45,6 @@ class PlaybackForegroundService : Service() {
     private var currentCoverUrl: String? = null
     private var currentCoverBitmap: Bitmap? = null
     private var noisyReceiverRegistered = false
-
-    private val audioFocusChangeListener = AudioManager.OnAudioFocusChangeListener { focusChange ->
-        when (focusChange) {
-            AudioManager.AUDIOFOCUS_LOSS -> {
-                hasAudioFocus = false
-                pausedByTransientFocus = false
-                if (isDucked) {
-                    isDucked = false
-                    onMediaAction?.invoke("unduck")
-                }
-                if (currentPlaying) {
-                    onMediaAction?.invoke("pause")
-                }
-            }
-            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
-                hasAudioFocus = false
-                if (currentPlaying) {
-                    pausedByTransientFocus = true
-                    onMediaAction?.invoke("pause")
-                }
-            }
-            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
-                if (currentPlaying && !isDucked) {
-                    isDucked = true
-                    onMediaAction?.invoke("duck")
-                }
-            }
-            AudioManager.AUDIOFOCUS_GAIN -> {
-                hasAudioFocus = true
-                if (isDucked) {
-                    isDucked = false
-                    onMediaAction?.invoke("unduck")
-                }
-                if (pausedByTransientFocus) {
-                    pausedByTransientFocus = false
-                    if (!currentPlaying) {
-                        onMediaAction?.invoke("play")
-                    }
-                }
-            }
-        }
-    }
 
     private val becomingNoisyReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -128,22 +79,17 @@ class PlaybackForegroundService : Service() {
         wakeLock = pm?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Gyro::PlaybackWakeLock")?.apply {
             setReferenceCounted(false)
         }
-        audioManager = getSystemService(AudioManager::class.java)
         mediaSession = MediaSession(this, "GyroSession").apply {
             setCallback(object : MediaSession.Callback() {
                 override fun onPlay() {
-                    pausedByTransientFocus = false
                     onMediaAction?.invoke("play")
                 }
 
                 override fun onPause() {
-                    pausedByTransientFocus = false
                     onMediaAction?.invoke("pause")
                 }
 
                 override fun onStop() {
-                    pausedByTransientFocus = false
-                    abandonAudioFocus()
                     onMediaAction?.invoke("pause")
                     stopForeground(STOP_FOREGROUND_REMOVE)
                     stopSelf()
@@ -215,14 +161,10 @@ class PlaybackForegroundService : Service() {
         updateSessionAndNotification(startInForeground = currentPlaying)
 
         if (currentPlaying) {
-            requestAudioFocus()
             if (wakeLock?.isHeld == false) {
                 wakeLock?.acquire(4 * 60 * 60 * 1000L)
             }
         } else {
-            if (!pausedByTransientFocus) {
-                abandonAudioFocus()
-            }
             if (wakeLock?.isHeld == true) {
                 wakeLock?.release()
             }
@@ -235,35 +177,10 @@ class PlaybackForegroundService : Service() {
 
     override fun onTaskRemoved(rootIntent: Intent?) {
         if (!currentPlaying) {
-            abandonAudioFocus()
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
         }
         super.onTaskRemoved(rootIntent)
-    }
-
-    private fun requestAudioFocus() {
-        if (hasAudioFocus) return
-        val am = audioManager ?: return
-        val attrs = AudioAttributes.Builder()
-            .setUsage(AudioAttributes.USAGE_MEDIA)
-            .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-            .build()
-        val req = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
-            .setAudioAttributes(attrs)
-            .setAcceptsDelayedFocusGain(true)
-            .setWillPauseWhenDucked(false)
-            .setOnAudioFocusChangeListener(audioFocusChangeListener, mainHandler)
-            .build()
-        audioFocusRequest = req
-        hasAudioFocus = am.requestAudioFocus(req) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
-    }
-
-    private fun abandonAudioFocus() {
-        val am = audioManager ?: return
-        audioFocusRequest?.let { am.abandonAudioFocusRequest(it) }
-        audioFocusRequest = null
-        hasAudioFocus = false
     }
 
     private fun isAllowedCoverUrl(rawUrl: String): Boolean {
@@ -404,7 +321,6 @@ class PlaybackForegroundService : Service() {
     }
 
     override fun onDestroy() {
-        abandonAudioFocus()
         if (noisyReceiverRegistered) {
             try {
                 unregisterReceiver(becomingNoisyReceiver)
