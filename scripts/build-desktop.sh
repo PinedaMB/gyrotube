@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Builds GyroTube Desktop installers (Tauri v2) and copies them into <repo>/output/desktop/.
+# Builds Gyro Desktop installers (Tauri v2) and copies them into <repo>/output/desktop/.
 # Usage:
 #   ./scripts/build-desktop.sh                 # All platform bundles (AppImage, rpm, deb, ...)
 #   ./scripts/build-desktop.sh --bundles rpm   # Specific bundle only
@@ -19,7 +19,13 @@ export NO_STRIP="${NO_STRIP:-true}"
 # Clean previous bundle staging artifacts so stale versions (e.g. 0.1.0) are never copied over
 rm -rf "${BUNDLE_DIR}"
 
-(cd "${TAURI_DIR}" && cargo tauri build "$@")
+# Skip updater .sig generation during local builds when no signing private key is configured
+TAURI_EXTRA_ARGS=()
+if [[ -z "${TAURI_SIGNING_PRIVATE_KEY:-}" ]]; then
+  TAURI_EXTRA_ARGS+=(--config '{"bundle":{"createUpdaterArtifacts":false}}')
+fi
+
+(cd "${TAURI_DIR}" && cargo tauri build "${TAURI_EXTRA_ARGS[@]}" "$@")
 
 mkdir -p "${OUT_DIR}"
 
