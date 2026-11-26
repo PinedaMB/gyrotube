@@ -173,7 +173,7 @@
       kicker={t("spin.active_invite")}
       qrSvg={player.spinStatus.remote_qr_svg}
       value={player.spinStatus.remote_ticket}
-      shareUrl={`gyrotube://spin/${player.spinStatus.remote_ticket}`}
+      shareUrl={`gyro://spin/${player.spinStatus.remote_ticket}`}
       copyToast={t("spin.invite_copied")}
     />
   {/if}

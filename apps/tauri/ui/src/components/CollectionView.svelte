@@ -4,7 +4,6 @@
   import { player } from "../lib/stores/player.svelte";
   import type { UserPlaylist } from "../lib/types";
   import CollectionPlaylistDetail from "./collection/CollectionPlaylistDetail.svelte";
-  import CollectionPlaylistModal from "./collection/CollectionPlaylistModal.svelte";
   import CollectionPlaylistsGrid from "./collection/CollectionPlaylistsGrid.svelte";
   import CollectionRecentlyPlayed from "./collection/CollectionRecentlyPlayed.svelte";
   import CollectionStatsCard from "./collection/CollectionStatsCard.svelte";
@@ -138,9 +137,13 @@
   </div>
 {/if}
 
-<CollectionPlaylistModal
-  open={modalOpen}
-  editing={editingPlaylist}
-  onClose={() => (modalOpen = false)}
-  onSave={handleSavePlaylist}
-/>
+{#if modalOpen}
+  {#await import("./collection/CollectionPlaylistModal.svelte") then { default: CollectionPlaylistModal }}
+    <CollectionPlaylistModal
+      open={modalOpen}
+      editing={editingPlaylist}
+      onClose={() => (modalOpen = false)}
+      onSave={handleSavePlaylist}
+    />
+  {/await}
+{/if}

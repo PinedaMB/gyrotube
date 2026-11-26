@@ -1,4 +1,5 @@
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { getAndroidBridge, getAndroidWindow } from "../androidBridge";
 import { api, isTauriRuntime } from "../api";
 import { t } from "../i18n.svelte";
 import { player } from "./player.svelte";
@@ -77,23 +78,13 @@ class UpdaterStore {
 
   public async installOrDownload(): Promise<void> {
     if (!isTauriRuntime()) return;
-    const win =
-      typeof window !== "undefined"
-        ? (window as unknown as {
-            __GYROTUBE_ANDROID__?: {
-              openExternalUrl?: (url: string) => void;
-              downloadAndInstallApk?: (url: string) => void;
-            };
-            __GYROTUBE_ANDROID_UPDATE__?: (status: string, pct: number, error: string) => void;
-          })
-        : null;
-
-    const androidBridge = win?.__GYROTUBE_ANDROID__;
-    if (androidBridge?.downloadAndInstallApk && this.downloadUrl) {
+    const win = getAndroidWindow();
+    const androidBridge = getAndroidBridge();
+    if (androidBridge?.downloadAndInstallApk && this.downloadUrl && win) {
       this.status = "installing";
       this.progressPct = 0;
       this.errorMessage = null;
-      win!.__GYROTUBE_ANDROID_UPDATE__ = (status: string, pct: number, error: string) => {
+      win.__GYROTUBE_ANDROID_UPDATE__ = (status: string, pct: number, error: string) => {
         if (status === "progress") {
           this.status = "installing";
           this.progressPct = pct >= 0 ? Math.min(100, pct) : null;

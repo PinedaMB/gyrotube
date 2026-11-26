@@ -18,6 +18,7 @@
     Trash2,
     Upload,
   } from "lucide-svelte";
+  import { getAndroidBridge } from "../lib/androidBridge";
   import { api, isTauriRuntime } from "../lib/api";
   import { t } from "../lib/i18n.svelte";
   import { device } from "../lib/stores/device.svelte";
@@ -74,17 +75,8 @@
       const date = new Date().toISOString().slice(0, 10);
       const filename = `gyro-library-${date}.json`;
 
-      // 1. Android native bridge -> saves directly to Downloads/GyroTube via MediaStore
-      const androidBridge =
-        typeof window !== "undefined"
-          ? (
-              window as unknown as {
-                __GYROTUBE_ANDROID__?: {
-                  saveBackupJson?: (name: string, content: string) => string;
-                };
-              }
-            ).__GYROTUBE_ANDROID__
-          : undefined;
+      // 1. Android native bridge -> saves directly to Downloads/Gyro via MediaStore
+      const androidBridge = getAndroidBridge();
       if (device.isAndroid && androidBridge?.saveBackupJson) {
         const res = androidBridge.saveBackupJson(filename, json);
         if (res === "ok") {

@@ -17,9 +17,10 @@ export default defineConfig(({ command }) => ({
     target: "esnext",
     rollupOptions: {
       output: {
-        manualChunks: {
-          "vendor-lucide": ["lucide-svelte"],
-          "vendor-tauri": ["@tauri-apps/api/core", "@tauri-apps/api/event"],
+        manualChunks(id) {
+          if (id.includes("@tauri-apps/api/")) return "vendor-tauri";
+          if (id.includes("node_modules/svelte/")) return "vendor-svelte";
+          if (id.includes("node_modules/lucide-svelte/")) return "vendor-icons";
         },
       },
     },

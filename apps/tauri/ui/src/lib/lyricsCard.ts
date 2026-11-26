@@ -443,7 +443,7 @@ export async function renderLyricsCard(
   ctx.stroke();
   ctx.restore();
 
-  // Footer: real GyroTube app logo + wordmark
+  // Footer: real Gyro app logo + wordmark
   const footerY = height - 74;
   const logoSize = 44;
   if (logoImg) {

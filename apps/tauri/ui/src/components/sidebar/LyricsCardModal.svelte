@@ -1,6 +1,7 @@
 <script lang="ts">
   import { Check, Copy, Download, Share2, X } from "lucide-svelte";
   import { fade } from "svelte/transition";
+  import { getAndroidBridge } from "../../lib/androidBridge";
   import { api, isTauriRuntime } from "../../lib/api";
   import { t } from "../../lib/i18n.svelte";
   import {
@@ -22,11 +23,6 @@
     onClose: () => void;
   }
 
-  interface AndroidCardBridge {
-    saveImageToGallery?: (filename: string, base64Png: string) => string;
-    shareImage?: (filename: string, base64Png: string, title: string) => string;
-  }
-
   let { open, lines, onClose }: Props = $props();
 
   let canvasEl = $state<HTMLCanvasElement | null>(null);
@@ -44,12 +40,6 @@
     feedbackTimer = window.setTimeout(() => {
       feedback = null;
     }, 2600);
-  }
-
-  function getAndroidBridge(): AndroidCardBridge | undefined {
-    if (typeof window === "undefined") return undefined;
-    return (window as unknown as { __GYROTUBE_ANDROID__?: AndroidCardBridge })
-      .__GYROTUBE_ANDROID__;
   }
 
   function canvasToBase64Png(canvas: HTMLCanvasElement): string {
@@ -77,7 +67,7 @@
     if (!canvasEl) return false;
     const filename = lyricsCardFilename(player.currentTrack?.title ?? "lyrics");
 
-    // 1. Android native bridge -> saves directly to Pictures/GyroTube in Android Gallery
+    // 1. Android native bridge -> saves directly to Pictures/Gyro in Android Gallery
     const bridge = getAndroidBridge();
     if (device.isAndroid && bridge?.saveImageToGallery) {
       const base64 = canvasToBase64Png(canvasEl);
@@ -95,7 +85,7 @@
     const blob = await canvasToPngBlob(canvasEl);
     if (!blob) return false;
 
-    // 2. Desktop Tauri native command -> saves directly to Pictures/GyroTube
+    // 2. Desktop Tauri native command -> saves directly to Pictures/Gyro
     if (isTauriRuntime() && !device.isAndroid) {
       try {
         const bytes = new Uint8Array(await blob.arrayBuffer());
@@ -105,7 +95,7 @@
         window.setTimeout(() => (saved = false), 2000);
         return true;
       } catch (err) {
-        console.warn("[GyroTube] saveLyricsCardPng failed, falling back to browser download:", err);
+        console.warn("[Gyro] saveLyricsCardPng failed, falling back to browser download:", err);
       }
     }
 

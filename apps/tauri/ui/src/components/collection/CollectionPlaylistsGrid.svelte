@@ -1,6 +1,7 @@
 <script lang="ts">
   import { CheckCircle2, Heart, Pencil, Pin, Play } from "lucide-svelte";
   import { extractDominantRgb } from "../../lib/audioEngine";
+  import { rgbToHex } from "../../lib/colorUtils";
   import { t } from "../../lib/i18n.svelte";
   import { player } from "../../lib/stores/player.svelte";
   import type { Track, UserPlaylist } from "../../lib/types";
@@ -16,11 +17,6 @@
 
   let coverColors = $state<Record<string, string>>({});
   let extractedFor = new Map<string, string>();
-
-  function rgbToHex([r, g, b]: [number, number, number]): string {
-    const toHex = (n: number) => Math.max(0, Math.min(255, Math.round(n))).toString(16).padStart(2, "0");
-    return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
-  }
 
   $effect(() => {
     for (const pl of player.userPlaylists) {

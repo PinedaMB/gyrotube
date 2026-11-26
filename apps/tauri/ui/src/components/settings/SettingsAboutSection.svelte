@@ -2,6 +2,7 @@
   import { Check, Download, ExternalLink, Heart, Info, RefreshCw, ShieldCheck, X } from "lucide-svelte";
   import { cubicOut } from "svelte/easing";
   import { fade, scale } from "svelte/transition";
+  import { getAndroidBridge } from "../../lib/androidBridge";
   import { api, isTauriRuntime } from "../../lib/api";
   import { t } from "../../lib/i18n.svelte";
   import { updater } from "../../lib/stores/updater.svelte";
@@ -9,14 +10,7 @@
   const GITHUB_URL = "https://github.com/PinedaMB/gyrotube";
 
   function openExternal(url: string) {
-    const androidBridge =
-      typeof window !== "undefined"
-        ? (
-            window as unknown as {
-              __GYROTUBE_ANDROID__?: { openExternalUrl?: (u: string) => void };
-            }
-          ).__GYROTUBE_ANDROID__
-        : undefined;
+    const androidBridge = getAndroidBridge();
     if (androidBridge?.openExternalUrl) {
       androidBridge.openExternalUrl(url);
       return;

@@ -4,16 +4,16 @@
   import { fade, scale } from "svelte/transition";
   import { t } from "../../lib/i18n.svelte";
   import {
+    MAX_SELECTED_LYRIC_LINES,
     computeLyricOpacity,
+    isSelectableLyricText,
     isWaitingForFirstLyric,
     parsePlainStanzas,
+    toggleContiguousLyricSelection,
   } from "../../lib/lyricsFormat";
   import { player } from "../../lib/stores/player.svelte";
   import { formatDuration } from "../../lib/types";
   import CoverImage from "../CoverImage.svelte";
-  import LyricsCardModal from "./LyricsCardModal.svelte";
-
-  const MAX_SELECTED_LINES = 5;
 
   let lyricRefs = $state<Record<number, HTMLButtonElement>>({});
   let autoScrollPaused = $state(false);
@@ -81,28 +81,14 @@
     }
   }
 
-  const INSTRUMENTAL_ONLY_RE = /^[\s♪♫♬♩•·…\-—]+$/;
-
   function isSelectableLine(idx: number): boolean {
     if (player.lyrics.type === "Synced") {
-      const text = player.lyrics.lines[idx]?.text ?? "";
-      return text.trim().length > 0 && !INSTRUMENTAL_ONLY_RE.test(text);
+      return isSelectableLyricText(player.lyrics.lines[idx]?.text ?? "");
     }
     if (player.lyrics.type === "Plain") {
-      const text = plainParsed.selectable[idx] ?? "";
-      return text.trim().length > 0 && !INSTRUMENTAL_ONLY_RE.test(text);
+      return isSelectableLyricText(plainParsed.selectable[idx] ?? "");
     }
     return false;
-  }
-
-  function buildContiguousRange(from: number, to: number): number[] {
-    const start = Math.min(from, to);
-    const end = Math.max(from, to);
-    const out: number[] = [];
-    for (let i = start; i <= end; i++) {
-      if (isSelectableLine(i)) out.push(i);
-    }
-    return out;
   }
 
   function startSelecting() {
@@ -142,38 +128,12 @@
   }
 
   function toggleLineSelection(idx: number) {
-    if (!isSelectableLine(idx)) return;
-    if (selectedIndices.length === 0) {
-      selectedIndices = [idx];
-      return;
-    }
-
-    const sorted = [...selectedIndices].sort((a, b) => a - b);
-    const min = sorted[0];
-    const max = sorted[sorted.length - 1];
-
-    if (sorted.includes(idx)) {
-      if (sorted.length === 1) {
-        selectedIndices = [];
-      } else if (idx === min) {
-        selectedIndices = sorted.slice(1);
-      } else if (idx === max) {
-        selectedIndices = sorted.slice(0, -1);
-      } else {
-        // Trim from tapped interior line onward to keep a single contiguous block
-        selectedIndices = sorted.slice(0, sorted.indexOf(idx) + 1);
-      }
-      return;
-    }
-
-    const candidate = buildContiguousRange(Math.min(min, idx), Math.max(max, idx));
-    if (candidate.length <= MAX_SELECTED_LINES) {
-      // Fill contiguously between existing selection and tapped line
-      selectedIndices = candidate;
-    } else {
-      // Tapped far away (> MAX_SELECTED_LINES span): move selection to the new line
-      selectedIndices = [idx];
-    }
+    selectedIndices = toggleContiguousLyricSelection(
+      selectedIndices,
+      idx,
+      isSelectableLine,
+      MAX_SELECTED_LYRIC_LINES,
+    );
   }
 
   function lyricOpacity(idx: number): number {
@@ -196,6 +156,35 @@
     player.seek(ratio * player.durationSecs);
   }
 </script>
+
+{#snippet selectionBar()}
+  <div
+    transition:scale={{ start: 0.94, duration: 150, easing: cubicOut }}
+    class="absolute bottom-3 inset-x-0 flex items-center justify-between gap-2 px-3 py-2 rounded-2xl bg-[var(--bg-elevated)]/95 backdrop-blur-md border border-[var(--border-strong)] shadow-[0_12px_32px_rgba(0,0,0,0.45)]"
+  >
+    <span class="text-[12px] font-bold numeric text-[var(--text-muted)] pl-1">
+      {selectedIndices.length}/{MAX_SELECTED_LYRIC_LINES}
+    </span>
+    <div class="flex items-center gap-1.5">
+      <button
+        type="button"
+        class="pill-btn !px-3 !py-1.5 !text-[12px]"
+        onclick={cancelSelecting}
+      >
+        {t("lyrics.cancel")}
+      </button>
+      <button
+        type="button"
+        class="pill-btn primary !px-3.5 !py-1.5 !text-[12px]"
+        disabled={selectedIndices.length === 0}
+        onclick={() => (cardModalOpen = true)}
+      >
+        <Share2 size={13} />
+        {t("lyrics.create_card")}
+      </button>
+    </div>
+  </div>
+{/snippet}
 
 <div in:fade={{ duration: 150 }} class="flex flex-col gap-2 pt-1 flex-1 min-h-0">
   <!-- Compact track header -->
@@ -255,8 +244,8 @@
 
   {#if selecting}
     <div class="flex items-center justify-between gap-2 px-3 py-1.5 rounded-xl bg-[var(--accent-soft)]/70 border border-[var(--accent-border)]/40 text-[11.5px] font-semibold text-[var(--accent-bright)]">
-      <span>{t("lyrics.select_hint", { max: MAX_SELECTED_LINES })}</span>
-      <span class="numeric opacity-85 shrink-0">{selectedIndices.length}/{MAX_SELECTED_LINES}</span>
+      <span>{t("lyrics.select_hint", { max: MAX_SELECTED_LYRIC_LINES })}</span>
+      <span class="numeric opacity-85 shrink-0">{selectedIndices.length}/{MAX_SELECTED_LYRIC_LINES}</span>
     </div>
   {/if}
 
@@ -325,32 +314,7 @@
       </div>
 
       {#if selecting}
-        <div
-          transition:scale={{ start: 0.94, duration: 150, easing: cubicOut }}
-          class="absolute bottom-3 inset-x-0 flex items-center justify-between gap-2 px-3 py-2 rounded-2xl bg-[var(--bg-elevated)]/95 backdrop-blur-md border border-[var(--border-strong)] shadow-[0_12px_32px_rgba(0,0,0,0.45)]"
-        >
-          <span class="text-[12px] font-bold numeric text-[var(--text-muted)] pl-1">
-            {selectedIndices.length}/{MAX_SELECTED_LINES}
-          </span>
-          <div class="flex items-center gap-1.5">
-            <button
-              type="button"
-              class="pill-btn !px-3 !py-1.5 !text-[12px]"
-              onclick={cancelSelecting}
-            >
-              {t("lyrics.cancel")}
-            </button>
-            <button
-              type="button"
-              class="pill-btn primary !px-3.5 !py-1.5 !text-[12px]"
-              disabled={selectedIndices.length === 0}
-              onclick={() => (cardModalOpen = true)}
-            >
-              <Share2 size={13} />
-              {t("lyrics.create_card")}
-            </button>
-          </div>
-        </div>
+        {@render selectionBar()}
       {:else if autoScrollPaused && player.activeLyricIndex != null}
         <button
           type="button"
@@ -410,32 +374,7 @@
       </div>
 
       {#if selecting}
-        <div
-          transition:scale={{ start: 0.94, duration: 150, easing: cubicOut }}
-          class="absolute bottom-3 inset-x-0 flex items-center justify-between gap-2 px-3 py-2 rounded-2xl bg-[var(--bg-elevated)]/95 backdrop-blur-md border border-[var(--border-strong)] shadow-[0_12px_32px_rgba(0,0,0,0.45)]"
-        >
-          <span class="text-[12px] font-bold numeric text-[var(--text-muted)] pl-1">
-            {selectedIndices.length}/{MAX_SELECTED_LINES}
-          </span>
-          <div class="flex items-center gap-1.5">
-            <button
-              type="button"
-              class="pill-btn !px-3 !py-1.5 !text-[12px]"
-              onclick={cancelSelecting}
-            >
-              {t("lyrics.cancel")}
-            </button>
-            <button
-              type="button"
-              class="pill-btn primary !px-3.5 !py-1.5 !text-[12px]"
-              disabled={selectedIndices.length === 0}
-              onclick={() => (cardModalOpen = true)}
-            >
-              <Share2 size={13} />
-              {t("lyrics.create_card")}
-            </button>
-          </div>
-        </div>
+        {@render selectionBar()}
       {/if}
     </div>
   {:else}
@@ -518,11 +457,15 @@
   {/if}
 </div>
 
-<LyricsCardModal
-  open={cardModalOpen}
-  lines={selectedLineTexts}
-  onClose={() => (cardModalOpen = false)}
-/>
+{#if cardModalOpen}
+  {#await import("./LyricsCardModal.svelte") then { default: LyricsCardModal }}
+    <LyricsCardModal
+      open={cardModalOpen}
+      lines={selectedLineTexts}
+      onClose={() => (cardModalOpen = false)}
+    />
+  {/await}
+{/if}
 
 <style>
   .lyrics-fade {

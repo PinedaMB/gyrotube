@@ -1,3 +1,4 @@
+import { getAndroidBridge } from "../androidBridge";
 import { api, isTauriRuntime } from "../api";
 import type { SessionState, ThemeMode } from "../types";
 
@@ -59,14 +60,7 @@ let systemThemeMediaBound = false;
 let lastAppliedThemeMode: ThemeMode = "system";
 
 function syncAndroidSystemBars(mode: ThemeMode): void {
-  if (typeof window === "undefined") return;
-  const bridge = (
-    window as unknown as {
-      __GYROTUBE_ANDROID__?: {
-        setSystemBarsTheme?: (bgHex: string, isDark: boolean) => void;
-      };
-    }
-  ).__GYROTUBE_ANDROID__;
+  const bridge = getAndroidBridge();
   if (!bridge?.setSystemBarsTheme) return;
   const prefersDark =
     typeof window.matchMedia === "function" &&

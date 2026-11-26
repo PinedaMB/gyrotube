@@ -5,17 +5,14 @@
   import { cubicOut } from "svelte/easing";
   import { fade, fly } from "svelte/transition";
   import { isTauriRuntime } from "./lib/api";
-  import CollectionView from "./components/CollectionView.svelte";
-  import CollectionPlaylistModal from "./components/collection/CollectionPlaylistModal.svelte";
+  import { getAndroidBridge } from "./lib/androidBridge";
   import ContextMenu from "./components/ContextMenu.svelte";
-  import ExploreView from "./components/ExploreView.svelte";
   import GlobalTooltip from "./components/GlobalTooltip.svelte";
   import HeaderBar from "./components/HeaderBar.svelte";
   import HomeView from "./components/HomeView.svelte";
   import MiniPlayer from "./components/MiniPlayer.svelte";
   import MobileNav from "./components/MobileNav.svelte";
   import NavSidebar from "./components/NavSidebar.svelte";
-  import SearchView from "./components/SearchView.svelte";
   import SidebarPlayer from "./components/SidebarPlayer.svelte";
   import { t } from "./lib/i18n.svelte";
   import { contextMenu } from "./lib/stores/contextMenu.svelte";
@@ -150,11 +147,7 @@
     const handleWheel = (e: WheelEvent) => {
       if (e.ctrlKey || e.metaKey) e.preventDefault();
     };
-    const androidBridge = (
-      window as unknown as {
-        __GYROTUBE_ANDROID__?: { getSafeAreaInsets?: () => string };
-      }
-    ).__GYROTUBE_ANDROID__;
+    const androidBridge = getAndroidBridge();
     if (androidBridge?.getSafeAreaInsets) {
       const [top, bottom] = androidBridge.getSafeAreaInsets().split(",");
       if (top) document.documentElement.style.setProperty("--safe-top", `${top}px`);
@@ -206,11 +199,7 @@
 
   $effect(() => {
     if (!device.isAndroid || typeof window === "undefined") return;
-    const bridge = (
-      window as unknown as {
-        __GYROTUBE_ANDROID__?: { setSystemBarsTheme?: (bgHex: string, isDark: boolean) => void };
-      }
-    ).__GYROTUBE_ANDROID__;
+    const bridge = getAndroidBridge();
     if (!bridge?.setSystemBarsTheme) return;
     const forceDarkIcons =
       player.partyMode || (!player.sidebarOpen && player.activeView.kind === "artist");
@@ -314,7 +303,9 @@
             class="w-full h-full overflow-y-auto overflow-x-hidden scroll-y"
             class:hidden={player.activeView.kind !== "explore"}
           >
-            <ExploreView />
+            {#await import("./components/ExploreView.svelte") then { default: ExploreView }}
+              <ExploreView />
+            {/await}
           </div>
         {/if}
 
@@ -360,7 +351,9 @@
             class="w-full h-full overflow-y-auto overflow-x-hidden scroll-y"
             class:hidden={player.activeView.kind !== "collection"}
           >
-            <CollectionView />
+            {#await import("./components/CollectionView.svelte") then { default: CollectionView }}
+              <CollectionView />
+            {/await}
           </div>
         {/if}
 
@@ -369,7 +362,9 @@
             class="w-full h-full overflow-y-auto overflow-x-hidden scroll-y"
             class:hidden={player.activeView.kind !== "search"}
           >
-            <SearchView />
+            {#await import("./components/SearchView.svelte") then { default: SearchView }}
+              <SearchView />
+            {/await}
           </div>
         {/if}
 
@@ -426,16 +421,18 @@
   <GlobalTooltip />
 
   {#if player.playlistDraftTrack}
-    <CollectionPlaylistModal
-      open={true}
-      editing={null}
-      onClose={() => (player.playlistDraftTrack = null)}
-      onSave={({ name, description, colorHex, iconName, coverPath }) => {
-        const track = player.playlistDraftTrack;
-        if (!track) return;
-        player.createUserPlaylist(name, description, colorHex, iconName, [track], coverPath ?? null);
-      }}
-    />
+    {#await import("./components/collection/CollectionPlaylistModal.svelte") then { default: CollectionPlaylistModal }}
+      <CollectionPlaylistModal
+        open={true}
+        editing={null}
+        onClose={() => (player.playlistDraftTrack = null)}
+        onSave={({ name, description, colorHex, iconName, coverPath }) => {
+          const track = player.playlistDraftTrack;
+          if (!track) return;
+          player.createUserPlaylist(name, description, colorHex, iconName, [track], coverPath ?? null);
+        }}
+      />
+    {/await}
   {/if}
 
   {#if player.toasts.length > 0}

@@ -206,7 +206,7 @@ export class DualDeckAudioEngine {
         const detail =
           audio.error?.message ||
           (code ? `Audio error (code ${code})` : "Audio playback error");
-        console.error("[GyroTube audio error]", {
+        console.error("[Gyro audio error]", {
           src: audio.src,
           code,
           message: audio.error?.message,
@@ -433,7 +433,7 @@ export class DualDeckAudioEngine {
       }
     } catch (err) {
       if (this.opGen !== gen) return;
-      console.error("[GyroTube play() failed]", {
+      console.error("[Gyro play() failed]", {
         url,
         err,
         canPlayWebm: incoming.canPlayType("audio/webm"),

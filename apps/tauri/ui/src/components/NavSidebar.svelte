@@ -2,7 +2,6 @@
   import { Compass, Heart, Home, Library, Plus } from "lucide-svelte";
   import { t } from "../lib/i18n.svelte";
   import { player } from "../lib/stores/player.svelte";
-  import CollectionPlaylistModal from "./collection/CollectionPlaylistModal.svelte";
   import PlaylistIcon from "./collection/PlaylistIcon.svelte";
 
   let collapsed = $derived(player.navCollapsed);
@@ -162,11 +161,15 @@
   </div>
 </aside>
 
-<CollectionPlaylistModal
-  open={createModalOpen}
-  editing={null}
-  onClose={() => (createModalOpen = false)}
-  onSave={({ name, description, colorHex, iconName, coverPath, tracks }) => {
-    player.createUserPlaylist(name, description, colorHex, iconName, tracks ?? [], coverPath ?? null);
-  }}
-/>
+{#if createModalOpen}
+  {#await import("./collection/CollectionPlaylistModal.svelte") then { default: CollectionPlaylistModal }}
+    <CollectionPlaylistModal
+      open={createModalOpen}
+      editing={null}
+      onClose={() => (createModalOpen = false)}
+      onSave={({ name, description, colorHex, iconName, coverPath, tracks }) => {
+        player.createUserPlaylist(name, description, colorHex, iconName, tracks ?? [], coverPath ?? null);
+      }}
+    />
+  {/await}
+{/if}

@@ -2,6 +2,7 @@
   import { Check, ImagePlus, Link2, Loader2, Plus, Trash2, X } from "lucide-svelte";
   import { api, isTauriRuntime } from "../../lib/api";
   import { extractDominantRgb } from "../../lib/audioEngine";
+  import { rgbToHex } from "../../lib/colorUtils";
   import { t } from "../../lib/i18n.svelte";
   import { player } from "../../lib/stores/player.svelte";
   import type { Track, UserPlaylist } from "../../lib/types";
@@ -52,11 +53,6 @@
   let coverInputEl = $state<HTMLInputElement | null>(null);
   let importUrl = $state("");
   let importing = $state(false);
-
-  function rgbToHex([r, g, b]: [number, number, number]): string {
-    const toHex = (n: number) => Math.max(0, Math.min(255, Math.round(n))).toString(16).padStart(2, "0");
-    return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
-  }
 
   $effect(() => {
     const cover = formCover;

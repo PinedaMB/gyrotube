@@ -1,3 +1,4 @@
+import { getAndroidBridge, getAndroidWindow } from "../androidBridge";
 import { api, isTauriRuntime } from "../api";
 import { DualDeckAudioEngine, extractDominantRgb } from "../audioEngine";
 import { t } from "../i18n.svelte";
@@ -33,7 +34,9 @@ import {
 } from "./localPrefs";
 import { contextMenu } from "./contextMenu.svelte";
 import { device } from "./device.svelte";
+import { parseLibraryBackupImport, serializeLibraryBackup } from "./libraryBackup";
 import { bindTauriPlayerEvents } from "./nativeEvents";
+import { createYtmTrackStub, formatPlayerErrorMessage } from "./playerHelpers";
 import {
   findActiveLyricIndex,
   moveQueueIndices,
@@ -415,17 +418,12 @@ class PlayerStore {
   }
 
   private bindAndroidSpinDeepLink(): void {
-    if (typeof window === "undefined") return;
-    const win = window as unknown as {
-      __GYROTUBE_ANDROID__?: {
-        consumePendingSpinLink?: () => string;
-      };
-      __GYROTUBE_SPIN_LINK__?: (code: string) => void;
-    };
+    const win = getAndroidWindow();
+    if (!win) return;
     win.__GYROTUBE_SPIN_LINK__ = (code: string) => {
       void this.joinSpinFromDeepLink(code);
     };
-    const pending = win.__GYROTUBE_ANDROID__?.consumePendingSpinLink?.();
+    const pending = getAndroidBridge()?.consumePendingSpinLink?.();
     if (pending && pending.trim()) {
       void this.joinSpinFromDeepLink(pending.trim());
     }
@@ -624,35 +622,8 @@ class PlayerStore {
     this.engine.setVolume(Math.max(0, Math.min(1, base * this.audioDuckFactor)));
   }
 
-  private formatErrorMessage(raw: string): string {
-    const msg = raw.trim();
-    const lower = msg.toLowerCase();
-
-    if (
-      this.isOffline ||
-      lower.includes("dns error") ||
-      lower.includes("failed to lookup address") ||
-      lower.includes("error sending request") ||
-      lower.includes("network error") ||
-      lower.includes("connection refused") ||
-      lower.includes("connect error")
-    ) {
-      return t("error.no_internet");
-    }
-    if (lower.includes("timed out") || lower.includes("timeout")) {
-      return t("error.timeout");
-    }
-    if (lower.includes("http 403") || lower.includes("http 410") || lower.includes("unavailable")) {
-      return t("error.track_unavailable");
-    }
-    if (lower.includes("not supported") || lower.includes("audio error (code")) {
-      return t("error.audio_playback");
-    }
-    return msg.length > 140 ? `${msg.slice(0, 137)}…` : msg;
-  }
-
   public showToast(message: string): void {
-    const clean = this.formatErrorMessage(message);
+    const clean = formatPlayerErrorMessage(message, this.isOffline);
     const id = ++this.toastSeq;
     this.toasts = [...this.toasts, { id, message: clean }];
     window.setTimeout(() => {
@@ -884,17 +855,11 @@ class PlayerStore {
   }
 
   public exportLibraryJson(): string {
-    return JSON.stringify(
-      {
-        version: 1,
-        exported_at: new Date().toISOString(),
-        favorites: $state.snapshot(this.favorites),
-        user_playlists: $state.snapshot(this.userPlaylists),
-        followed_artists: $state.snapshot(this.followedArtists),
-      },
-      null,
-      2,
-    );
+    return serializeLibraryBackup({
+      favorites: $state.snapshot(this.favorites),
+      userPlaylists: $state.snapshot(this.userPlaylists),
+      followedArtists: $state.snapshot(this.followedArtists),
+    });
   }
 
   public importLibraryJson(raw: string): {
@@ -902,99 +867,36 @@ class PlayerStore {
     playlistsAdded: number;
     artistsAdded: number;
   } {
-    const parsed = JSON.parse(raw) as Record<string, unknown>;
-    if (!parsed || typeof parsed !== "object") {
-      throw new Error("Invalid backup");
+    const { newFavorites, newPlaylists, newArtists } = parseLibraryBackupImport(raw, {
+      favorites: this.favorites,
+      userPlaylists: this.userPlaylists,
+      followedArtists: this.followedArtists,
+    });
+
+    if (newFavorites.length > 0) {
+      this.favorites = [...this.favorites, ...newFavorites];
+      if (isTauriRuntime()) void api.saveFavorites(this.favorites);
+    }
+    if (newPlaylists.length > 0) {
+      this.userPlaylists = [...this.userPlaylists, ...newPlaylists];
+      if (isTauriRuntime()) void api.saveUserPlaylists(this.userPlaylists);
+    }
+    if (newArtists.length > 0) {
+      this.followedArtists = [...this.followedArtists, ...newArtists];
+      if (isTauriRuntime()) void api.saveFollowedArtists(this.followedArtists);
     }
 
-    let favoritesAdded = 0;
-    let playlistsAdded = 0;
-    let artistsAdded = 0;
-
-    if (Array.isArray(parsed.favorites)) {
-      const existing = new Set(this.favorites.map((t) => t.id));
-      const toAdd: Track[] = [];
-      for (const item of parsed.favorites) {
-        if (
-          item &&
-          typeof item === "object" &&
-          typeof (item as Track).id === "string" &&
-          typeof (item as Track).title === "string" &&
-          typeof (item as Track).artist === "string" &&
-          !existing.has((item as Track).id)
-        ) {
-          existing.add((item as Track).id);
-          toAdd.push(item as Track);
-        }
-      }
-      if (toAdd.length > 0) {
-        this.favorites = [...this.favorites, ...toAdd];
-        favoritesAdded = toAdd.length;
-        if (isTauriRuntime()) void api.saveFavorites(this.favorites);
-      }
-    }
-
-    if (Array.isArray(parsed.user_playlists)) {
-      const existing = new Set(this.userPlaylists.map((p) => p.id));
-      const toAdd: UserPlaylist[] = [];
-      for (const item of parsed.user_playlists) {
-        if (
-          item &&
-          typeof item === "object" &&
-          typeof (item as UserPlaylist).id === "string" &&
-          typeof (item as UserPlaylist).name === "string" &&
-          Array.isArray((item as UserPlaylist).tracks) &&
-          !existing.has((item as UserPlaylist).id)
-        ) {
-          const pl = item as UserPlaylist;
-          const rawCover = typeof pl.cover_path === "string" ? pl.cover_path.trim() : null;
-          const safeCover =
-            rawCover &&
-            (/^data:image\/(?:jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(rawCover) ||
-              rawCover.startsWith("https://"))
-              ? rawCover
-              : null;
-          existing.add(pl.id);
-          toAdd.push({ ...pl, cover_path: safeCover });
-        }
-      }
-      if (toAdd.length > 0) {
-        this.userPlaylists = [...this.userPlaylists, ...toAdd];
-        playlistsAdded = toAdd.length;
-        if (isTauriRuntime()) void api.saveUserPlaylists(this.userPlaylists);
-      }
-    }
-
-    if (Array.isArray(parsed.followed_artists)) {
-      const existing = new Set(this.followedArtists.map((a) => a.id));
-      const toAdd: Artist[] = [];
-      for (const item of parsed.followed_artists) {
-        if (
-          item &&
-          typeof item === "object" &&
-          typeof (item as Artist).id === "string" &&
-          typeof (item as Artist).name === "string" &&
-          !existing.has((item as Artist).id)
-        ) {
-          existing.add((item as Artist).id);
-          toAdd.push(item as Artist);
-        }
-      }
-      if (toAdd.length > 0) {
-        this.followedArtists = [...this.followedArtists, ...toAdd];
-        artistsAdded = toAdd.length;
-        if (isTauriRuntime()) void api.saveFollowedArtists(this.followedArtists);
-      }
-    }
-
-    return { favoritesAdded, playlistsAdded, artistsAdded };
+    return {
+      favoritesAdded: newFavorites.length,
+      playlistsAdded: newPlaylists.length,
+      artistsAdded: newArtists.length,
+    };
   }
 
   private isMobilePlayerHistoryEnabled(): boolean {
     if (typeof window === "undefined") return false;
-    const win = window as unknown as { __GYROTUBE_ANDROID__?: unknown };
     const isMobilePlatform =
-      Boolean(win.__GYROTUBE_ANDROID__) ||
+      Boolean(getAndroidBridge()) ||
       /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
     return isMobilePlatform && window.innerWidth < 1024;
   }
@@ -1074,9 +976,10 @@ class PlayerStore {
       }
     });
 
-    (
-      window as unknown as { __GYROTUBE_DISMISS_OVERLAY__?: () => boolean }
-    ).__GYROTUBE_DISMISS_OVERLAY__ = () => this.dismissTopOverlay();
+    const androidWin = getAndroidWindow();
+    if (androidWin) {
+      androidWin.__GYROTUBE_DISMISS_OVERLAY__ = () => this.dismissTopOverlay();
+    }
   }
 
   public toggleNavCollapsed(): void {
@@ -2290,21 +2193,8 @@ class PlayerStore {
   }
 
   private syncAndroidForegroundService(playing: boolean): void {
-    if (typeof window === "undefined") return;
-    const win = window as unknown as {
-      __GYROTUBE_ANDROID__?: {
-        setPlaybackActive: (
-          playing: boolean,
-          title: string,
-          artist: string,
-          coverUrl: string,
-          hasTrack: boolean,
-          positionMs: number,
-          durationMs: number,
-        ) => void;
-      };
-      __GYROTUBE_MEDIA_ACTION__?: (action: string) => void;
-    };
+    const win = getAndroidWindow();
+    if (!win) return;
     if (!win.__GYROTUBE_MEDIA_ACTION__) {
       win.__GYROTUBE_MEDIA_ACTION__ = (action: string) => {
         if (action === "prev") void this.prev();
@@ -2322,8 +2212,8 @@ class PlayerStore {
         }
       };
     }
-    const bridge = win.__GYROTUBE_ANDROID__;
-    if (!bridge) return;
+    const bridge = getAndroidBridge();
+    if (!bridge?.setPlaybackActive) return;
     const cur = this.currentTrack;
     // Keep the foreground service & WebView alive during track-to-track transitions
     const keepPlaying = playing || this.inFlightTransitionGen !== null;
@@ -2483,19 +2373,7 @@ class PlayerStore {
       return true;
     }
     if (parsed.kind === "track") {
-      const stub: Track = {
-        id: parsed.id,
-        title: "YouTube Music",
-        artist: "",
-        artist_id: null,
-        album: null,
-        album_id: null,
-        duration_secs: null,
-        cover_url: `https://i.ytimg.com/vi/${parsed.id}/hqdefault.jpg`,
-        cover_large_url: `https://i.ytimg.com/vi/${parsed.id}/hqdefault.jpg`,
-        is_video: false,
-      };
-      this.replaceQueueAndPlay([stub], 0, "YouTube Music");
+      this.replaceQueueAndPlay([createYtmTrackStub(parsed.id)], 0, "YouTube Music");
       return true;
     }
     return false;

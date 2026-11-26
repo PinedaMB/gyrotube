@@ -68,3 +68,48 @@ export function computeLyricOpacity(idx: number, activeIndex: number | null): nu
   if (delta === -1) return 0.34;
   return 0.2;
 }
+
+export const MAX_SELECTED_LYRIC_LINES = 5;
+const INSTRUMENTAL_ONLY_RE = /^[\s♪♫♬♩•·…\-—]+$/;
+
+export function isSelectableLyricText(text: string): boolean {
+  return text.trim().length > 0 && !INSTRUMENTAL_ONLY_RE.test(text);
+}
+
+export function buildContiguousLyricRange(
+  from: number,
+  to: number,
+  isSelectable: (idx: number) => boolean,
+): number[] {
+  const start = Math.min(from, to);
+  const end = Math.max(from, to);
+  const out: number[] = [];
+  for (let i = start; i <= end; i++) {
+    if (isSelectable(i)) out.push(i);
+  }
+  return out;
+}
+
+export function toggleContiguousLyricSelection(
+  current: number[],
+  idx: number,
+  isSelectable: (idx: number) => boolean,
+  maxLines = MAX_SELECTED_LYRIC_LINES,
+): number[] {
+  if (!isSelectable(idx)) return current;
+  if (current.length === 0) return [idx];
+
+  const sorted = [...current].sort((a, b) => a - b);
+  const min = sorted[0];
+  const max = sorted[sorted.length - 1];
+
+  if (sorted.includes(idx)) {
+    if (sorted.length === 1) return [];
+    if (idx === min) return sorted.slice(1);
+    if (idx === max) return sorted.slice(0, -1);
+    return sorted.slice(0, sorted.indexOf(idx) + 1);
+  }
+
+  const candidate = buildContiguousLyricRange(Math.min(min, idx), Math.max(max, idx), isSelectable);
+  return candidate.length <= maxLines ? candidate : [idx];
+}

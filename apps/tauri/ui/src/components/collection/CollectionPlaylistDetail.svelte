@@ -1,5 +1,6 @@
 <script lang="ts">
   import { extractDominantRgb } from "../../lib/audioEngine";
+  import { rgbToHex } from "../../lib/colorUtils";
   import { t } from "../../lib/i18n.svelte";
   import { player } from "../../lib/stores/player.svelte";
   import { shuffleItems } from "../../lib/stores/queueOps";
@@ -19,11 +20,6 @@
 
   let sortBy = $state<SortBy>("custom");
   let extractedCoverHex = $state<string | null>(null);
-
-  function rgbToHex([r, g, b]: [number, number, number]): string {
-    const toHex = (n: number) => Math.max(0, Math.min(255, Math.round(n))).toString(16).padStart(2, "0");
-    return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
-  }
 
   $effect(() => {
     const cover = mode === "playlist" ? playlist?.cover_path ?? null : null;
