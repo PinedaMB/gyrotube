@@ -124,7 +124,10 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
-            librsvg2-dev patchelf libssl-dev pkg-config
+            librsvg2-dev patchelf libssl-dev pkg-config \
+            gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
+            gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly \
+            gstreamer1.0-libav gstreamer1.0-alsa gstreamer1.0-pulseaudio
 
       - name: Install UI dependencies
         run: pnpm --dir apps/tauri/ui install --frozen-lockfile
@@ -154,35 +157,35 @@ jobs:
           shopt -s nullglob
 
           for f in "${BUNDLE_DIR}"/appimage/*.AppImage; do
-            cp -f "$f" "release-assets/GyroTube-${TAG}-${PREFIX}.AppImage"
+            cp -f "$f" "release-assets/Gyro-${TAG}-${PREFIX}.AppImage"
             if [[ -f "${f}.sig" ]]; then
-              printf '%s\n' "GyroTube-${TAG}-${PREFIX}.AppImage" > "updater-sigs/${UPDATER_TARGET}.asset"
+              printf '%s\n' "Gyro-${TAG}-${PREFIX}.AppImage" > "updater-sigs/${UPDATER_TARGET}.asset"
               cp -f "${f}.sig" "updater-sigs/${UPDATER_TARGET}.sig"
             fi
           done
           for f in "${BUNDLE_DIR}"/deb/*.deb; do
-            cp -f "$f" "release-assets/GyroTube-${TAG}-${PREFIX}.deb"
+            cp -f "$f" "release-assets/Gyro-${TAG}-${PREFIX}.deb"
           done
           for f in "${BUNDLE_DIR}"/rpm/*.rpm; do
-            cp -f "$f" "release-assets/GyroTube-${TAG}-${PREFIX}.rpm"
+            cp -f "$f" "release-assets/Gyro-${TAG}-${PREFIX}.rpm"
           done
           for f in "${BUNDLE_DIR}"/msi/*.msi; do
-            cp -f "$f" "release-assets/GyroTube-${TAG}-${PREFIX}.msi"
+            cp -f "$f" "release-assets/Gyro-${TAG}-${PREFIX}.msi"
           done
           for f in "${BUNDLE_DIR}"/nsis/*.exe; do
-            cp -f "$f" "release-assets/GyroTube-${TAG}-${PREFIX}-setup.exe"
+            cp -f "$f" "release-assets/Gyro-${TAG}-${PREFIX}-setup.exe"
             if [[ -f "${f}.sig" ]]; then
-              printf '%s\n' "GyroTube-${TAG}-${PREFIX}-setup.exe" > "updater-sigs/${UPDATER_TARGET}.asset"
+              printf '%s\n' "Gyro-${TAG}-${PREFIX}-setup.exe" > "updater-sigs/${UPDATER_TARGET}.asset"
               cp -f "${f}.sig" "updater-sigs/${UPDATER_TARGET}.sig"
             fi
           done
           for f in "${BUNDLE_DIR}"/dmg/*.dmg; do
-            cp -f "$f" "release-assets/GyroTube-${TAG}-${PREFIX}.dmg"
+            cp -f "$f" "release-assets/Gyro-${TAG}-${PREFIX}.dmg"
           done
           for f in "${BUNDLE_DIR}"/macos/*.app.tar.gz; do
-            cp -f "$f" "release-assets/GyroTube-${TAG}-${PREFIX}.app.tar.gz"
+            cp -f "$f" "release-assets/Gyro-${TAG}-${PREFIX}.app.tar.gz"
             if [[ -f "${f}.sig" ]]; then
-              printf '%s\n' "GyroTube-${TAG}-${PREFIX}.app.tar.gz" > "updater-sigs/${UPDATER_TARGET}.asset"
+              printf '%s\n' "Gyro-${TAG}-${PREFIX}.app.tar.gz" > "updater-sigs/${UPDATER_TARGET}.asset"
               cp -f "${f}.sig" "updater-sigs/${UPDATER_TARGET}.sig"
             fi
           done
