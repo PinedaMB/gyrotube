@@ -20,6 +20,9 @@ finish-args:
   - --filesystem=xdg-download:create
 
 modules:
+  # Required at runtime on Linux by Tauri v2's tray-icon (libappindicator-sys)
+  - shared-modules/libappindicator/libappindicator-gtk3-12.10.json
+
   # Optional yt-dlp fallback binary inside the sandbox for resilient YouTube extraction
   - name: yt-dlp
     buildsystem: simple
@@ -47,7 +50,7 @@ modules:
         npm run build
       # 2. Build Rust + Tauri binary offline using vendored cargo-sources.json
       - cargo --offline fetch --manifest-path Cargo.toml --verbose
-      - cargo --offline build --release --manifest-path apps/tauri/src-tauri/Cargo.toml --no-default-features --features custom-protocol
+      - cargo --offline build --release --manifest-path apps/tauri/src-tauri/Cargo.toml --features tauri/custom-protocol
       # 3. Install binary, desktop entry, AppStream MetaInfo, and icons
       - install -Dm755 target/release/gyrotube-tauri /app/bin/gyrotube-tauri
       - install -Dm644 apps/tauri/src-tauri/linux/io.github.pinedamb.gyrotube.desktop /app/share/applications/io.github.pinedamb.gyrotube.desktop
@@ -61,7 +64,6 @@ modules:
     sources:
       - type: git
         url: https://github.com/PinedaMB/gyrotube.git
-        tag: v1.0.5
-        commit: 446e4f92d5b12750f596edf75d0d2d252d1441cb
+        commit: b95da963727c2ce9281d1048dbc99abf40b2a9ee
       - cargo-sources.json
       - node-sources.json

@@ -196,7 +196,10 @@ pub fn run() {
                 if let Some(icon) = app.default_window_icon() {
                     tray_builder = tray_builder.icon(icon.clone());
                 }
-                let _ = tray_builder.build(app);
+                // Guard against libappindicator-sys panicking on Linux systems without libayatana-appindicator3
+                let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    let _ = tray_builder.build(app);
+                }));
             }
 
             Ok(())

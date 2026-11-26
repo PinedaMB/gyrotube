@@ -5,3 +5,7 @@
 /.impeccable/
 *.keystore
 *.jks
+/repo/
+/build-dir/
+/.flatpak-builder/
+/flatpak/shared-modules/
