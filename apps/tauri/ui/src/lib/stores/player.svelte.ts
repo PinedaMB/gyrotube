@@ -192,7 +192,9 @@ class PlayerStore {
   videoMode = $state(false);
   videoStream = $state<VideoStreamInfo | null>(null);
   videoLoading = $state(false);
+  videoBuffering = $state(false);
   videoError = $state<string | null>(null);
+  seekSeq = $state(0);
   counterpartTrack = $state<Track | null>(null);
   private videoGen = 0;
   private counterpartGen = 0;
@@ -201,6 +203,8 @@ class PlayerStore {
   private audioLoadedForGen = 0;
   private videoReadyEl: { gen: number; el: HTMLVideoElement } | null = null;
   private videoStartFallbackTimer: number | null = null;
+  private videoSyncPauseActive = false;
+  private videoSyncFallbackTimer: number | null = null;
 
   // Catalog data
   homeFeed = $state<HomeFeed | null>(null);
@@ -1766,6 +1770,8 @@ class PlayerStore {
     if (!needSwitch) {
       this.videoMode = enabled;
       if (!enabled) {
+        this.clearVideoStartWait();
+        this.clearVideoSyncPause(false);
         this.videoStream = null;
         this.videoLoading = false;
         this.videoError = null;
@@ -1779,6 +1785,24 @@ class PlayerStore {
         }
         this.activeLyricIndex = null;
         this.lyricsLoading = false;
+        // Pause audio briefly while the video loads so both start in lockstep
+        // with a unified loading state.
+        const wasPlaying = this.isPlaying;
+        this.clearVideoStartWait();
+        this.clearVideoSyncPause(false);
+        if (wasPlaying) {
+          const gen = this.loadGen;
+          this.audioLoadedForGen = gen;
+          this.awaitingVideoStartGen = gen;
+          this.isLoadingAudio = true;
+          this.videoBuffering = true;
+          this.engine.pause();
+          this.videoStartFallbackTimer = window.setTimeout(() => {
+            if (this.awaitingVideoStartGen === gen) {
+              this.notifyVideoUnavailable();
+            }
+          }, 6500);
+        }
         void this.loadVideoForCurrent();
       }
       return;
@@ -1839,27 +1863,78 @@ class PlayerStore {
     }
   }
 
+  private clearVideoSyncPause(resumePlayback: boolean): void {
+    const wasPausedForSync = this.videoSyncPauseActive;
+    this.videoSyncPauseActive = false;
+    this.videoBuffering = false;
+    if (this.videoSyncFallbackTimer !== null) {
+      window.clearTimeout(this.videoSyncFallbackTimer);
+      this.videoSyncFallbackTimer = null;
+    }
+    if (wasPausedForSync && resumePlayback) {
+      const videoEl = this.videoReadyEl?.gen === this.loadGen ? this.videoReadyEl.el : null;
+      if (videoEl) {
+        void videoEl.play().catch(() => {});
+      }
+      void this.engine.play().catch(() => {
+        this.isLoadingAudio = false;
+      });
+    } else if (wasPausedForSync) {
+      this.isLoadingAudio = false;
+    }
+  }
+
   private startAudioAndVideoTogether(videoEl: HTMLVideoElement | null): void {
+    const gen = this.loadGen;
     this.clearVideoStartWait();
+    if (videoEl) {
+      this.videoReadyEl = { gen, el: videoEl };
+    }
     const deck = this.engine.activeDeck;
+
+    const launchBoth = () => {
+      if (this.loadGen !== gen) return;
+      this.videoBuffering = false;
+      if (videoEl) {
+        videoEl.playbackRate = 1;
+        void videoEl.play().catch(() => {});
+      }
+      void deck.play().catch(() => {
+        this.isLoadingAudio = false;
+      });
+    };
+
     if (videoEl && Number.isFinite(deck.currentTime)) {
       const target = Math.max(0, deck.currentTime);
       const clamped = Number.isFinite(videoEl.duration)
         ? Math.min(target, Math.max(0, videoEl.duration - 0.1))
         : target;
-      if (Math.abs(videoEl.currentTime - clamped) > 0.08 && !videoEl.seeking) {
+      if (Math.abs(videoEl.currentTime - clamped) > 0.08) {
+        // Wait for the <video> seek to settle on the exact frame before starting
+        // audio so both begin in lockstep without an initial offset.
+        this.isLoadingAudio = true;
+        this.videoBuffering = true;
+        let done = false;
+        const finish = () => {
+          if (done) return;
+          done = true;
+          videoEl.removeEventListener("seeked", finish);
+          window.clearTimeout(timeoutId);
+          launchBoth();
+        };
+        const timeoutId = window.setTimeout(finish, 1500);
+        videoEl.addEventListener("seeked", finish, { once: true });
         try {
           videoEl.currentTime = clamped;
+          return;
         } catch {
-          // ignore
+          finish();
+          return;
         }
       }
-      videoEl.playbackRate = 1;
-      void videoEl.play().catch(() => {});
     }
-    void deck.play().catch(() => {
-      this.isLoadingAudio = false;
-    });
+
+    launchBoth();
   }
 
   public notifyVideoReady(videoEl: HTMLVideoElement): void {
@@ -1869,6 +1944,36 @@ class PlayerStore {
       this.audioLoadedForGen === this.loadGen
     ) {
       this.startAudioAndVideoTogether(videoEl);
+    } else if (this.videoSyncPauseActive) {
+      this.clearVideoSyncPause(true);
+    }
+  }
+
+  public notifyVideoBuffering(buffering: boolean): void {
+    if (!this.videoMode) {
+      this.videoBuffering = false;
+      return;
+    }
+    if (buffering) {
+      if (this.awaitingVideoStartGen === this.loadGen) {
+        this.videoBuffering = true;
+        return;
+      }
+      if (!this.isPlaying || this.videoSyncPauseActive) return;
+      // Pause audio briefly while <video> refills its buffer so both stay in sync.
+      this.videoSyncPauseActive = true;
+      this.videoBuffering = true;
+      this.isLoadingAudio = true;
+      this.engine.pause();
+      this.videoSyncFallbackTimer = window.setTimeout(() => {
+        this.clearVideoSyncPause(true);
+      }, 4000);
+    } else {
+      if (this.videoSyncPauseActive) {
+        this.clearVideoSyncPause(true);
+      } else {
+        this.videoBuffering = false;
+      }
     }
   }
 
@@ -1880,6 +1985,9 @@ class PlayerStore {
       this.startAudioAndVideoTogether(null);
     } else if (this.awaitingVideoStartGen === this.loadGen) {
       this.clearVideoStartWait();
+      this.videoBuffering = false;
+    } else if (this.videoSyncPauseActive) {
+      this.clearVideoSyncPause(true);
     }
   }
 
@@ -2193,12 +2301,14 @@ class PlayerStore {
           : [track.id];
       void api.cancelStaleStreams(keepIds);
       this.clearVideoStartWait();
+      this.clearVideoSyncPause(false);
 
       const waitForVideo = this.videoMode && !startPaused;
       if (this.videoMode) {
         this.lyricsLoading = false;
         if (waitForVideo) {
           this.awaitingVideoStartGen = gen;
+          this.videoBuffering = true;
           this.videoStartFallbackTimer = window.setTimeout(() => {
             if (this.awaitingVideoStartGen === gen) {
               this.notifyVideoUnavailable();
@@ -2208,6 +2318,7 @@ class PlayerStore {
         // Resolve video stream in parallel with audio so both buffer together
         void this.loadVideoForCurrent();
       } else {
+        this.videoBuffering = false;
         // Fetch lyrics in parallel with audio stream so the loading skeleton shows immediately
         void this.loadLyricsForCurrent(gen);
       }
@@ -2266,6 +2377,8 @@ class PlayerStore {
     } catch (err) {
       if (this.loadGen === gen) {
         if (this.inFlightTransitionGen === gen) this.inFlightTransitionGen = null;
+        this.clearVideoStartWait();
+        this.clearVideoSyncPause(false);
         this.isLoadingAudio = false;
         this.showToast(String(err));
       }
@@ -2305,11 +2418,20 @@ class PlayerStore {
       await this.playIndex(this.currentIndex);
       return;
     }
+    if (this.videoSyncPauseActive || this.awaitingVideoStartGen === this.loadGen) {
+      this.clearVideoStartWait();
+      this.clearVideoSyncPause(false);
+      this.isLoadingAudio = false;
+      this.engine.pause();
+      return;
+    }
     await this.engine.togglePlay();
   }
 
   public seek(secs: number): void {
+    const wasPlaying = this.isPlaying || this.videoSyncPauseActive;
     this.positionSecs = secs;
+    this.seekSeq += 1;
     // Allow re-triggering segments that lie ahead of a manual seek
     for (const seg of this.sponsorSegments) {
       if (secs < seg.start - 0.25) {
@@ -2317,6 +2439,31 @@ class PlayerStore {
       }
     }
     this.engine.seek(secs);
+    // In video mode while playing, pause audio briefly until the <video> finishes
+    // seeking to the new keyframe so audio and video resume together.
+    if (this.videoMode && wasPlaying && this.videoReadyEl?.gen === this.loadGen) {
+      const videoEl = this.videoReadyEl.el;
+      if (videoEl.readyState >= 1) {
+        const clamped = Number.isFinite(videoEl.duration)
+          ? Math.min(Math.max(0, secs), Math.max(0, videoEl.duration - 0.1))
+          : Math.max(0, secs);
+        if (Math.abs(videoEl.currentTime - clamped) > 0.15) {
+          this.clearVideoSyncPause(false);
+          this.videoSyncPauseActive = true;
+          this.videoBuffering = true;
+          this.isLoadingAudio = true;
+          this.engine.pause();
+          this.videoSyncFallbackTimer = window.setTimeout(() => {
+            this.clearVideoSyncPause(true);
+          }, 1500);
+          try {
+            videoEl.currentTime = clamped;
+          } catch {
+            this.clearVideoSyncPause(true);
+          }
+        }
+      }
+    }
     this.updateActiveLyric(secs);
     this.syncAndroidForegroundService(this.isPlaying);
     void this.syncSpinSnapshot();

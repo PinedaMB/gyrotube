@@ -22,31 +22,30 @@ GyroTube is a cross-platform **YouTube Music** client for **Linux, Windows, macO
 │  └──────────────────┬─────────────────────────────────┬──────────────────┘  │
 │                     ▼                                 ▼                     │
 │  ┌──────────────────────────────────────┐  ┌─────────────────────────────┐  │
-│  │      DualDeckAudioEngine (TS)        │  │   Svelte 5 State Stores     │  │
-│  │  HTML5 Audio A/B • Crossfade • Lazy  │  │ player • localPrefs • queue │  │
-│  │  Web Audio 5-Band EQ & Normalization │  │ session • nativeEvents      │  │
+│  │   Hybrid Audio Engine Bridge (TS)    │  │   Svelte 5 State Stores     │  │
+│  │  • Desktop: NativeRustAudioEngine    │  │ player • localPrefs • queue │  │
+│  │  • Android: DualDeckAudioEngine      │  │ session • nativeEvents      │  │
 │  └──────────────────┬───────────────────┘  └──────────────┬──────────────┘  │
 └─────────────────────┼─────────────────────────────────────┼─────────────────┘
-                      │ HTTP Loopback (127.0.0.1)           │ Tauri IPC Commands
+                      │ IPC (`native-audio:event`) / HTTP   │ Tauri IPC Commands
                       ▼                                     ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                    Rust Core (`crates/gyrotube-core`)                       │
 │  ┌──────────────────────────────────┐  ┌─────────────────────────────────┐  │
-│  │   Hardened Loopback HTTP Server  │  │  Native InnerTube & Catalog     │  │
-│  │   (`audio_streamer.rs`)          │  │  • `innertube/{player,browse,   │  │
-│  │   • `/stream/{id}.{ext}` (206)   │  │     parsers}` (5 profiles)      │  │
-│  │   • `/cover/{id}` • `/proxy/{k}` │  │  • `backend/{catalog,streaming, │  │
-│  │   • `verify_audio_tail` (all OS) │  │     lyrics,parsers}`            │  │
-│  └──────────────────┬───────────────┘  │  • LRCLIB synced-first lyrics   │  │
-│                     ▼                  │  • Desktop `yt-dlp` fallback    │  │
-│  ┌──────────────────────────────────┐  └─────────────────────────────────┘  │
-│  │   LRU Disk Audio Cache (1 GiB)   │  ┌─────────────────────────────────┐  │
-│  │   (`audio_cache.rs`)             │  │      Collaborative SPIN Mode    │  │
-│  └──────────────────────────────────┘  │  • LAN Jukebox HTTP + QR (`jam`)│  │
-│  ┌──────────────────────────────────┐  │  • Iroh QUIC P2P (`spin_remote`)│  │
-│  │  Atomic JSON Store (`models.rs`) │  │    ALPN `gyrotube/spin/1`       │  │
-│  │  Android Service (`android-tmpl`)│  └─────────────────────────────────┘  │
-│  └──────────────────────────────────┘                                       │
+│  │   Native Rust Audio Engine       │  │  Native InnerTube & Catalog     │  │
+│  │   (`native_audio/`, desktop)     │  │  • `innertube/` (6 profiles +   │  │
+│  │   • `symphonia` + `cpal` (A/B)   │  │     QuickJS `js_solver.rs`)     │  │
+│  │   • 5-Band EQ + Normalizer       │  │  • `backend/{catalog,streaming, │  │
+│  └──────────────────┬───────────────┘  │     lyrics,lyrics_word,romanize,│  │
+│                     ▼                  │     translate,sponsorblock,     │  │
+│  ┌──────────────────────────────────┐  │     spotify,scrobble}`          │  │
+│  │  Loopback Streamer + 1 MiB Proxy │  └─────────────────────────────────┘  │
+│  │  (`audio_streamer/` + 1 GiB LRU) │  ┌─────────────────────────────────┐  │
+│  └──────────────────────────────────┘  │      Collaborative SPIN Mode    │  │
+│  ┌──────────────────────────────────┐  │  • LAN Jukebox HTTP + QR (`jam`)│  │
+│  │  Atomic JSON Store (`models.rs`) │  │  • Iroh QUIC P2P (`spin_remote`)│  │
+│  │  Discord RPC • Android Service   │  │    ALPN `gyrotube/spin/1`       │  │
+│  └──────────────────────────────────┘  └─────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -60,11 +59,13 @@ GyroTube is a cross-platform **YouTube Music** client for **Linux, Windows, macO
 | :--- | :--- | :--- |
 | **Backend Orchestrator** | `backend/mod.rs` | Shared `Backend` state, in-memory TTL caches (`stream_cache`, `music_proofs`, `home_cache`), and audio quality/session coordination. |
 | **Catalog Operations** | `backend/catalog.rs` | Home feed, search, artist/album/playlist details, radio/related tracks, official Song↔Video counterparts (`RDAMVM`), and music-only provenance verification. |
-| **Stream Resolution** | `backend/streaming.rs` | Adaptive stream resolver (pure-Rust InnerTube with 5 client profiles + optional desktop `yt-dlp` fallback), tail-byte verification, and mid-stream URL refresh. |
-| **Lyrics Pipeline** | `backend/lyrics.rs` | Synced-first lyrics resolution: `ANDROID_MUSIC` timed lyrics → LRCLIB exact `/api/get` → validated LRCLIB `/api/search` synced (±8 s duration + title/artist match) → static fallbacks (`ytm_plain`, LRCLIB plain). |
+| **Stream Resolution** | `backend/streaming.rs` | Adaptive stream resolver (pure-Rust InnerTube with 6 profiles including `WEB` + QuickJS, plus desktop `yt-dlp` fallback), M4A/AAC prioritization under `native-audio`, tail-byte verification, and mid-stream URL refresh. |
+| **Native Desktop Audio Engine** | `native_audio/{mod,deck,dsp,progressive_reader}.rs` | Pure-Rust Dual-Deck engine for desktop (`symphonia` + `cpal`, feature `native-audio`): progressive disk reading, M4A/AAC/MP3/FLAC/Vorbis decoding, 5-band biquad EQ, stereo normalizer with soft limiter, and equal-power crossfade. |
+| **Lyrics & Translation Pipeline** | `backend/{lyrics,lyrics_word,romanize,translate}.rs` | Word-by-word karaoke lyrics (Better Lyrics TTML, LyricsPlus V2, `ANDROID_MUSIC`, LRCLIB) with live source switching, 100 % offline pure-Rust romanization (Hangul, Kana, Cyrillic, Greek), and multi-provider batch translation (Google + MyMemory). |
+| **Integrations & Utilities** | `backend/{sponsorblock,spotify,scrobble}.rs` | Privacy-preserving SponsorBlock (`music_offtopic` via 4-char SHA-256 prefix), zero-auth Spotify public playlist importer, and opt-in ListenBrainz & Last.fm scrobblers (pure-Rust RFC 1321 MD5). |
 | **Backend Parsers** | `backend/parsers.rs` | Normalization, badge filtering, duration/metadata extraction, and unit tests (`backend/tests.rs`). |
-| **Native InnerTube Client** | `innertube/{mod,player,browse,parsers,tests}.rs` | Pure-Rust YouTube Music InnerTube API client: 5 playback client profiles (`ANDROID_VR`, `VISIONOS`, `ANDROID_VR_LEGACY`, `TV_EMBEDDED`, `IOS`), `/next` watch-panel cache, browse/search/radio endpoints, and localized media badge sanitization. |
-| **Progressive Loopback Streamer** | `audio_streamer.rs` | Hardened local HTTP loopback server (`127.0.0.1:<port>`) serving `/stream/<id>.<ext>` (`206 Partial Content`), `/cover/<id>`, and `/proxy/<key>`. Downloads byte-range chunks, unblocks playback early, verifies tail bytes on all platforms, and commits finished tracks to disk cache. |
+| **Native InnerTube Client** | `innertube/{mod,player,browse,parsers,js_solver,tests}.rs` | Pure-Rust InnerTube API client with 6 profiles (`ANDROID_VR`, `VISIONOS`, `ANDROID_VR_LEGACY`, `TV_EMBEDDED`, `IOS`, `WEB`), sandboxed QuickJS solver (`rquickjs`, 16 MiB cap / 500 ms timeout) for `signatureCipher`/`n`-param, `/next` cache, and catalog endpoints. |
+| **Progressive Loopback Streamer** | `audio_streamer/{mod,http,ytdlp,tests}.rs` | Hardened local HTTP loopback server (`127.0.0.1:<port>`) serving `/stream/<id>.<ext>` (`206 Partial Content`), `/cover/<id>`, and a pipelined `1 MiB` byte-range `/proxy/<key>` video proxy that bypasses YouTube open-range throttling. |
 | **Disk Audio Cache** | `audio_cache.rs` | Reference-counted LRU disk cache (`~/.cache/gyrotube/streams/`, capped at `1 GiB`) pinning active `LocalAudio` files so eviction never removes a playing track. |
 | **Data Models & Persistence** | `models.rs` | Core domain types (`Track`, `Album`, `Artist`, `Playlist`, `StreamInfo`, `LyricsData`, `AudioQuality`), LRC parser, title sanitizer, and atomic JSON persistence (`~/.local/share/gyrotube/`). |
 | **SPIN Mode — LAN Jukebox** | `jam.rs` | Embedded LAN HTTP server (`0.0.0.0:<port>`) with mobile web UI (`assets/spin.html`) and SVG QR code generation via the `qrcode` crate (4-module quiet zone). |
@@ -75,10 +76,10 @@ GyroTube is a cross-platform **YouTube Music** client for **Linux, Windows, macO
 
 | Layer | Path | Responsibility |
 | :--- | :--- | :--- |
-| **Tauri Rust Bridge** | `src-tauri/src/{lib.rs, commands/}` | Registers Tauri v2 plugins, AppStream/desktop integration, and IPC commands (`catalog.rs`, `player.rs`, `library.rs`, `spin.rs`). |
+| **Tauri Rust Bridge** | `src-tauri/src/{lib.rs, discord_rpc.rs, commands/}` | Registers Tauri v2 plugins, `NativeAudioEngine` lifecycle (emitting `native-audio:event`), zero-crate native Discord Rich Presence IPC, and IPC commands (`audio.rs`, `catalog.rs`, `library.rs`, `spin.rs`). |
 | **Android Native Templates** | `android-templates/` | Patches `gen/android` with `PlaybackForegroundService.kt` (media notification + lock-screen controls + wake lock), `MainActivity.kt` (`gyrotube://spin/...` deep links & media key bridge), and `network_security_config.xml` (loopback cleartext). |
-| **Frontend State & Engines** | `ui/src/lib/` | `audioEngine.ts` (`DualDeckAudioEngine`), `stores/player.svelte.ts`, `stores/localPrefs.ts`, `stores/queueOps.ts`, `stores/sessionPersistence.ts`, `stores/nativeEvents.ts`, `lyricsFormat.ts`, `lyricsCard.ts` (high-DPI `<canvas>` PNG Lyrics Cards), `listeningStats.ts`, `ytmUrl.ts`, `i18n.svelte.ts`. |
-| **Frontend Views & Components** | `ui/src/{views/, components/}` | `HomeView`, `ExploreView`, `CollectionView`, `ArtistView`, `AlbumView`, `PlaylistView`, `SearchView`, `SettingsView` (with `SettingsEqSection` & `SettingsAboutSection`), `SidebarPlayer` + `SidebarLyricsPane`, `PartyMode`, `SpinModal`, `SpinRemotePane`, `LyricsCardModal`, `MiniPlayer`, `ModalSheet`, `ContextMenu`. |
+| **Frontend State & Engines** | `ui/src/lib/` | `nativeAudioEngine.ts` (`NativeRustAudioEngine` on desktop), `audioEngine.ts` (`DualDeckAudioEngine` on Android/web), `webglVideoBlitter.ts`, `spotifyCsv.ts`, `stores/player.svelte.ts`, `stores/localPrefs.ts`, `stores/queueOps.ts`, `stores/sessionPersistence.ts`, `stores/nativeEvents.ts`, `lyricsFormat.ts`, `lyricsCard.ts`, `listeningStats.ts`, `ytmUrl.ts`, `i18n.svelte.ts`. |
+| **Frontend Views & Components** | `ui/src/{views/, components/}` | `HomeView`, `ExploreView`, `CollectionView` (with `SpotifyImportModal`), `ArtistView`, `AlbumView`, `PlaylistView`, `SearchView`, `SettingsView` (with `SettingsEqSection`, `SettingsIntegrationsSection`, and `SettingsAboutSection`), `SidebarPlayer` + `SidebarLyricsPane` + `LyricsOptionsMenu`, `SyncedVideoPlayer`, `PartyMode`, `SpinModal`, `SpinRemotePane`, `LyricsCardModal`, `MiniPlayer`, `ModalSheet`, `ContextMenu`. |
 
 ---
 
@@ -88,8 +89,8 @@ YouTube's CDN (`googlevideo.com`) throttles open-ended HTTP `GET` connections an
 
 1. **Speculative Prefetch**:
    - Hovering over a track row or starting playback triggers background resolution for the hovered or next queued track so deck transitions start immediately.
-2. **Adaptive 5-Profile Pure-Rust Extraction**:
-   - `innertube/player.rs` tries adaptive client profiles (`ANDROID_VR`, `VISIONOS`, `ANDROID_VR_LEGACY`, `TV_EMBEDDED`, `IOS`) and selects the best audio stream matching the user's `AudioQuality` preference (`Low`, `Medium`, `High`).
+2. **Adaptive 6-Profile Pure-Rust Extraction + Embedded QuickJS**:
+   - `innertube/player.rs` tries 6 adaptive client profiles (`ANDROID_VR`, `VISIONOS`, `ANDROID_VR_LEGACY`, `TV_EMBEDDED`, `IOS`, and `WEB` backed by the sandboxed QuickJS solver in `innertube/js_solver.rs` for `signatureCipher`/`n`-param) and selects the best audio stream matching `AudioQuality` (`Low`, `Medium`, `High`), prioritizing M4A/AAC on desktop under `native-audio`.
    - Before accepting a candidate URL, `verify_audio_tail` issues a single-byte tail probe (`Range: bytes={total-1}-{total-1}`) on **all platforms** (desktop and Android) to reject truncated 42–48 s profiles before playback begins.
    - On desktop, if all native InnerTube profiles fail, `backend/streaming.rs` falls back to `yt-dlp` when available.
 3. **Chunked Byte-Range Downloading (`AudioStreamer`)**:
@@ -103,14 +104,15 @@ YouTube's CDN (`googlevideo.com`) throttles open-ended HTTP `GET` connections an
 
 ---
 
-## 4. Dual-Deck Playback, Crossfade & Web Audio DSP (`audioEngine.ts`)
+## 4. Hybrid Audio Engine, Crossfade, DSP & Synced Video
 
-- **Two Independent HTML5 `<audio>` Decks (`Deck A` & `Deck B`)**:
-  - `activeDeck` plays the current track while `standbyDeck` preloads and starts the next track during crossfade transitions (`0–10 s`).
-- **Lazy Web Audio API Graph**:
-  - Created lazily only when the user enables the **5-Band Equalizer** (`60 Hz`, `230 Hz`, `910 Hz`, `3.6 kHz`, `14 kHz` with presets) or **Volume Normalization** (`DynamicsCompressorNode`), keeping default playback zero-overhead on WebKitGTK and Android WebView.
-- **Official Song ↔ Video Counterparts**:
-  - Uses InnerTube's `RDAMVM` watch-panel lookup to switch seamlessly between the official audio track and its music video counterpart (and vice versa).
+- **Desktop — Pure-Rust Native Engine (`native_audio/` + `nativeAudioEngine.ts`)**:
+  - Reads progressive disk files directly via `ProgressiveFileSource`, decodes on dedicated threads with `symphonia` (prioritizing M4A/AAC), and mixes dual A/B decks with equal-power crossfade (`0–10 s`), a **5-band biquad EQ** (`60 Hz`, `230 Hz`, `910 Hz`, `3.6 kHz`, `14 kHz`), stereo volume normalization with soft limiter, and direct `cpal` audio output.
+  - Bypasses WebKitGTK/GStreamer completely for audio—preventing Bluetooth profile switches and WebView stalls—while interpolating `currentTime` smoothly between `100 ms` native ticks for 60 FPS karaoke lyrics.
+- **Android / Web — `DualDeckAudioEngine` (`audioEngine.ts`)**:
+  - Two independent HTML5 `<audio>` decks with a lazy Web Audio API graph initialized only when EQ or volume normalization is enabled.
+- **Synced Video & Chunked Proxy (`SyncedVideoPlayer.svelte` + `/proxy/`)**:
+  - Uses InnerTube's `RDAMVM` lookup to switch Song ↔ Video. Video streams are proxied in pipelined `1 MiB` byte-range chunks (bypassing `googlevideo` throttling), blitted via a WebGL `<canvas>` on Linux to avoid WebKitGTK DMABUF flicker, and lockstep-coordinated with the audio engine for unified loading, seeking, and buffering.
 
 ---
 
@@ -157,9 +159,12 @@ GyroTube's visual identity derives from `gyrotube.svg` — a jewel-toned **Obsid
 
 ### 6.3. Dynamic Ambient Lighting, Polished Lyrics & Lyrics Cards
 - **Cover-Art Color Extraction**: Samples the dominant RGB color of the active cover (falling back to Jade Emerald `16, 185, 129`) to tint the non-scrolling `.ambient-surface` backdrop, player sidebar, and mini-player.
-- **Unified Synced & Static Lyrics (`lyricsFormat.ts`, `SidebarLyricsPane`, `PartyMode`)**:
-  - Shared parser renders intro waiting dots (`• • •`), asymmetric forward-reading opacity curves (past lines recede gently, upcoming lines stay legible), and stanza grouping with `[Section]` headers for static lyrics.
+- **Word-by-Word Karaoke Lyrics, Translation & Romanization (`lyricsFormat.ts`, `SidebarLyricsPane`, `LyricsOptionsMenu`, `PartyMode`)**:
+  - Combines word-timed and line-synced sources (Better Lyrics TTML, LyricsPlus V2, YouTube Music, LRCLIB) with live source switching, per-track timing offset (`±ms`), 100 % offline romanization, on-demand translation (ES/EN), font size (`A- / A / A+`), alignment (left / center / right), smooth vertical scrolling, and full-lyrics copy.
+  - Shared parser renders intro waiting dots (`• • •`), asymmetric forward-reading opacity curves, and stanza grouping with `[Section]` headers for static lyrics.
   - Active lines animate strictly via GPU-composited `transform: scale(1.03)` / `scale(1.035)` and `opacity` (no `filter: blur` or `font-size` reflows).
+- **Curated Color Palettes**:
+  - Alongside *Obsidian Vinyl + Jade Emerald*, `app.css` provides 6 curated palettes (`amoled`, `catppuccin`, `nord`, `rose-pine`, `tokyo-night`, `gruvbox`) with both Dark and Light variants.
 - **Shareable Lyrics Cards (`lyricsCard.ts`, `LyricsCardModal.svelte`)**:
   - High-DPI `<canvas>` PNG exporter supporting `4:5` and `1:1` aspect ratios, 6 themes (including dynamic cover-art HSL and pitch black), 1–5 selectable lines from synced or static lyrics, real `/gyrotube.svg` emblem, and Share / Download / Copy actions.
 

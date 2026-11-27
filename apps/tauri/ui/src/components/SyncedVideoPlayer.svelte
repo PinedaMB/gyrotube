@@ -90,13 +90,21 @@
   );
   let volumePct = $derived(Math.round(player.volume * 100));
   let isFav = $derived(player.currentTrack ? player.isFavorite(player.currentTrack.id) : false);
-  let showFullscreenHud = $derived(isFullscreen && (hudVisible || hudHovered || !player.isPlaying || seeking));
+  let showSyncLoading = $derived(!ready || player.videoBuffering || player.isLoadingAudio);
+  let showFullscreenHud = $derived(
+    isFullscreen && (hudVisible || hudHovered || !player.isPlaying || seeking || showSyncLoading),
+  );
 
   function syncPlayback(forceSeek = false) {
     const el = videoEl;
     if (!el || !player.videoStream) return;
-    if (hiddenDoc || !player.isPlaying) {
+    if (hiddenDoc || (!player.isPlaying && !player.videoBuffering)) {
       if (!el.paused) el.pause();
+      return;
+    }
+    if (player.videoBuffering) {
+      // Audio is paused waiting for the video to finish seeking/buffering;
+      // do not fight the in-flight seek or pause the video element.
       return;
     }
     if (el.seeking) return;
@@ -111,10 +119,10 @@
 
       // Never mutate `el.playbackRate` here: on Linux WebKitGTK/GStreamer, changing
       // playbackRate triggers a flushing seek that drops frames and causes flicker.
-      // Let the video run freely at 1.0x within a 450ms tolerance window; only seek
-      // immediately on large jumps (e.g. user scrub > 1.2s) or after a 2s cooldown.
-      const largeJump = drift > 1.2 && now - lastSeekAt > 350;
-      const moderateDrift = drift > 0.45 && now - lastSeekAt > 2000;
+      // Let the video run freely at 1.0x within a 220ms tolerance window; only seek
+      // immediately on large jumps (e.g. user scrub > 1.0s) or after a 2s cooldown.
+      const largeJump = drift > 1.0 && now - lastSeekAt > 350;
+      const moderateDrift = drift > 0.22 && now - lastSeekAt > 2000;
       if (forceSeek || largeJump || moderateDrift) {
         lastSeekAt = now;
         try {
@@ -152,6 +160,8 @@
     if (notifiedReadyForUrl !== url) {
       notifiedReadyForUrl = url;
       player.notifyVideoReady(el);
+    } else {
+      player.notifyVideoBuffering(false);
     }
     drawVideoFrame(true);
     syncPlayback(false);
@@ -164,6 +174,29 @@
     lastSeekAt = 0;
     lastDrawnVideoTime = -1;
     notifiedReadyForUrl = null;
+  });
+
+  $effect(() => {
+    void player.seekSeq;
+    const el = videoEl;
+    if (!el || !ready || !player.videoStream) return;
+    if (!player.videoBuffering) {
+      // When paused (or when player.seek didn't take over), snap the video frame immediately.
+      const target = Math.max(0, player.getExactPositionSecs());
+      if (el.readyState >= 1) {
+        const clamped = Number.isFinite(el.duration)
+          ? Math.min(target, Math.max(0, el.duration - 0.1))
+          : target;
+        if (Math.abs(el.currentTime - clamped) > 0.12) {
+          lastSeekAt = Date.now();
+          try {
+            el.currentTime = clamped;
+          } catch {
+            // ignore
+          }
+        }
+      }
+    }
   });
 
   $effect(() => {
@@ -289,33 +322,38 @@
 
       if (e.key === "Escape") {
         e.preventDefault();
+        e.stopImmediatePropagation();
         setFullscreen(false);
       } else if (e.key === " ") {
         e.preventDefault();
+        e.stopImmediatePropagation();
         scheduleHudHide();
         void player.togglePlay();
       } else if (e.key === "ArrowRight") {
         e.preventDefault();
+        e.stopImmediatePropagation();
         scheduleHudHide();
         player.seek(Math.min(player.durationSecs || 0, player.getExactPositionSecs() + 5));
       } else if (e.key === "ArrowLeft") {
         e.preventDefault();
+        e.stopImmediatePropagation();
         scheduleHudHide();
         player.seek(Math.max(0, player.getExactPositionSecs() - 5));
       } else if (e.key === "f" || e.key === "F") {
         e.preventDefault();
+        e.stopImmediatePropagation();
         setFullscreen(false);
       }
     };
     document.addEventListener("visibilitychange", onVis);
-    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keydown", onKeyDown, true);
     return () => {
       blitter?.dispose();
       blitter = null;
       blitterCanvas = null;
       if (hideHudTimer !== null) window.clearTimeout(hideHudTimer);
       document.removeEventListener("visibilitychange", onVis);
-      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keydown", onKeyDown, true);
       if (isFullscreen && isTauriRuntime()) {
         void getCurrentWindow().setFullscreen(false).catch(() => {});
       }
@@ -332,8 +370,16 @@
     if (isFullscreen) scheduleHudHide();
   }}
 >
-  {#if player.videoLoading}
-    <div class="absolute inset-0 flex flex-col items-center justify-center gap-2.5 bg-white/[0.04] animate-pulse">
+  {#if player.videoLoading || (player.isLoadingAudio && !player.videoStream && !player.videoError && !playbackError)}
+    {@const poster = player.trackCoverUrl(player.currentTrack, true)}
+    {#if poster}
+      <img
+        src={poster}
+        alt={player.currentTrack?.title ?? ""}
+        class="w-full h-full object-cover opacity-35 scale-[1.02]"
+      />
+    {/if}
+    <div class="absolute inset-0 flex flex-col items-center justify-center gap-2.5 bg-black/35">
       <div class="w-10 h-10 rounded-full border-2 border-white/15 border-t-[var(--accent-bright)] animate-spin"></div>
     </div>
   {:else if player.videoStream && !playbackError}
@@ -359,7 +405,18 @@
       }}
       onloadeddata={handleVideoReady}
       oncanplay={handleVideoReady}
-      onseeked={() => drawVideoFrame(true)}
+      onwaiting={() => {
+        if (ready && !videoEl?.seeking && player.isPlaying) {
+          player.notifyVideoBuffering(true);
+        }
+      }}
+      onplaying={() => {
+        player.notifyVideoBuffering(false);
+      }}
+      onseeked={() => {
+        drawVideoFrame(true);
+        player.notifyVideoBuffering(false);
+      }}
       onerror={() => {
         ready = false;
         playbackError = true;
@@ -381,8 +438,12 @@
       ></canvas>
     {/if}
 
-    {#if !ready}
-      <div class="absolute inset-0 flex items-center justify-center bg-black pointer-events-none">
+    {#if showSyncLoading}
+      <div
+        class="absolute inset-0 flex items-center justify-center pointer-events-none {ready
+          ? 'bg-black/35'
+          : 'bg-black'}"
+      >
         <div class="w-9 h-9 rounded-full border-2 border-white/15 border-t-[var(--accent-bright)] animate-spin"></div>
       </div>
     {/if}
@@ -500,7 +561,9 @@
               title={t("player.play_pause")}
               onclick={() => void player.togglePlay()}
             >
-              {#if player.isPlaying}
+              {#if player.isLoadingAudio}
+                <div class="w-5 h-5 rounded-full border-2 border-black/25 border-t-black animate-spin"></div>
+              {:else if player.isPlaying}
                 <Pause size={21} fill="currentColor" />
               {:else}
                 <Play size={21} fill="currentColor" class="translate-x-[1.5px]" />
@@ -559,6 +622,27 @@
         <Maximize2 size={14} />
       </button>
     {/if}
+  {:else if !player.videoError && !playbackError && player.currentTrack}
+    {@const poster = player.trackCoverUrl(player.currentTrack, true)}
+    <button
+      type="button"
+      class="relative w-full h-full flex items-center justify-center cursor-pointer group/poster"
+      title={t("player.play_pause")}
+      onclick={() => void player.togglePlay()}
+    >
+      {#if poster}
+        <img
+          src={poster}
+          alt={player.currentTrack.title}
+          class="w-full h-full object-cover opacity-80 group-hover/poster:opacity-95 transition-opacity"
+        />
+      {/if}
+      <div class="absolute inset-0 bg-black/25 flex items-center justify-center">
+        <span class="w-12 h-12 rounded-full bg-black/65 border border-white/20 text-white inline-flex items-center justify-center shadow-lg group-hover/poster:scale-105 transition-transform">
+          <Play size={20} fill="currentColor" class="translate-x-[1.5px]" />
+        </span>
+      </div>
+    </button>
   {:else}
     <div class="flex flex-col items-center justify-center gap-2 px-4 text-center text-white/75">
       <Film size={24} class="opacity-65" />

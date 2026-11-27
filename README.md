@@ -34,13 +34,15 @@
 ## ✨ Key Features
 
 ### ⚡ Instant, Gapless, High-Fidelity Audio
-- **Pure-Rust Dual-Deck Engine**: progressive chunked streaming with predictive next-track preloading and a smart **1 GiB** LRU disk cache.
-- **Crossfade & 5-Band Equalizer**: smooth configurable transitions (`0–10 s`), EQ presets, and real-time volume normalization.
-- **Official Song ↔ Video Switch**: jump seamlessly between the studio track and its official music video at the exact same timestamp.
+- **Pure-Rust Dual-Deck Engine**: on desktop (Linux, Windows, macOS), audio decodes and mixes natively in pure Rust (`symphonia` + `cpal`) with equal-power crossfade (`0–10 s`), a 5-band biquad EQ, and stereo volume normalization—zero GStreamer/WebView audio overhead. Android uses a lazy-DSP HTML5 Dual-Deck engine.
+- **Native 6-Profile Extraction + Embedded QuickJS**: progressive chunked streaming with an embedded sandboxed QuickJS (`rquickjs`) cipher/`n`-param solver, predictive next-track preloading, and a smart **1 GiB** LRU disk cache.
+- **Synchronized Song ↔ Video Switch**: jump between the studio track and its official music video with unified loading/seek sync and a pipelined 1 MiB chunked video proxy.
+- **SponsorBlock Integration**: opt-in privacy-preserving skipping of non-music intros, outros, and skits (`music_offtopic` via 4-char SHA-256 prefix lookup).
 - **Adaptive Audio Quality**: pick *Low*, *Normal*, or *High* to match your connection.
 
-### 🎤 Synced Lyrics, Party Mode & Lyrics Cards
-- **Karaoke-Grade Lyrics**: prioritizes synced line-by-line lyrics (YouTube Music + LRCLIB) with silky 60 FPS scrolling and dynamic cover-art ambient lighting.
+### 🎤 Word-by-Word Karaoke Lyrics, Party Mode & Lyrics Cards
+- **Multi-Source Karaoke Lyrics**: word-by-word synced lyrics (Better Lyrics TTML, LyricsPlus V2, YouTube Music, and LRCLIB) with live source switching, per-track timing offset (`±ms`), smooth scrolling, font size (`A-/A/A+`), and alignment controls (left / center / right).
+- **Offline Romanization & Translation**: 100 % offline pure-Rust transliteration (Hangul, Kana, Cyrillic, Greek) plus on-demand lyrics translation (ES/EN) with multi-provider fallback.
 - **Fullscreen Party Mode**: turn any monitor or TV into an immersive listening display with large artwork, live lyrics, and up-next queue.
 - **Shareable Lyrics Cards**: pick 1 to 5 lines from any track and export high-DPI PNG cards (`4:5` or `1:1`) in 6 themes ready to share anywhere.
 
@@ -50,13 +52,14 @@
 
 ### 🎧 Your Library, Offline & Private
 - **Full Offline Downloads**: save playlists and Favorites with audio, cover art, and synced lyrics for uninterrupted offline playback.
+- **Spotify Playlist Importer**: import public Spotify playlists by URL (no sign-in) or Exportify CSV files with automatic YouTube Music matching.
 - **Smart Local Playlists**: customize name, icon, color, or cover; pin up to 4 playlists to the sidebar; use **Enhance / Smart Shuffle (`✨`)** for instant radio recommendations, with duplicate track detection.
-- **Zero-Account Privacy**: date-grouped play history (*Today, Yesterday, This Week, Earlier*), hide tracks, listening stats, unified search, and **local JSON backup/restore**—no sign-in or tracking required.
+- **Zero-Account Privacy & Opt-In Integrations**: date-grouped play history, hide tracks, listening stats, unified search, **local JSON backup/restore**, plus strictly opt-in **Discord Rich Presence**, **ListenBrainz**, and **Last.fm** scrobbling (all disabled by default).
 
 ### 📱 Truly Native Across Desktop & Mobile
 - **Desktop Installers**: native packages for Linux (`.AppImage`, `.rpm`, `.deb`), Windows (`.msi`, `.exe`), and macOS (`.dmg`) with system tray controls, background playback, and keyboard shortcuts.
 - **Native Android Experience**: foreground playback service with lock-screen `MediaSession` controls, hardware volume integration, touch-friendly bottom sheets, and `gyrotube://spin/...` deep links.
-- **Adaptive Themes & Bilingual UI**: **Dark**, **Light**, and **System** themes, plus full **English** and **Spanish** support across the app, desktop tray, and SPIN guest web UI.
+- **Curated Themes & Bilingual UI**: **Dark**, **Light**, and **System** modes across 7 curated palettes (*Default Jade, AMOLED, Catppuccin, Nord, Rosé Pine, Tokyo Night, Gruvbox*), plus full **English** and **Spanish** support across the app, desktop tray, and SPIN guest web UI.
 
 ---
 
@@ -148,8 +151,8 @@ xattr -cr /Applications/GyroTube.app
 - **Architecture & Design**: [English](docs/DESIGN.en.md) · [Español](docs/DESIGN.es.md)
 
 ### Workspace Overview
-- `crates/gyrotube-core`: shared pure-Rust core (native InnerTube client, hardened loopback HTTP `Range` streamer, 1 GiB LRU disk cache, synced lyrics pipeline, atomic JSON persistence, and SPIN LAN/P2P).
-- `apps/tauri`: cross-platform **Tauri v2 + Svelte 5 + Tailwind CSS v4** app and native Android templates (`apps/tauri/android-templates`).
+- `crates/gyrotube-core`: shared pure-Rust core (native 6-profile InnerTube client + sandboxed QuickJS solver, pure-Rust `symphonia`+`cpal` desktop audio engine, hardened loopback HTTP `Range` streamer & chunked video proxy, 1 GiB LRU disk cache, multi-source karaoke lyrics + offline romanization + translation, SponsorBlock, Spotify importer, scrobblers, atomic JSON persistence, and SPIN LAN/P2P).
+- `apps/tauri`: cross-platform **Tauri v2 + Svelte 5 + Tailwind CSS v4** app, native Discord RPC IPC bridge, and Android templates (`apps/tauri/android-templates`).
 
 ---
 
