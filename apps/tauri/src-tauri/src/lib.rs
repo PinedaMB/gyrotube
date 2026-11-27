@@ -1,4 +1,5 @@
 mod commands;
+mod discord_rpc;
 mod mpris;
 mod single_instance;
 
@@ -108,6 +109,7 @@ pub fn run() {
             let (core_state, jam_cmd_rx, remote_rx) = AppCoreState::new();
             app.manage(core_state);
             app.manage(mpris::MprisHandle::start(app.handle().clone()));
+            app.manage(discord_rpc::DiscordRpcHandle::start());
 
             // Bridge SPIN LAN & Remote host commands to the frontend via Tauri events
             let handle_for_jam = app.handle().clone();
@@ -272,12 +274,17 @@ pub fn run() {
             commands::get_playlist_radio,
             commands::get_related_for_track,
             commands::get_lyrics,
+            commands::get_lyrics_sources,
+            commands::translate_lyrics,
             commands::fetch_spotify_playlist,
             commands::match_external_track,
             commands::resolve_audio_stream,
             commands::resolve_video_stream,
             commands::find_counterpart_track,
             commands::get_sponsorblock_segments,
+            commands::validate_listenbrainz_token,
+            commands::scrobble_listenbrainz,
+            commands::scrobble_lastfm,
             commands::prefetch_audio,
             commands::cancel_stale_streams,
             commands::get_cache_bytes,
@@ -305,6 +312,7 @@ pub fn run() {
             commands::save_lyrics_card_png,
             commands::save_backup_json,
             mpris::mpris_sync_state,
+            discord_rpc::discord_rpc_sync,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Gyro Tauri application");

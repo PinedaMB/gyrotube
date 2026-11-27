@@ -1,4 +1,4 @@
-import type { RecentSearchEntry } from "../types";
+import type { IntegrationsSettings, LyricsAlign, LyricsFontSize, RecentSearchEntry } from "../types";
 
 const KEYS = {
   recentSearches: "gyrotube.recent_searches_v1",
@@ -9,6 +9,12 @@ const KEYS = {
   spinDisplayName: "gyrotube.spin_display_name_v1",
   sponsorBlockEnabled: "gyrotube.sponsorblock_enabled_v1",
   lyricsOffsets: "gyrotube.lyrics_offsets_v1",
+  showRomanization: "gyrotube.show_romanization_v1",
+  showTranslation: "gyrotube.show_translation_v1",
+  translationLang: "gyrotube.translation_lang_v1",
+  lyricsFontSize: "gyrotube.lyrics_font_size_v1",
+  lyricsAlign: "gyrotube.lyrics_align_v1",
+  integrations: "gyrotube.integrations_v1",
 } as const;
 
 function readJson<T>(key: string): T | null {
@@ -139,4 +145,134 @@ export function writeLyricsOffsets(map: Record<string, number>): void {
   );
   const trimmed = entries.slice(-200);
   writeJson(KEYS.lyricsOffsets, Object.fromEntries(trimmed));
+}
+
+export function readShowRomanization(): boolean {
+  if (typeof localStorage === "undefined") return true;
+  try {
+    const raw = localStorage.getItem(KEYS.showRomanization);
+    if (raw === "0" || raw === "false") return false;
+    return true;
+  } catch {
+    return true;
+  }
+}
+
+export function writeShowRomanization(show: boolean): void {
+  if (typeof localStorage === "undefined") return;
+  try {
+    localStorage.setItem(KEYS.showRomanization, show ? "1" : "0");
+  } catch {
+    // ignore
+  }
+}
+
+export function readShowTranslation(): boolean {
+  if (typeof localStorage === "undefined") return false;
+  try {
+    return localStorage.getItem(KEYS.showTranslation) === "1";
+  } catch {
+    return false;
+  }
+}
+
+export function writeShowTranslation(show: boolean): void {
+  if (typeof localStorage === "undefined") return;
+  try {
+    localStorage.setItem(KEYS.showTranslation, show ? "1" : "0");
+  } catch {
+    // ignore
+  }
+}
+
+export function readTranslationLang(): "es" | "en" | null {
+  if (typeof localStorage === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(KEYS.translationLang);
+    if (raw === "es" || raw === "en") return raw;
+  } catch {
+    // ignore
+  }
+  return null;
+}
+
+export function writeTranslationLang(lang: "es" | "en"): void {
+  if (typeof localStorage === "undefined") return;
+  try {
+    localStorage.setItem(KEYS.translationLang, lang);
+  } catch {
+    // ignore
+  }
+}
+
+export function readLyricsFontSize(): LyricsFontSize {
+  if (typeof localStorage === "undefined") return "md";
+  try {
+    const raw = localStorage.getItem(KEYS.lyricsFontSize);
+    if (raw === "sm" || raw === "md" || raw === "lg") return raw;
+  } catch {
+    // ignore
+  }
+  return "md";
+}
+
+export function writeLyricsFontSize(size: LyricsFontSize): void {
+  if (typeof localStorage === "undefined") return;
+  try {
+    localStorage.setItem(KEYS.lyricsFontSize, size);
+  } catch {
+    // ignore
+  }
+}
+
+export function readLyricsAlign(): LyricsAlign {
+  if (typeof localStorage === "undefined") return "left";
+  try {
+    const raw = localStorage.getItem(KEYS.lyricsAlign);
+    if (raw === "left" || raw === "center" || raw === "right") return raw;
+  } catch {
+    // ignore
+  }
+  return "left";
+}
+
+export function writeLyricsAlign(align: LyricsAlign): void {
+  if (typeof localStorage === "undefined") return;
+  try {
+    localStorage.setItem(KEYS.lyricsAlign, align);
+  } catch {
+    // ignore
+  }
+}
+
+export const DEFAULT_INTEGRATIONS: IntegrationsSettings = {
+  discordRpcEnabled: false,
+  discordClientId: "",
+  listenBrainzEnabled: false,
+  listenBrainzToken: "",
+  lastFmEnabled: false,
+  lastFmApiKey: "",
+  lastFmApiSecret: "",
+  lastFmSessionKey: "",
+};
+
+export function readIntegrationsSettings(): IntegrationsSettings {
+  const parsed = readJson<Partial<IntegrationsSettings>>(KEYS.integrations);
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return { ...DEFAULT_INTEGRATIONS };
+  }
+  return {
+    discordRpcEnabled: Boolean(parsed.discordRpcEnabled),
+    discordClientId: typeof parsed.discordClientId === "string" ? parsed.discordClientId : "",
+    listenBrainzEnabled: Boolean(parsed.listenBrainzEnabled),
+    listenBrainzToken: typeof parsed.listenBrainzToken === "string" ? parsed.listenBrainzToken : "",
+    lastFmEnabled: Boolean(parsed.lastFmEnabled),
+    lastFmApiKey: typeof parsed.lastFmApiKey === "string" ? parsed.lastFmApiKey : "",
+    lastFmApiSecret: typeof parsed.lastFmApiSecret === "string" ? parsed.lastFmApiSecret : "",
+    lastFmSessionKey: typeof parsed.lastFmSessionKey === "string" ? parsed.lastFmSessionKey : "",
+  };
+}
+
+export function writeIntegrationsSettings(settings: IntegrationsSettings): void {
+  writeJson(KEYS.integrations, settings);
 }

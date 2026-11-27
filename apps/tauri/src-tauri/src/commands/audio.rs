@@ -1,5 +1,5 @@
 use gyrotube_core::audio_streamer::AudioStreamer;
-use gyrotube_core::models::{SponsorSegment, Track, VideoStreamInfo, cache_dir};
+use gyrotube_core::models::{LastFmCreds, SponsorSegment, Track, VideoStreamInfo, cache_dir};
 use serde::Serialize;
 use tauri::State;
 
@@ -76,6 +76,42 @@ pub async fn get_sponsorblock_segments(
     track_id: String,
 ) -> Result<Vec<SponsorSegment>, String> {
     state.backend.fetch_sponsorblock_segments(&track_id).await
+}
+
+#[tauri::command]
+pub async fn validate_listenbrainz_token(
+    state: State<'_, AppCoreState>,
+    token: String,
+) -> Result<String, String> {
+    state.backend.validate_listenbrainz_token(&token).await
+}
+
+#[tauri::command]
+pub async fn scrobble_listenbrainz(
+    state: State<'_, AppCoreState>,
+    token: String,
+    track: Track,
+    now_playing: bool,
+    timestamp: Option<u64>,
+) -> Result<(), String> {
+    state
+        .backend
+        .scrobble_listenbrainz(&token, &track, now_playing, timestamp)
+        .await
+}
+
+#[tauri::command]
+pub async fn scrobble_lastfm(
+    state: State<'_, AppCoreState>,
+    creds: LastFmCreds,
+    track: Track,
+    now_playing: bool,
+    timestamp: Option<u64>,
+) -> Result<(), String> {
+    state
+        .backend
+        .scrobble_lastfm(&creds, &track, now_playing, timestamp)
+        .await
 }
 
 #[tauri::command]

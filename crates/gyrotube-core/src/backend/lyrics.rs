@@ -1,22 +1,58 @@
 use super::*;
+use super::lyrics_word::ensure_word_timings;
 use super::parsers::*;
+use super::romanize::enrich_romanization;
+use crate::models::{LyricsSourceOption, LyricsSyncKind};
 
 impl Backend {
     pub async fn fetch_synced_lyrics(&self, track: &Track) -> Result<LyricsData, String> {
-        // 1. Offline local cache
+        // 1. Offline local cache (return immediately if it already has word-by-word sync;
+        //    keep line-only/plain cached copy as fallback so online playback can upgrade to word sync)
+        let mut offline_fallback: Option<LyricsData> = None;
         if !track.id.is_empty()
             && validate_video_id(&track.id).is_ok()
             && let Some(dl_dir) = crate::models::downloads_dir()
         {
             let lyrics_path = dl_dir.join(format!("{}.lyrics.json", track.id));
             if let Ok(bytes) = tokio::fs::read(&lyrics_path).await
-                && let Ok(saved) = serde_json::from_slice::<LyricsData>(&bytes)
+                && let Ok(mut saved) = serde_json::from_slice::<LyricsData>(&bytes)
             {
-                return Ok(saved);
+                if let LyricsData::Synced(ref mut lines) = saved {
+                    enrich_romanization(lines);
+                    if lines.iter().any(|l| !l.words.is_empty()) {
+                        return Ok(saved);
+                    }
+                }
+                offline_fallback = Some(saved);
             }
         }
 
-        // 2. YouTube Music official lyrics via innertube.rs (ANDROID_MUSIC synced -> WEB_REMIX plain).
+        let artist_q = track
+            .artist
+            .split([',', '•', '·', '&'])
+            .next()
+            .unwrap_or(&track.artist)
+            .trim();
+        let clean_title = strip_lyrics_query_noise(&track.title);
+
+        // 2. Word-by-word karaoke lyrics via Better Lyrics (TTML) + LyricsPlus V2
+        if let Some(mut word_lines) = self
+            .fetch_word_synced_lyrics(track, artist_q, &clean_title)
+            .await
+        {
+            ensure_word_timings(&mut word_lines);
+            enrich_romanization(&mut word_lines);
+            return Ok(LyricsData::Synced(word_lines));
+        }
+
+        if let Some(mut saved) = offline_fallback {
+            if let LyricsData::Synced(ref mut lines) = saved {
+                ensure_word_timings(lines);
+            }
+            return Ok(saved);
+        }
+
+        // 3. YouTube Music official lyrics via innertube.rs (ANDROID_MUSIC synced -> WEB_REMIX plain).
         //    Reuses cached /next details so lyrics_browse_id costs 0 extra network calls.
         let mut ytm_plain: Option<String> = None;
         if !track.id.is_empty()
@@ -26,7 +62,9 @@ impl Backend {
             && let Ok(data) = self.innertube.fetch_lyrics_data(&lyrics_id).await
         {
             match data {
-                LyricsData::Synced(lines) if !lines.is_empty() => {
+                LyricsData::Synced(mut lines) if !lines.is_empty() => {
+                    ensure_word_timings(&mut lines);
+                    enrich_romanization(&mut lines);
                     return Ok(LyricsData::Synced(lines));
                 }
                 LyricsData::Plain(text) if !text.trim().is_empty() => {
@@ -49,13 +87,6 @@ impl Backend {
             plain_lyrics: Option<String>,
         }
 
-        let artist_q = track
-            .artist
-            .split([',', '•', '·', '&'])
-            .next()
-            .unwrap_or(&track.artist)
-            .trim();
-        let clean_title = strip_lyrics_query_noise(&track.title);
         let mut params = vec![
             ("artist_name", artist_q.to_string()),
             ("track_name", track.title.clone()),
@@ -80,8 +111,10 @@ impl Backend {
             && let Ok(body) = resp.json::<LrcLibResp>().await
         {
             if let Some(synced) = body.synced_lyrics.filter(|s| !s.trim().is_empty()) {
-                let lines = parse_lrc(&synced);
+                let mut lines = parse_lrc(&synced);
                 if !lines.is_empty() {
+                    ensure_word_timings(&mut lines);
+                    enrich_romanization(&mut lines);
                     return Ok(LyricsData::Synced(lines));
                 }
             }
@@ -143,7 +176,9 @@ impl Backend {
                     lrclib_search_plain = Some(plain);
                 }
             }
-            if let Some((_, lines)) = best_synced {
+            if let Some((_, mut lines)) = best_synced {
+                ensure_word_timings(&mut lines);
+                enrich_romanization(&mut lines);
                 return Ok(LyricsData::Synced(lines));
             }
         }
@@ -169,6 +204,141 @@ impl Backend {
         }
 
         Err(String::from("No hay letras disponibles para esta pista."))
+    }
+
+    /// Queries all available lyrics providers in parallel so the user can manually switch
+    /// between word-synced, line-synced, and static sources for the current track.
+    pub async fn fetch_lyrics_sources(&self, track: &Track) -> Result<Vec<LyricsSourceOption>, String> {
+        let artist_q = track
+            .artist
+            .split([',', '•', '·', '&'])
+            .next()
+            .unwrap_or(&track.artist)
+            .trim()
+            .to_string();
+        let clean_title = strip_lyrics_query_noise(&track.title);
+
+        let word_fut = self.fetch_word_synced_lyrics(track, &artist_q, &clean_title);
+
+        let ytm_fut = async {
+            if !track.id.is_empty()
+                && validate_video_id(&track.id).is_ok()
+                && let Ok(details) = self.innertube.fetch_music_details(&track.id).await
+                && let Some(lyrics_id) = details.lyrics_browse_id
+                && let Ok(data) = self.innertube.fetch_lyrics_data(&lyrics_id).await
+            {
+                return Some(data);
+            }
+            None
+        };
+
+        let lrclib_fut = async {
+            #[derive(serde::Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct LrcResp {
+                synced_lyrics: Option<String>,
+                plain_lyrics: Option<String>,
+            }
+            let mut params = vec![
+                ("artist_name", artist_q.clone()),
+                ("track_name", track.title.clone()),
+            ];
+            if let Some(ref album) = track.album {
+                params.push(("album_name", album.clone()));
+            }
+            if let Some(dur) = track.duration_secs {
+                params.push(("duration", dur.to_string()));
+            }
+            if let Ok(resp) = self
+                .http
+                .get("https://lrclib.net/api/get")
+                .query(&params)
+                .header(reqwest::header::USER_AGENT, "GyroTube/1.0")
+                .send()
+                .await
+                && resp.status().is_success()
+                && let Ok(body) = resp.json::<LrcResp>().await
+            {
+                return Some((body.synced_lyrics, body.plain_lyrics));
+            }
+            None
+        };
+
+        let (word_res, ytm_res, lrc_res) = tokio::join!(word_fut, ytm_fut, lrclib_fut);
+        let mut options: Vec<LyricsSourceOption> = Vec::new();
+
+        if let Some(mut lines) = word_res
+            && !lines.is_empty()
+        {
+            let has_real_words = lines.iter().any(|l| !l.words.is_empty());
+            ensure_word_timings(&mut lines);
+            enrich_romanization(&mut lines);
+            options.push(LyricsSourceOption {
+                id: "lyricsplus".into(),
+                label: "LyricsPlus / Apple".into(),
+                sync_kind: if has_real_words {
+                    LyricsSyncKind::Word
+                } else {
+                    LyricsSyncKind::Line
+                },
+                data: LyricsData::Synced(lines),
+            });
+        }
+
+        if let Some(data) = ytm_res {
+            match data {
+                LyricsData::Synced(mut lines) if !lines.is_empty() => {
+                    ensure_word_timings(&mut lines);
+                    enrich_romanization(&mut lines);
+                    options.push(LyricsSourceOption {
+                        id: "ytm_synced".into(),
+                        label: "YouTube Music".into(),
+                        sync_kind: LyricsSyncKind::Line,
+                        data: LyricsData::Synced(lines),
+                    });
+                }
+                LyricsData::Plain(text) if !text.trim().is_empty() => {
+                    options.push(LyricsSourceOption {
+                        id: "ytm_plain".into(),
+                        label: "YouTube Music".into(),
+                        sync_kind: LyricsSyncKind::Plain,
+                        data: LyricsData::Plain(text),
+                    });
+                }
+                _ => {}
+            }
+        }
+
+        if let Some((synced_opt, plain_opt)) = lrc_res {
+            if let Some(synced) = synced_opt.filter(|s| !s.trim().is_empty()) {
+                let mut lines = parse_lrc(&synced);
+                if !lines.is_empty() {
+                    let has_elrc = lines.iter().any(|l| !l.words.is_empty());
+                    ensure_word_timings(&mut lines);
+                    enrich_romanization(&mut lines);
+                    options.push(LyricsSourceOption {
+                        id: "lrclib_synced".into(),
+                        label: "LRCLIB".into(),
+                        sync_kind: if has_elrc {
+                            LyricsSyncKind::Word
+                        } else {
+                            LyricsSyncKind::Line
+                        },
+                        data: LyricsData::Synced(lines),
+                    });
+                }
+            }
+            if let Some(plain) = plain_opt.filter(|s| !s.trim().is_empty()) {
+                options.push(LyricsSourceOption {
+                    id: "lrclib_plain".into(),
+                    label: "LRCLIB".into(),
+                    sync_kind: LyricsSyncKind::Plain,
+                    data: LyricsData::Plain(plain),
+                });
+            }
+        }
+
+        Ok(options)
     }
 
     pub async fn fetch_lyrics(&self, video_id: &str) -> Result<String, String> {

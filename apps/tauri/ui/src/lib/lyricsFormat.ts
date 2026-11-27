@@ -113,3 +113,59 @@ export function toggleContiguousLyricSelection(
   const candidate = buildContiguousLyricRange(Math.min(min, idx), Math.max(max, idx), isSelectable);
   return candidate.length <= maxLines ? candidate : [idx];
 }
+
+/**
+ * Silky vertical scroll animation for synced lyrics containers using easeOutQuart.
+ * Returns a cancel callback so manual user scrolling or a new line immediately takes over.
+ */
+export function smoothScrollToLyric(
+  container: HTMLElement | null,
+  target: HTMLElement | null,
+  anchorRatio = 0.42,
+  durationMs = 520,
+): () => void {
+  if (!container || !target) return () => {};
+  const containerRect = container.getBoundingClientRect();
+  const targetRect = target.getBoundingClientRect();
+  const desiredTop =
+    container.scrollTop +
+    (targetRect.top - containerRect.top) -
+    container.clientHeight * anchorRatio +
+    targetRect.height * 0.5;
+  const maxScroll = Math.max(0, container.scrollHeight - container.clientHeight);
+  const end = Math.max(0, Math.min(maxScroll, desiredTop));
+  const start = container.scrollTop;
+  const delta = end - start;
+
+  if (Math.abs(delta) < 1) return () => {};
+
+  const reduceMotion =
+    typeof window !== "undefined" &&
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (reduceMotion || durationMs <= 0) {
+    container.scrollTop = end;
+    return () => {};
+  }
+
+  let rafId = 0;
+  let cancelled = false;
+  const t0 = performance.now();
+
+  const step = (now: number) => {
+    if (cancelled) return;
+    const progress = Math.min(1, (now - t0) / durationMs);
+    // easeOutQuart: silky deceleration with zero bounce
+    const eased = 1 - Math.pow(1 - progress, 4);
+    container.scrollTop = start + delta * eased;
+    if (progress < 1) {
+      rafId = requestAnimationFrame(step);
+    }
+  };
+
+  rafId = requestAnimationFrame(step);
+  return () => {
+    cancelled = true;
+    if (rafId) cancelAnimationFrame(rafId);
+  };
+}

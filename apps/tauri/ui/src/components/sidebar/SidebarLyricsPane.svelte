@@ -1,5 +1,15 @@
 <script lang="ts">
-  import { Check, LocateFixed, Music, Pause, Play, Share2, SkipBack, SkipForward, X } from "lucide-svelte";
+  import {
+    Check,
+    LocateFixed,
+    Music,
+    Pause,
+    Play,
+    Share2,
+    SkipBack,
+    SkipForward,
+    X,
+  } from "lucide-svelte";
   import { cubicOut } from "svelte/easing";
   import { fade, scale } from "svelte/transition";
   import { t } from "../../lib/i18n.svelte";
@@ -9,15 +19,20 @@
     isSelectableLyricText,
     isWaitingForFirstLyric,
     parsePlainStanzas,
+    smoothScrollToLyric,
     toggleContiguousLyricSelection,
   } from "../../lib/lyricsFormat";
   import { player } from "../../lib/stores/player.svelte";
-  import { formatDuration } from "../../lib/types";
+  import { formatDuration, type LyricWord } from "../../lib/types";
   import CoverImage from "../CoverImage.svelte";
+  import LyricsOptionsMenu from "./LyricsOptionsMenu.svelte";
 
+  let scrollEl = $state<HTMLDivElement | null>(null);
   let lyricRefs = $state<Record<number, HTMLButtonElement>>({});
   let autoScrollPaused = $state(false);
   let lastTrackId = $state<string | null>(null);
+  let liveKaraokePos = $state(0);
+  let cancelScrollAnim: (() => void) | null = null;
 
   let selecting = $state(false);
   let selectedIndices = $state<number[]>([]);
@@ -48,6 +63,35 @@
       : `${player.currentLyricsOffset > 0 ? "+" : ""}${player.currentLyricsOffset.toFixed(1)}s`,
   );
 
+  let hasWordLyrics = $derived(
+    player.lyrics.type === "Synced" &&
+      player.lyrics.lines.some((l) => (l.words?.length ?? 0) > 0),
+  );
+
+  let hasRomanization = $derived(
+    player.lyrics.type === "Synced" && player.lyrics.lines.some((l) => Boolean(l.romanized)),
+  );
+
+  $effect(() => {
+    liveKaraokePos = player.positionSecs + player.currentLyricsOffset;
+    if (!hasWordLyrics || !player.isPlaying) return;
+    let rafId = 0;
+    const tick = () => {
+      liveKaraokePos = player.getExactPositionSecs() + player.currentLyricsOffset;
+      rafId = requestAnimationFrame(tick);
+    };
+    rafId = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafId);
+  });
+
+  function wordProgressPct(word: LyricWord, tSecs: number): number {
+    if (tSecs <= word.start_secs) return 0;
+    if (tSecs >= word.end_secs) return 100;
+    return Math.round(
+      ((tSecs - word.start_secs) / Math.max(0.05, word.end_secs - word.start_secs)) * 100,
+    );
+  }
+
   let selectedLineTexts = $derived.by(() => {
     const sorted = [...selectedIndices].sort((a, b) => a - b);
     if (player.lyrics.type === "Synced") {
@@ -75,11 +119,18 @@
   $effect(() => {
     const idx = player.activeLyricIndex;
     if (idx != null && !autoScrollPaused && !selecting) {
-      lyricRefs[idx]?.scrollIntoView({ behavior: "smooth", block: "center" });
+      cancelScrollAnim?.();
+      cancelScrollAnim = smoothScrollToLyric(scrollEl, lyricRefs[idx] ?? null, 0.42, 520);
+      return () => {
+        cancelScrollAnim?.();
+        cancelScrollAnim = null;
+      };
     }
   });
 
   function markUserScroll() {
+    cancelScrollAnim?.();
+    cancelScrollAnim = null;
     autoScrollPaused = true;
   }
 
@@ -87,7 +138,8 @@
     autoScrollPaused = false;
     const idx = player.activeLyricIndex;
     if (idx != null) {
-      lyricRefs[idx]?.scrollIntoView({ behavior: "smooth", block: "center" });
+      cancelScrollAnim?.();
+      cancelScrollAnim = smoothScrollToLyric(scrollEl, lyricRefs[idx] ?? null, 0.42, 460);
     }
   }
 
@@ -221,24 +273,6 @@
     </div>
 
     <div class="flex items-center gap-1.5 shrink-0">
-      {#if hasLyrics}
-        <button
-          type="button"
-          class="w-7 h-7 rounded-full inline-flex items-center justify-center transition-all active:scale-95 {selecting
-            ? 'bg-[var(--accent)] text-white'
-            : 'bg-[var(--surface)] hover:bg-[var(--surface-hover)] text-[var(--text-muted)] hover:text-[var(--text)] border border-[var(--border)]'}"
-          title={t("lyrics.share_card")}
-          aria-label={t("lyrics.share_card")}
-          onclick={() => (selecting ? cancelSelecting() : startSelecting())}
-        >
-          {#if selecting}
-            <X size={13} />
-          {:else}
-            <Share2 size={13} />
-          {/if}
-        </button>
-      {/if}
-
       {#if player.lyrics.type === "Synced"}
         <span class="shrink-0 inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10.5px] font-bold bg-[var(--accent-soft)] text-[var(--accent-bright)]">
           <span class="w-1.5 h-1.5 rounded-full bg-[var(--accent-bright)]"></span>
@@ -249,6 +283,26 @@
           {t("lyrics.static")}
         </span>
       {/if}
+
+      {#if selecting}
+        <button
+          type="button"
+          class="w-7 h-7 rounded-full inline-flex items-center justify-center bg-[var(--accent)] text-white transition-all active:scale-95"
+          title={t("lyrics.cancel")}
+          aria-label={t("lyrics.cancel")}
+          onclick={cancelSelecting}
+        >
+          <X size={13} />
+        </button>
+      {:else}
+        <LyricsOptionsMenu
+          {hasLyrics}
+          {hasRomanization}
+          showSidebarActions={true}
+          compact={true}
+          onStartSelecting={startSelecting}
+        />
+      {/if}
     </div>
   </div>
 
@@ -256,47 +310,6 @@
     <div class="flex items-center justify-between gap-2 px-3 py-1.5 rounded-xl bg-[var(--accent-soft)]/70 border border-[var(--accent-border)]/40 text-[11.5px] font-semibold text-[var(--accent-bright)]">
       <span>{t("lyrics.select_hint", { max: MAX_SELECTED_LYRIC_LINES })}</span>
       <span class="numeric opacity-85 shrink-0">{selectedIndices.length}/{MAX_SELECTED_LYRIC_LINES}</span>
-    </div>
-  {:else if player.lyrics.type === "Synced" && player.currentTrack}
-    <div class="flex items-center justify-between gap-1.5 px-2 py-1 rounded-xl bg-[var(--surface)] border border-[var(--border)]">
-      <span class="text-[11px] font-semibold text-[var(--text-muted)] pl-1 truncate">
-        {t("lyrics.offset_label")}
-      </span>
-      <div class="flex items-center gap-1 shrink-0">
-        <button
-          type="button"
-          class="px-1.5 py-0.5 rounded-md text-[11px] font-bold numeric bg-[var(--bg)]/55 hover:bg-[var(--surface-hover)] text-[var(--text-muted)] hover:text-[var(--text)] transition-colors"
-          title={t("lyrics.offset_earlier")}
-          onclick={() => player.adjustLyricsOffset(-0.5)}
-        >-0.5s</button>
-        <button
-          type="button"
-          class="px-1.5 py-0.5 rounded-md text-[11px] font-bold numeric bg-[var(--bg)]/55 hover:bg-[var(--surface-hover)] text-[var(--text-muted)] hover:text-[var(--text)] transition-colors"
-          title={t("lyrics.offset_earlier")}
-          onclick={() => player.adjustLyricsOffset(-0.1)}
-        >-0.1s</button>
-        <button
-          type="button"
-          class="min-w-[46px] px-1.5 py-0.5 rounded-md text-[11px] font-extrabold numeric transition-colors {player.currentLyricsOffset !== 0
-            ? 'bg-[var(--accent-soft)] text-[var(--accent-bright)] border border-[var(--accent-border)]/60'
-            : 'text-[var(--text-muted)] hover:text-[var(--text)]'}"
-          title={t("lyrics.offset_reset")}
-          disabled={player.currentLyricsOffset === 0}
-          onclick={() => player.resetLyricsOffset()}
-        >{offsetLabel}</button>
-        <button
-          type="button"
-          class="px-1.5 py-0.5 rounded-md text-[11px] font-bold numeric bg-[var(--bg)]/55 hover:bg-[var(--surface-hover)] text-[var(--text-muted)] hover:text-[var(--text)] transition-colors"
-          title={t("lyrics.offset_later")}
-          onclick={() => player.adjustLyricsOffset(0.1)}
-        >+0.1s</button>
-        <button
-          type="button"
-          class="px-1.5 py-0.5 rounded-md text-[11px] font-bold numeric bg-[var(--bg)]/55 hover:bg-[var(--surface-hover)] text-[var(--text-muted)] hover:text-[var(--text)] transition-colors"
-          title={t("lyrics.offset_later")}
-          onclick={() => player.adjustLyricsOffset(0.5)}
-        >+0.5s</button>
-      </div>
     </div>
   {/if}
 
@@ -309,6 +322,9 @@
   {:else if player.lyrics.type === "Synced"}
     <div class="relative flex-1 min-h-0 flex flex-col">
       <div
+        bind:this={scrollEl}
+        data-lyrics-size={player.lyricsFontSize}
+        data-lyrics-align={player.lyricsAlign}
         role="region"
         aria-label={t("lyrics.title")}
         class="lyrics-fade flex-1 min-h-0 overflow-y-auto overflow-x-hidden pt-8 pb-32 px-1 pr-3 flex flex-col gap-2.5"
@@ -359,7 +375,35 @@
                 {/if}
               </span>
             {/if}
-            <span class="flex-1">{line.text}</span>
+            <span class="flex-1">
+              {#if active && line.words && line.words.length > 0}
+                {#each line.words as word}
+                  {@const pct = wordProgressPct(word, liveKaraokePos)}
+                  {#if pct >= 100}
+                    <span class="karaoke-word-sung">{word.text}</span>
+                  {:else if pct <= 0}
+                    <span class="karaoke-word-pending">{word.text}</span>
+                  {:else}
+                    <span
+                      class="karaoke-word-active"
+                      style="background-image: linear-gradient(90deg, var(--text) 0%, var(--text) {pct}%, color-mix(in srgb, var(--text) 34%, transparent) {pct}%, color-mix(in srgb, var(--text) 34%, transparent) 100%);"
+                    >{word.text}</span>
+                  {/if}
+                {/each}
+              {:else}
+                {line.text}
+              {/if}
+              {#if player.showRomanization && line.romanized}
+                <span class="block text-[12px] font-medium leading-snug text-[var(--text-muted)] mt-0.5">
+                  {line.romanized}
+                </span>
+              {/if}
+              {#if player.showTranslation && player.translatedLines?.[i]}
+                <span class="block text-[12.5px] font-medium leading-snug text-[var(--accent-bright)]/85 mt-0.5">
+                  {player.translatedLines[i]}
+                </span>
+              {/if}
+            </span>
           </button>
         {/each}
       </div>
@@ -381,6 +425,8 @@
   {:else if player.lyrics.type === "Plain"}
     <div class="relative flex-1 min-h-0 flex flex-col">
       <div
+        data-lyrics-size={player.lyricsFontSize}
+        data-lyrics-align={player.lyricsAlign}
         role="region"
         aria-label={t("lyrics.title")}
         class="lyrics-fade flex-1 min-h-0 overflow-y-auto overflow-x-hidden pt-6 pb-28 px-1.5 space-y-5"
@@ -539,11 +585,31 @@
     padding: 5px 10px;
     border: 1px solid transparent;
     transition:
-      opacity 240ms cubic-bezier(0.22, 1, 0.36, 1),
-      transform 240ms cubic-bezier(0.22, 1, 0.36, 1),
-      background-color 180ms ease,
-      border-color 180ms ease,
-      color 220ms ease;
+      opacity 380ms cubic-bezier(0.22, 1, 0.36, 1),
+      transform 380ms cubic-bezier(0.22, 1, 0.36, 1),
+      background-color 200ms ease,
+      border-color 200ms ease,
+      color 260ms ease;
+  }
+
+  [data-lyrics-size="sm"] .sb-lyric-line {
+    font-size: 14.5px;
+  }
+
+  [data-lyrics-size="lg"] .sb-lyric-line {
+    font-size: 20px;
+  }
+
+  [data-lyrics-align="center"] .sb-lyric-line,
+  [data-lyrics-align="center"] .sb-static-line {
+    text-align: center;
+    transform-origin: center;
+  }
+
+  [data-lyrics-align="right"] .sb-lyric-line,
+  [data-lyrics-align="right"] .sb-static-line {
+    text-align: right;
+    transform-origin: right;
   }
 
   .sb-lyric-line:hover {
@@ -554,6 +620,23 @@
   .sb-lyric-line.active-line {
     transform: scale(1.03);
     color: var(--text);
+  }
+
+  .karaoke-word-sung {
+    color: var(--text);
+  }
+
+  .karaoke-word-pending {
+    color: var(--text);
+    opacity: 0.34;
+  }
+
+  .karaoke-word-active {
+    display: inline;
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
   }
 
   .sb-lyric-line.selected-line {

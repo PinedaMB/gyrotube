@@ -19,15 +19,20 @@
     computeLyricOpacity,
     isWaitingForFirstLyric,
     parsePlainStanzas,
+    smoothScrollToLyric,
   } from "../lib/lyricsFormat";
   import { player } from "../lib/stores/player.svelte";
-  import { formatDuration } from "../lib/types";
+  import { formatDuration, type LyricWord } from "../lib/types";
   import CoverImage from "./CoverImage.svelte";
+  import LyricsOptionsMenu from "./sidebar/LyricsOptionsMenu.svelte";
   import SyncedVideoPlayer from "./SyncedVideoPlayer.svelte";
 
+  let scrollEl = $state<HTMLDivElement | null>(null);
   let lineRefs = $state<Record<number, HTMLButtonElement>>({});
   let autoScrollPaused = $state(false);
   let lastTrackId = $state<string | null>(null);
+  let liveKaraokePos = $state(0);
+  let cancelScrollAnim: (() => void) | null = null;
 
   let isFav = $derived(player.currentTrack ? player.isFavorite(player.currentTrack.id) : false);
   let progressPct = $derived(
@@ -47,17 +52,28 @@
   $effect(() => {
     const idx = player.activeLyricIndex;
     if (idx != null && player.partyMode && !autoScrollPaused) {
-      const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-      lineRefs[idx]?.scrollIntoView({ behavior: reduceMotion ? "instant" : "smooth", block: "center" });
+      cancelScrollAnim?.();
+      cancelScrollAnim = smoothScrollToLyric(scrollEl, lineRefs[idx] ?? null, 0.42, 560);
+      return () => {
+        cancelScrollAnim?.();
+        cancelScrollAnim = null;
+      };
     }
   });
 
   function markUserScroll() {
+    cancelScrollAnim?.();
+    cancelScrollAnim = null;
     autoScrollPaused = true;
   }
 
   function resumeSync() {
     autoScrollPaused = false;
+    const idx = player.activeLyricIndex;
+    if (idx != null) {
+      cancelScrollAnim?.();
+      cancelScrollAnim = smoothScrollToLyric(scrollEl, lineRefs[idx] ?? null, 0.42, 480);
+    }
   }
 
   let waitingForFirstLyric = $derived(
@@ -73,6 +89,35 @@
       ? "0.0s"
       : `${player.currentLyricsOffset > 0 ? "+" : ""}${player.currentLyricsOffset.toFixed(1)}s`,
   );
+
+  let hasWordLyrics = $derived(
+    player.lyrics.type === "Synced" &&
+      player.lyrics.lines.some((l) => (l.words?.length ?? 0) > 0),
+  );
+
+  let hasRomanization = $derived(
+    player.lyrics.type === "Synced" && player.lyrics.lines.some((l) => Boolean(l.romanized)),
+  );
+
+  $effect(() => {
+    liveKaraokePos = player.positionSecs + player.currentLyricsOffset;
+    if (!hasWordLyrics || !player.isPlaying || !player.partyMode) return;
+    let rafId = 0;
+    const tick = () => {
+      liveKaraokePos = player.getExactPositionSecs() + player.currentLyricsOffset;
+      rafId = requestAnimationFrame(tick);
+    };
+    rafId = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafId);
+  });
+
+  function wordProgressPct(word: LyricWord, tSecs: number): number {
+    if (tSecs <= word.start_secs) return 0;
+    if (tSecs >= word.end_secs) return 100;
+    return Math.round(
+      ((tSecs - word.start_secs) / Math.max(0.05, word.end_secs - word.start_secs)) * 100,
+    );
+  }
 
   let plainStanzas = $derived(
     player.lyrics.type === "Plain" ? parsePlainStanzas(player.lyrics.text).stanzas : [],
@@ -323,43 +368,12 @@
             </span>
           {/if}
         </div>
-        {#if player.lyrics.type === "Synced" && player.currentTrack}
-          <div class="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-[var(--surface)] border border-[var(--border)]">
-            <button
-              type="button"
-              class="px-1.5 py-0.5 rounded-full text-[11px] font-bold numeric hover:bg-[var(--surface-hover)] text-[var(--text-muted)] hover:text-[var(--text)] transition-colors"
-              title={t("lyrics.offset_earlier")}
-              onclick={() => player.adjustLyricsOffset(-0.5)}
-            >-0.5s</button>
-            <button
-              type="button"
-              class="px-1.5 py-0.5 rounded-full text-[11px] font-bold numeric hover:bg-[var(--surface-hover)] text-[var(--text-muted)] hover:text-[var(--text)] transition-colors"
-              title={t("lyrics.offset_earlier")}
-              onclick={() => player.adjustLyricsOffset(-0.1)}
-            >-0.1s</button>
-            <button
-              type="button"
-              class="min-w-[44px] px-1.5 py-0.5 rounded-full text-[11px] font-extrabold numeric transition-colors {player.currentLyricsOffset !== 0
-                ? 'bg-[var(--accent-soft)] text-[var(--accent-bright)]'
-                : 'text-[var(--text-muted)]'}"
-              title={t("lyrics.offset_reset")}
-              disabled={player.currentLyricsOffset === 0}
-              onclick={() => player.resetLyricsOffset()}
-            >{offsetLabel}</button>
-            <button
-              type="button"
-              class="px-1.5 py-0.5 rounded-full text-[11px] font-bold numeric hover:bg-[var(--surface-hover)] text-[var(--text-muted)] hover:text-[var(--text)] transition-colors"
-              title={t("lyrics.offset_later")}
-              onclick={() => player.adjustLyricsOffset(0.1)}
-            >+0.1s</button>
-            <button
-              type="button"
-              class="px-1.5 py-0.5 rounded-full text-[11px] font-bold numeric hover:bg-[var(--surface-hover)] text-[var(--text-muted)] hover:text-[var(--text)] transition-colors"
-              title={t("lyrics.offset_later")}
-              onclick={() => player.adjustLyricsOffset(0.5)}
-            >+0.5s</button>
-          </div>
-        {/if}
+        <LyricsOptionsMenu
+          hasLyrics={player.lyrics.type === "Synced" || player.lyrics.type === "Plain"}
+          {hasRomanization}
+          showSidebarActions={false}
+          compact={false}
+        />
       </div>
 
       {#if player.lyricsLoading && player.currentTrack}
@@ -371,6 +385,9 @@
       {:else if player.lyrics.type === "Synced"}
         <div class="relative flex-1 min-h-0 flex flex-col">
           <div
+            bind:this={scrollEl}
+            data-lyrics-size={player.lyricsFontSize}
+            data-lyrics-align={player.lyricsAlign}
             role="region"
             aria-label={t("lyrics.title")}
             class="party-lyrics-scroll flex-1 min-h-0 overflow-y-auto overflow-x-hidden pt-10 pb-24 lg:pt-16 lg:pb-36 px-1 pr-4 lg:pr-10 flex flex-col gap-5 lg:gap-6"
@@ -399,7 +416,33 @@
                   player.seek(Math.max(0, line.time_secs - player.currentLyricsOffset));
                 }}
               >
-                {line.text}
+                {#if active && line.words && line.words.length > 0}
+                  {#each line.words as word}
+                    {@const pct = wordProgressPct(word, liveKaraokePos)}
+                    {#if pct >= 100}
+                      <span class="party-karaoke-sung">{word.text}</span>
+                    {:else if pct <= 0}
+                      <span class="party-karaoke-pending">{word.text}</span>
+                    {:else}
+                      <span
+                        class="party-karaoke-active"
+                        style="background-image: linear-gradient(90deg, var(--text) 0%, var(--text) {pct}%, color-mix(in srgb, var(--text) 34%, transparent) {pct}%, color-mix(in srgb, var(--text) 34%, transparent) 100%);"
+                      >{word.text}</span>
+                    {/if}
+                  {/each}
+                {:else}
+                  {line.text}
+                {/if}
+                {#if player.showRomanization && line.romanized}
+                  <span class="block text-[14px] lg:text-[17px] font-medium leading-snug text-[var(--text-muted)] mt-1">
+                    {line.romanized}
+                  </span>
+                {/if}
+                {#if player.showTranslation && player.translatedLines?.[i]}
+                  <span class="block text-[15px] lg:text-[18px] font-medium leading-snug text-[var(--accent-bright)]/85 mt-1">
+                    {player.translatedLines[i]}
+                  </span>
+                {/if}
               </button>
             {/each}
           </div>
@@ -418,6 +461,8 @@
         </div>
       {:else if player.lyrics.type === "Plain"}
         <div
+          data-lyrics-size={player.lyricsFontSize}
+          data-lyrics-align={player.lyricsAlign}
           role="region"
           aria-label={t("lyrics.title")}
           class="party-lyrics-scroll flex-1 min-h-0 overflow-y-auto overflow-x-hidden pt-8 pb-28 lg:pt-12 lg:pb-36 px-1 pr-3 lg:pr-8 space-y-6 lg:space-y-7"
@@ -565,10 +610,30 @@
     color: var(--text);
     padding: 5px 10px;
     transition:
-      opacity 280ms cubic-bezier(0.22, 1, 0.36, 1),
-      transform 280ms cubic-bezier(0.22, 1, 0.36, 1),
-      background-color 180ms ease,
-      color 260ms ease;
+      opacity 420ms cubic-bezier(0.22, 1, 0.36, 1),
+      transform 420ms cubic-bezier(0.22, 1, 0.36, 1),
+      background-color 200ms ease,
+      color 280ms ease;
+  }
+
+  [data-lyrics-size="sm"] .party-line {
+    font-size: clamp(17px, 4.2vw, 27px);
+  }
+
+  [data-lyrics-size="lg"] .party-line {
+    font-size: clamp(24px, 6vw, 42px);
+  }
+
+  [data-lyrics-align="center"] .party-line,
+  [data-lyrics-align="center"] .party-static-line {
+    text-align: center;
+    transform-origin: center;
+  }
+
+  [data-lyrics-align="right"] .party-line,
+  [data-lyrics-align="right"] .party-static-line {
+    text-align: right;
+    transform-origin: right;
   }
 
   .party-line:hover {
@@ -579,6 +644,23 @@
   .party-line.active-line {
     transform: scale(1.035);
     color: var(--text);
+  }
+
+  .party-karaoke-sung {
+    color: var(--text);
+  }
+
+  .party-karaoke-pending {
+    color: var(--text);
+    opacity: 0.34;
+  }
+
+  .party-karaoke-active {
+    display: inline;
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
   }
 
   .party-static-line {

@@ -21,20 +21,32 @@ import { parseYtmUrl } from "../ytmUrl";
 import {
   readDownloadedPlaylistKeys,
   readHiddenTrackIds,
+  readIntegrationsSettings,
+  readLyricsAlign,
+  readLyricsFontSize,
   readLyricsOffsets,
   readPinnedPlaylistIds,
   readRecentPlayedAt,
   readRecentSearches,
+  readShowRomanization,
+  readShowTranslation,
   readSpinDisplayName,
   readSponsorBlockEnabled,
+  readTranslationLang,
   writeDownloadedPlaylistKeys,
   writeHiddenTrackIds,
+  writeIntegrationsSettings,
+  writeLyricsAlign,
+  writeLyricsFontSize,
   writeLyricsOffsets,
   writePinnedPlaylistIds,
   writeRecentPlayedAt,
   writeRecentSearches,
+  writeShowRomanization,
+  writeShowTranslation,
   writeSpinDisplayName,
   writeSponsorBlockEnabled,
+  writeTranslationLang,
 } from "./localPrefs";
 import { contextMenu } from "./contextMenu.svelte";
 import { device } from "./device.svelte";
@@ -67,7 +79,11 @@ import type {
   AudioQuality,
   Genre,
   HomeFeed,
+  IntegrationsSettings,
+  LyricsAlign,
   LyricsData,
+  LyricsFontSize,
+  LyricsSourceOption,
   MainTab,
   RecentSearchEntry,
   RelatedFeed,
@@ -132,6 +148,26 @@ class PlayerStore {
   lyricsLoading = $state(false);
   activeLyricIndex = $state<number | null>(null);
   lyricsOffsets = $state<Record<string, number>>(readLyricsOffsets());
+  showRomanization = $state<boolean>(readShowRomanization());
+  showTranslation = $state<boolean>(readShowTranslation());
+  translationLangPref = $state<"es" | "en" | null>(readTranslationLang());
+  lyricsFontSize = $state<LyricsFontSize>(readLyricsFontSize());
+  lyricsAlign = $state<LyricsAlign>(readLyricsAlign());
+  translatedLines = $state<string[] | null>(null);
+  translationLoading = $state(false);
+  lyricsSources = $state<LyricsSourceOption[]>([]);
+  lyricsSourcesLoading = $state(false);
+  activeLyricsSourceId = $state<string | null>(null);
+  private lyricsSourcesTrackId: string | null = null;
+  private translationGen = 0;
+
+  // Opt-in desktop / scrobbling integrations
+  integrations = $state<IntegrationsSettings>(readIntegrationsSettings());
+  private scrobbleTrackId: string | null = null;
+  private scrobbleStartedAt = 0;
+  private scrobbleListenedSecs = 0;
+  private scrobbleSubmitted = false;
+  private scrobbleNowPlayingSent = false;
 
   // SponsorBlock segments for current track
   sponsorSegments = $state<SponsorSegment[]>([]);
@@ -635,6 +671,157 @@ class PlayerStore {
     this.lyricsOffsets = updated;
     writeLyricsOffsets(updated);
     this.updateActiveLyric(this.positionSecs);
+  }
+
+  public setShowRomanization(show: boolean): void {
+    this.showRomanization = show;
+    writeShowRomanization(show);
+  }
+
+  public setLyricsFontSize(size: LyricsFontSize): void {
+    this.lyricsFontSize = size;
+    writeLyricsFontSize(size);
+  }
+
+  public setLyricsAlign(align: LyricsAlign): void {
+    this.lyricsAlign = align;
+    writeLyricsAlign(align);
+  }
+
+  public setShowTranslation(show: boolean): void {
+    this.showTranslation = show;
+    writeShowTranslation(show);
+    if (show) {
+      void this.loadTranslationForCurrent(true);
+    } else {
+      this.translatedLines = null;
+      this.translationLoading = false;
+    }
+  }
+
+  public setTranslationLang(lang: "es" | "en"): void {
+    this.translationLangPref = lang;
+    writeTranslationLang(lang);
+    this.translatedLines = null;
+    if (this.showTranslation) {
+      void this.loadTranslationForCurrent(true);
+    }
+  }
+
+  public getTranslationTargetLang(): "es" | "en" {
+    if (this.translationLangPref) return this.translationLangPref;
+    if (this.language === "Es") return "es";
+    if (this.language === "En") return "en";
+    if (typeof navigator !== "undefined" && navigator.language?.toLowerCase().startsWith("es")) {
+      return "es";
+    }
+    return "en";
+  }
+
+  public async loadTranslationForCurrent(notifyIfUnchanged = false): Promise<void> {
+    const track = this.currentTrack;
+    if (!this.showTranslation || !track || !isTauriRuntime() || this.isOffline) {
+      this.translatedLines = null;
+      this.translationLoading = false;
+      return;
+    }
+    if (this.lyrics.type !== "Synced" || this.lyrics.lines.length === 0) {
+      this.translatedLines = null;
+      this.translationLoading = false;
+      return;
+    }
+    const gen = ++this.translationGen;
+    const rawLines = this.lyrics.lines.map((l) => l.text);
+    const targetLang = this.getTranslationTargetLang();
+    const cacheKey = `${track.id}:${this.activeLyricsSourceId ?? "auto"}`;
+    this.translationLoading = true;
+    try {
+      const translated = await api.translateLyrics(cacheKey, rawLines, targetLang);
+      if (this.translationGen === gen && this.currentTrack?.id === track.id && this.showTranslation) {
+        const hasDiff = translated.some((s) => s.trim().length > 0);
+        this.translatedLines = hasDiff ? translated : null;
+        if (!hasDiff && notifyIfUnchanged) {
+          this.showToast(
+            t("lyrics.translate_same_lang", {
+              lang: targetLang === "es" ? "Español" : "English",
+            }),
+          );
+        }
+      }
+    } catch (err) {
+      console.error("[gyro] translateLyrics failed:", err);
+      if (this.translationGen === gen) {
+        this.translatedLines = null;
+        if (notifyIfUnchanged) {
+          this.showToast(`${t("lyrics.translate_error")}: ${String(err)}`);
+        }
+      }
+    } finally {
+      if (this.translationGen === gen) {
+        this.translationLoading = false;
+      }
+    }
+  }
+
+  public async loadLyricsSources(): Promise<void> {
+    const track = this.currentTrack;
+    if (!track || !isTauriRuntime() || this.isOffline) return;
+    if (this.lyricsSourcesTrackId === track.id && this.lyricsSources.length > 0) return;
+    const expectedGen = this.loadGen;
+    this.lyricsSourcesLoading = true;
+    try {
+      const list = await api.getLyricsSources(
+        track.title,
+        track.artist,
+        track.duration_secs,
+        track.id,
+      );
+      if (this.loadGen === expectedGen) {
+        this.lyricsSources = list;
+        this.lyricsSourcesTrackId = track.id;
+      }
+    } catch {
+      if (this.loadGen === expectedGen) {
+        this.lyricsSources = [];
+      }
+    } finally {
+      if (this.loadGen === expectedGen) {
+        this.lyricsSourcesLoading = false;
+      }
+    }
+  }
+
+  public selectLyricsSource(opt: LyricsSourceOption): void {
+    this.lyrics = opt.data;
+    this.activeLyricsSourceId = opt.id;
+    this.activeLyricIndex = null;
+    this.translatedLines = null;
+    this.updateActiveLyric(this.positionSecs);
+    if (this.showTranslation) {
+      void this.loadTranslationForCurrent();
+    }
+  }
+
+  public async copyFullLyrics(): Promise<void> {
+    let text = "";
+    if (this.lyrics.type === "Synced") {
+      text = this.lyrics.lines.map((l) => l.text).join("\n").trim();
+    } else if (this.lyrics.type === "Plain") {
+      text = this.lyrics.text.trim();
+    }
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      this.showToast(t("lyrics.copied"));
+    } catch {
+      // ignore clipboard errors
+    }
+  }
+
+  public updateIntegrations(patch: Partial<IntegrationsSettings>): void {
+    this.integrations = { ...this.integrations, ...patch };
+    writeIntegrationsSettings(this.integrations);
+    void this.syncDiscordRpc();
   }
 
   public setLanguage(lang: AppLanguage): void {
@@ -1936,6 +2123,12 @@ class PlayerStore {
     this.durationSecs = track.duration_secs ?? 0;
     this.lyrics = { type: "None" };
     this.activeLyricIndex = null;
+    this.lyricsLoading = !track.is_video;
+    this.translatedLines = null;
+    this.translationLoading = false;
+    this.lyricsSources = [];
+    this.lyricsSourcesTrackId = null;
+    this.activeLyricsSourceId = null;
     this.sponsorSegments = [];
     this.skippedSponsorKeys.clear();
     this.videoStream = null;
@@ -1979,6 +2172,7 @@ class PlayerStore {
     if (!isTauriRuntime()) {
       if (this.inFlightTransitionGen === gen) this.inFlightTransitionGen = null;
       this.isLoadingAudio = false;
+      this.lyricsLoading = false;
       return;
     }
 
@@ -2003,6 +2197,9 @@ class PlayerStore {
         }
         // Resolve video stream in parallel with audio so both buffer together
         void this.loadVideoForCurrent();
+      } else {
+        // Fetch lyrics in parallel with audio stream so the loading skeleton shows immediately
+        void this.loadLyricsForCurrent(gen);
       }
 
       const stream = await api.resolveAudioStream(track);
@@ -2028,9 +2225,6 @@ class PlayerStore {
         } else if (this.videoError != null || this.awaitingVideoStartGen !== gen) {
           this.startAudioAndVideoTogether(null);
         }
-      } else if (!this.videoMode) {
-        // Load lyrics asynchronously only in song mode
-        void this.loadLyricsForCurrent(gen);
       }
       this.loadSponsorBlockForCurrent(gen);
       if (this.sidebarTab === "related") {
@@ -2222,6 +2416,58 @@ class PlayerStore {
     } catch {
       // ignore on platforms without MPRIS
     }
+    void this.syncDiscordRpc();
+  }
+
+  public async syncDiscordRpc(): Promise<void> {
+    if (!isTauriRuntime() || device.isAndroid) return;
+    const cfg = this.integrations;
+    const track = this.currentTrack;
+    const duration = this.durationSecs > 0 ? this.durationSecs : (track?.duration_secs ?? 0);
+    try {
+      await api.discordRpcSync({
+        enabled: cfg.discordRpcEnabled,
+        client_id: cfg.discordClientId,
+        title: track?.title ?? null,
+        artist: track?.artist ?? null,
+        album: track?.album ?? null,
+        art_url: track?.cover_large_url ?? track?.cover_url ?? null,
+        duration_secs: duration,
+        position_secs: this.getExactPositionSecs(),
+        is_playing: this.isPlaying,
+      });
+    } catch {
+      // ignore Discord RPC errors silently
+    }
+  }
+
+  private submitScrobble(track: Track, nowPlaying: boolean, timestamp?: number): void {
+    if (!isTauriRuntime() || this.isOffline) return;
+    const cfg = this.integrations;
+    if (cfg.listenBrainzEnabled && cfg.listenBrainzToken.trim()) {
+      void api
+        .scrobbleListenBrainz(cfg.listenBrainzToken, track, nowPlaying, timestamp ?? null)
+        .catch(() => {});
+    }
+    if (
+      cfg.lastFmEnabled &&
+      cfg.lastFmApiKey.trim() &&
+      cfg.lastFmApiSecret.trim() &&
+      cfg.lastFmSessionKey.trim()
+    ) {
+      void api
+        .scrobbleLastFm(
+          {
+            api_key: cfg.lastFmApiKey,
+            api_secret: cfg.lastFmApiSecret,
+            session_key: cfg.lastFmSessionKey,
+          },
+          track,
+          nowPlaying,
+          timestamp ?? null,
+        )
+        .catch(() => {});
+    }
   }
 
   private loadLyricsForCurrent(expectedGen = this.loadGen): Promise<void> {
@@ -2237,6 +2483,9 @@ class PlayerStore {
         if (this.loadGen === expectedGen && !this.videoMode) {
           this.lyrics = data;
           this.updateActiveLyric(this.positionSecs);
+          if (this.showTranslation && data.type === "Synced") {
+            void this.loadTranslationForCurrent();
+          }
         }
       })
       .finally(() => {
@@ -2529,12 +2778,23 @@ class PlayerStore {
       this.statsTrackId = cur.id;
       this.statsRecordedForTrack = false;
       this.statsLastPos = pos;
+      this.scrobbleTrackId = cur.id;
+      this.scrobbleStartedAt = Math.floor(Date.now() / 1000);
+      this.scrobbleListenedSecs = 0;
+      this.scrobbleSubmitted = false;
+      this.scrobbleNowPlayingSent = true;
+      this.submitScrobble(cur, true);
       return;
+    }
+    if (!this.scrobbleNowPlayingSent && this.scrobbleTrackId === cur.id) {
+      this.scrobbleNowPlayingSent = true;
+      this.submitScrobble(cur, true);
     }
     const delta = pos - this.statsLastPos;
     this.statsLastPos = pos;
     if (delta > 0 && delta < 5) {
       this.statsUnsavedSecs += delta;
+      this.scrobbleListenedSecs += delta;
       if (this.statsUnsavedSecs >= 10) {
         const add = Math.floor(this.statsUnsavedSecs);
         this.statsUnsavedSecs -= add;
@@ -2549,6 +2809,14 @@ class PlayerStore {
       this.statsRecordedForTrack = true;
       this.listeningStats = recordTrackPlay(this.listeningStats, cur);
       saveListeningStats(this.listeningStats);
+    }
+    if (!this.scrobbleSubmitted && this.scrobbleTrackId === cur.id) {
+      const dur = this.durationSecs > 0 ? this.durationSecs : (cur.duration_secs ?? 0);
+      const threshold = dur > 0 ? Math.max(30, Math.min(dur * 0.5, 240)) : 30;
+      if (this.scrobbleListenedSecs >= threshold) {
+        this.scrobbleSubmitted = true;
+        this.submitScrobble(cur, false, this.scrobbleStartedAt || Math.floor(Date.now() / 1000));
+      }
     }
   }
 

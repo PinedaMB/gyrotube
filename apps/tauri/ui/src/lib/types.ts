@@ -120,15 +120,52 @@ export interface ExternalPlaylistPreview {
   tracks: ExternalTrackQuery[];
 }
 
+export interface LyricWord {
+  start_secs: number;
+  end_secs: number;
+  text: string;
+}
+
 export interface SyncedLyricLine {
   time_secs: number;
+  end_secs?: number | null;
   text: string;
+  words?: LyricWord[];
+  romanized?: string | null;
+}
+
+export interface LastFmCreds {
+  api_key: string;
+  api_secret: string;
+  session_key: string;
+}
+
+export interface IntegrationsSettings {
+  discordRpcEnabled: boolean;
+  discordClientId: string;
+  listenBrainzEnabled: boolean;
+  listenBrainzToken: string;
+  lastFmEnabled: boolean;
+  lastFmApiKey: string;
+  lastFmApiSecret: string;
+  lastFmSessionKey: string;
 }
 
 export type LyricsData =
   | { type: "Synced"; lines: SyncedLyricLine[] }
   | { type: "Plain"; text: string }
   | { type: "None" };
+
+export type LyricsSyncKind = "word" | "line" | "plain";
+export type LyricsFontSize = "sm" | "md" | "lg";
+export type LyricsAlign = "left" | "center" | "right";
+
+export interface LyricsSourceOption {
+  id: string;
+  label: string;
+  sync_kind: LyricsSyncKind;
+  data: LyricsData;
+}
 
 export interface UserPlaylist {
   id: string;

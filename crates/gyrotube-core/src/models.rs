@@ -575,15 +575,127 @@ pub fn save_session_state(state: &SessionState) -> std::io::Result<()> {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LyricWord {
+    pub start_secs: f64,
+    pub end_secs: f64,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SyncedLyricLine {
     pub time_secs: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub end_secs: Option<f64>,
     pub text: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub words: Vec<LyricWord>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub romanized: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LastFmCreds {
+    pub api_key: String,
+    pub api_secret: String,
+    pub session_key: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum LyricsData {
     Synced(Vec<SyncedLyricLine>),
     Plain(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LyricsSyncKind {
+    Word,
+    Line,
+    Plain,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LyricsSourceOption {
+    pub id: String,
+    pub label: String,
+    pub sync_kind: LyricsSyncKind,
+    pub data: LyricsData,
+}
+
+fn parse_elrc_words(raw: &str, line_start: f64) -> Option<(String, Vec<LyricWord>)> {
+    if !raw.contains('<') {
+        return None;
+    }
+    let mut parts: Vec<(f64, String)> = Vec::new();
+    let mut rest = raw;
+    let mut current_start = line_start;
+
+    while let Some(open) = rest.find('<') {
+        let before = &rest[..open];
+        if !before.is_empty() && !parts.is_empty() {
+            parts.last_mut().unwrap().1.push_str(before);
+        } else if !before.trim().is_empty() {
+            parts.push((current_start, before.to_string()));
+        }
+        let after_open = &rest[open + 1..];
+        let Some(close) = after_open.find('>') else {
+            break;
+        };
+        let tag = &after_open[..close];
+        if let Some((min_s, sec_s)) = tag.split_once(':')
+            && let (Ok(mins), Ok(secs)) =
+                (min_s.trim().parse::<f64>(), sec_s.trim().parse::<f64>())
+        {
+            current_start = mins * 60.0 + secs;
+            parts.push((current_start, String::new()));
+        } else {
+            // Not a timestamp tag; keep literal
+            if let Some(last) = parts.last_mut() {
+                last.1.push('<');
+                last.1.push_str(tag);
+                last.1.push('>');
+            }
+        }
+        rest = &after_open[close + 1..];
+    }
+    if !rest.is_empty() {
+        if let Some(last) = parts.last_mut() {
+            last.1.push_str(rest);
+        } else {
+            parts.push((current_start, rest.to_string()));
+        }
+    }
+
+    let non_empty: Vec<(f64, String)> = parts
+        .into_iter()
+        .filter(|(_, text)| !text.is_empty())
+        .collect();
+    if non_empty.len() < 2 {
+        return None;
+    }
+
+    let mut words = Vec::with_capacity(non_empty.len());
+    let mut full_text = String::new();
+    for i in 0..non_empty.len() {
+        let (start_secs, ref text) = non_empty[i];
+        let end_secs = non_empty
+            .get(i + 1)
+            .map(|(next_t, _)| (*next_t).max(start_secs + 0.08))
+            .unwrap_or(start_secs + 0.65);
+        full_text.push_str(text);
+        words.push(LyricWord {
+            start_secs,
+            end_secs,
+            text: text.clone(),
+        });
+    }
+
+    let clean_text = full_text.trim().to_string();
+    if clean_text.is_empty() {
+        None
+    } else {
+        Some((clean_text, words))
+    }
 }
 
 pub fn parse_lrc(lrc: &str) -> Vec<SyncedLyricLine> {
@@ -608,10 +720,24 @@ pub fn parse_lrc(lrc: &str) -> Vec<SyncedLyricLine> {
             continue;
         }
         for t in timestamps {
-            out.push(SyncedLyricLine {
-                time_secs: t,
-                text: rest.to_string(),
-            });
+            if let Some((clean_text, words)) = parse_elrc_words(rest, t) {
+                let end_secs = words.last().map(|w| w.end_secs);
+                out.push(SyncedLyricLine {
+                    time_secs: t,
+                    end_secs,
+                    text: clean_text,
+                    words,
+                    romanized: None,
+                });
+            } else {
+                out.push(SyncedLyricLine {
+                    time_secs: t,
+                    end_secs: None,
+                    text: rest.to_string(),
+                    words: Vec::new(),
+                    romanized: None,
+                });
+            }
         }
     }
     out.sort_by(|a, b| a.time_secs.total_cmp(&b.time_secs));

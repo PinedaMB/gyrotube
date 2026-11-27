@@ -6,7 +6,9 @@ import type {
   Genre,
   HomeFeed,
   InitialAppData,
+  LastFmCreds,
   LyricsData,
+  LyricsSourceOption,
   Playlist,
   RelatedFeed,
   SearchResults,
@@ -82,6 +84,24 @@ export const api = {
       artist,
       durationSecs: durationSecs ?? null,
     }),
+  getLyricsSources: (
+    title: string,
+    artist: string,
+    durationSecs?: number | null,
+    trackId?: string | null,
+  ): Promise<LyricsSourceOption[]> =>
+    call("get_lyrics_sources", {
+      trackId: trackId ?? null,
+      title,
+      artist,
+      durationSecs: durationSecs ?? null,
+    }),
+  translateLyrics: (
+    cacheKey: string,
+    lines: string[],
+    targetLang: string,
+  ): Promise<string[]> =>
+    call("translate_lyrics", { cacheKey, lines, targetLang }),
 
   resolveAudioStream: (track: Track): Promise<StreamInfo> =>
     call("resolve_audio_stream", { track }),
@@ -180,4 +200,41 @@ export const api = {
     volume: number;
     seeked?: boolean;
   }): Promise<void> => call("mpris_sync_state", { payload }),
+  discordRpcSync: (payload: {
+    enabled: boolean;
+    client_id: string;
+    title: string | null;
+    artist: string | null;
+    album: string | null;
+    art_url: string | null;
+    duration_secs: number;
+    position_secs: number;
+    is_playing: boolean;
+  }): Promise<void> => call("discord_rpc_sync", { payload }),
+  validateListenBrainzToken: (token: string): Promise<string> =>
+    call("validate_listenbrainz_token", { token }),
+  scrobbleListenBrainz: (
+    token: string,
+    track: Track,
+    nowPlaying: boolean,
+    timestamp?: number | null,
+  ): Promise<void> =>
+    call("scrobble_listenbrainz", {
+      token,
+      track,
+      nowPlaying,
+      timestamp: timestamp ?? null,
+    }),
+  scrobbleLastFm: (
+    creds: LastFmCreds,
+    track: Track,
+    nowPlaying: boolean,
+    timestamp?: number | null,
+  ): Promise<void> =>
+    call("scrobble_lastfm", {
+      creds,
+      track,
+      nowPlaying,
+      timestamp: timestamp ?? null,
+    }),
 };

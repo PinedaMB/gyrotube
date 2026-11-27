@@ -1,7 +1,7 @@
 use gyrotube_core::backend::HomeFeed;
 use gyrotube_core::models::{
-    ArtistDetails, ExternalPlaylistPreview, Genre, LyricsData, Playlist, RelatedFeed,
-    SearchResults, SyncedLyricLine, Track,
+    ArtistDetails, ExternalPlaylistPreview, Genre, LyricsData, LyricsSyncKind, Playlist,
+    RelatedFeed, SearchResults, SyncedLyricLine, Track,
 };
 use serde::Serialize;
 use tauri::State;
@@ -14,6 +14,14 @@ pub enum LyricsPayload {
     Synced { lines: Vec<SyncedLyricLine> },
     Plain { text: String },
     None,
+}
+
+#[derive(Serialize)]
+pub struct LyricsSourcePayload {
+    pub id: String,
+    pub label: String,
+    pub sync_kind: LyricsSyncKind,
+    pub data: LyricsPayload,
 }
 
 #[tauri::command]
@@ -144,6 +152,56 @@ pub async fn get_lyrics(
         Ok(LyricsData::Plain(text)) => Ok(LyricsPayload::Plain { text }),
         Err(_) => Ok(LyricsPayload::None),
     }
+}
+
+#[tauri::command]
+pub async fn get_lyrics_sources(
+    state: State<'_, AppCoreState>,
+    track_id: Option<String>,
+    title: String,
+    artist: String,
+    duration_secs: Option<u32>,
+) -> Result<Vec<LyricsSourcePayload>, String> {
+    let stub = Track {
+        is_music: true,
+        is_video: false,
+        id: track_id.unwrap_or_default(),
+        title,
+        artist,
+        artist_id: None,
+        album: None,
+        album_id: None,
+        duration_secs,
+        view_count: None,
+        cover_url: None,
+        cover_large_url: None,
+    };
+    let sources = state.backend.fetch_lyrics_sources(&stub).await?;
+    Ok(sources
+        .into_iter()
+        .map(|opt| LyricsSourcePayload {
+            id: opt.id,
+            label: opt.label,
+            sync_kind: opt.sync_kind,
+            data: match opt.data {
+                LyricsData::Synced(lines) => LyricsPayload::Synced { lines },
+                LyricsData::Plain(text) => LyricsPayload::Plain { text },
+            },
+        })
+        .collect())
+}
+
+#[tauri::command]
+pub async fn translate_lyrics(
+    state: State<'_, AppCoreState>,
+    cache_key: String,
+    lines: Vec<String>,
+    target_lang: String,
+) -> Result<Vec<String>, String> {
+    state
+        .backend
+        .translate_lyrics_lines(&cache_key, &lines, &target_lang)
+        .await
 }
 
 #[tauri::command]

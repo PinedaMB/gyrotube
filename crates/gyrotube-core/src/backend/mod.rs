@@ -1,9 +1,13 @@
 mod catalog;
 mod lyrics;
+mod lyrics_word;
 mod parsers;
+mod romanize;
+mod scrobble;
 mod sponsorblock;
 mod spotify;
 mod streaming;
+mod translate;
 #[cfg(test)]
 mod tests;
 
@@ -81,6 +85,7 @@ type AudioLocks = Mutex<HashMap<(String, AudioWork), Arc<tokio::sync::Mutex<()>>
 type HomeCacheMap = HashMap<Option<String>, (Instant, HomeFeed)>;
 type GenresCacheSlot = Option<(Instant, Vec<Genre>)>;
 type SponsorBlockCacheMap = HashMap<String, (Instant, Vec<SponsorSegment>)>;
+type TranslationCacheMap = HashMap<(String, String), (Instant, Vec<String>)>;
 
 #[derive(Clone)]
 pub struct Backend {
@@ -91,6 +96,7 @@ pub struct Backend {
     genres_cache: Arc<RwLock<GenresCacheSlot>>,
     stream_cache: Arc<RwLock<HashMap<String, (Instant, StreamInfo)>>>,
     sponsorblock_cache: Arc<RwLock<SponsorBlockCacheMap>>,
+    translation_cache: Arc<RwLock<TranslationCacheMap>>,
     music_proofs: Arc<RwLock<HashMap<String, (Instant, Track)>>>,
     audio_locks: Arc<AudioLocks>,
 }
@@ -122,6 +128,7 @@ impl Backend {
             genres_cache: Arc::new(RwLock::new(None)),
             stream_cache: Arc::new(RwLock::new(HashMap::new())),
             sponsorblock_cache: Arc::new(RwLock::new(HashMap::new())),
+            translation_cache: Arc::new(RwLock::new(HashMap::new())),
             music_proofs: Arc::default(),
             audio_locks: Arc::default(),
         }

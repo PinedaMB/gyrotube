@@ -30,6 +30,7 @@
   import SegmentedControl, { type SegmentedOption } from "./SegmentedControl.svelte";
   import SettingsAboutSection from "./settings/SettingsAboutSection.svelte";
   import SettingsEqSection from "./settings/SettingsEqSection.svelte";
+  import SettingsIntegrationsSection from "./settings/SettingsIntegrationsSection.svelte";
 
   let cacheBytes = $state(0);
   let downloadsBytes = $state(0);
@@ -426,6 +427,9 @@
 
   <!-- Equalizer & Normalization -->
   <SettingsEqSection />
+
+  <!-- Opt-in Integrations (Discord, ListenBrainz, Last.fm) -->
+  <SettingsIntegrationsSection />
 
   <!-- Storage & Backup -->
   <section class="space-y-2.5">

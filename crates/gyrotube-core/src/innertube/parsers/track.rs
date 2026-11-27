@@ -225,12 +225,19 @@ pub(super) fn collect_timed_lyrics(val: &Value, out: &mut Vec<SyncedLyricLine>) 
                         .as_str()
                         .and_then(|s| s.parse::<u64>().ok())
                         .or_else(|| entry["cueRange"]["startTimeMilliseconds"].as_u64());
+                    let end_ms = entry["cueRange"]["endTimeMilliseconds"]
+                        .as_str()
+                        .and_then(|s| s.parse::<u64>().ok())
+                        .or_else(|| entry["cueRange"]["endTimeMilliseconds"].as_u64());
                     if !text.is_empty()
                         && let Some(ms) = ms
                     {
                         out.push(SyncedLyricLine {
                             time_secs: ms as f64 / 1000.0,
+                            end_secs: end_ms.filter(|&e| e > ms).map(|e| e as f64 / 1000.0),
                             text: text.to_string(),
+                            words: Vec::new(),
+                            romanized: None,
                         });
                     }
                 }
