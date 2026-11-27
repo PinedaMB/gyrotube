@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.1.0-10b981?style=for-the-badge" alt="Version 1.1.0" />
+  <img src="https://img.shields.io/badge/version-1.1.1-10b981?style=for-the-badge" alt="Version 1.1.1" />
   <img src="https://img.shields.io/badge/Linux%20%7C%20Windows%20%7C%20macOS%20%7C%20Android-1e1c26?style=for-the-badge" alt="Cross-Platform" />
   <img src="https://img.shields.io/badge/License-MIT-ff5c6c?style=for-the-badge" alt="MIT License" />
 </p>

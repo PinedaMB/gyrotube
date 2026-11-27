@@ -63,6 +63,11 @@
     <keyword>player</keyword>
   </keywords>
   <releases>
+    <release version="1.1.1" date="2026-11-27">
+      <description>
+        <p>Upgraded the pure-Rust desktop audio engine with a lock-free SPSC ring buffer (eliminating micro-dropouts), native 48 kHz Opus (~160 kbps) decoding via rusty-opus, 4-point Cubic Hermite resampling, YouTube loudnessDb ReplayGain normalization, and automatic EQ pre-amp; added letter-by-letter karaoke wave animations, cleaner unsynced lyrics layout, and mobile touch hover fixes; enhanced shareable lyrics cards with per-line translations, alignment controls, and blurred cover art backgrounds; and improved ListenBrainz/Last.fm scrobble title normalization.</p>
+      </description>
+    </release>
     <release version="1.1.0" date="2026-11-26">
       <description>
         <p>Pure-Rust desktop audio engine with 5-band EQ, volume normalization, and crossfade; word-by-word karaoke lyrics with translation, offline romanization, and live source switching; SponsorBlock; Spotify playlist importer; opt-in Discord Rich Presence, ListenBrainz, and Last.fm integrations; 7 curated light/dark palettes including Naomi Bloom; and exact playback position resume on startup.</p>
