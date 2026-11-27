@@ -1,5 +1,4 @@
-use std::collections::VecDeque;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -15,18 +14,111 @@ use symphonia::core::units::Time;
 use super::progressive_reader::ProgressiveFileReader;
 use crate::audio_streamer::NativeStreamSource;
 
-/// Buffered stereo f32 ring (~0.5 s at 48 kHz = 48_000 interleaved samples).
-const MAX_RING_SAMPLES: usize = 48_000;
+/// Lock-free SPSC ring capacity in interleaved stereo f32 samples.
+/// 262_144 samples = 131_072 stereo frames ≈ 2.73 s at 48 kHz (power of 2 for fast masking).
+const RING_CAPACITY: usize = 262_144;
+const RING_MASK: usize = RING_CAPACITY - 1;
+/// Decoder stays awake while buffered audio is below ~2.0 s, preventing underruns on jittery I/O.
+const RING_LOW_WATERMARK: usize = 192_000;
+
+/// Wait-free single-producer / single-consumer audio ring buffer (100% safe Rust).
+/// Producer: decoder thread (`push_slice`, `request_clear`).
+/// Consumer: CPAL realtime callback (`pop_add`, `drain_clear`).
+struct SpscRing {
+    buf: Box<[AtomicU32]>,
+    read_pos: AtomicUsize,
+    write_pos: AtomicUsize,
+    drop_target: AtomicUsize,
+}
+
+impl SpscRing {
+    fn new() -> Self {
+        let buf = (0..RING_CAPACITY)
+            .map(|_| AtomicU32::new(0))
+            .collect::<Vec<_>>()
+            .into_boxed_slice();
+        Self {
+            buf,
+            read_pos: AtomicUsize::new(0),
+            write_pos: AtomicUsize::new(0),
+            drop_target: AtomicUsize::new(0),
+        }
+    }
+
+    #[inline]
+    fn buffered_len(&self) -> usize {
+        let r = self
+            .read_pos
+            .load(Ordering::Acquire)
+            .max(self.drop_target.load(Ordering::Acquire));
+        let w = self.write_pos.load(Ordering::Acquire);
+        w.saturating_sub(r)
+    }
+
+    /// Producer-only: marks all currently buffered samples as discarded so the consumer skips them.
+    #[inline]
+    fn request_clear(&self) {
+        let w = self.write_pos.load(Ordering::Relaxed);
+        self.drop_target.store(w, Ordering::Release);
+    }
+
+    /// Producer-only: pushes as many samples as fit without blocking. Returns count pushed.
+    fn push_slice(&self, src: &[f32]) -> usize {
+        let w = self.write_pos.load(Ordering::Relaxed);
+        let r = self.read_pos.load(Ordering::Acquire);
+        let used = w.saturating_sub(r);
+        let free = RING_CAPACITY.saturating_sub(used);
+        let count = src.len().min(free);
+        if count == 0 {
+            return 0;
+        }
+        for (i, &sample) in src.iter().take(count).enumerate() {
+            self.buf[(w.wrapping_add(i)) & RING_MASK].store(sample.to_bits(), Ordering::Relaxed);
+        }
+        self.write_pos.store(w.wrapping_add(count), Ordering::Release);
+        count
+    }
+
+    /// Consumer-only: advances `read_pos` past any cleared samples.
+    #[inline]
+    fn apply_pending_clear(&self) -> usize {
+        let mut r = self.read_pos.load(Ordering::Relaxed);
+        let target = self.drop_target.load(Ordering::Acquire);
+        if r < target {
+            r = target;
+            self.read_pos.store(r, Ordering::Release);
+        }
+        r
+    }
+
+    /// Consumer-only: mixes up to `out.len()` interleaved stereo samples into `out`.
+    fn pop_add(&self, out: &mut [f32], gain: f32) -> usize {
+        let r = self.apply_pending_clear();
+        let w = self.write_pos.load(Ordering::Acquire);
+        let avail = w.saturating_sub(r).min(out.len()) & !1;
+        if avail == 0 {
+            return 0;
+        }
+        for (i, slot) in out.iter_mut().take(avail).enumerate() {
+            let bits = self.buf[(r.wrapping_add(i)) & RING_MASK].load(Ordering::Relaxed);
+            *slot += f32::from_bits(bits) * gain;
+        }
+        self.read_pos.store(r.wrapping_add(avail), Ordering::Release);
+        avail
+    }
+}
 
 pub struct Deck {
-    ring: Arc<Mutex<VecDeque<f32>>>,
+    ring: Arc<SpscRing>,
     playing: Arc<AtomicBool>,
     cancelled: Arc<AtomicBool>,
+    seeking: Arc<AtomicBool>,
     eof: Arc<AtomicBool>,
     error: Arc<Mutex<Option<String>>>,
     seek_req_ms: Arc<AtomicU64>,
     has_seek_req: Arc<AtomicBool>,
-    position_ms: Arc<AtomicU64>,
+    base_position_ms: Arc<AtomicU64>,
+    played_frames: Arc<AtomicU64>,
     duration_ms: Arc<AtomicU64>,
     output_rate: u32,
 }
@@ -38,15 +130,17 @@ impl Deck {
         start_secs: f64,
         start_paused: bool,
     ) -> Result<Self, String> {
-        let ring = Arc::new(Mutex::new(VecDeque::with_capacity(MAX_RING_SAMPLES)));
+        let ring = Arc::new(SpscRing::new());
         let playing = Arc::new(AtomicBool::new(!start_paused));
         let cancelled = Arc::new(AtomicBool::new(false));
+        let seeking = Arc::new(AtomicBool::new(false));
         let eof = Arc::new(AtomicBool::new(false));
         let error = Arc::new(Mutex::new(None));
         let seek_req_ms = Arc::new(AtomicU64::new(0));
         let has_seek_req = Arc::new(AtomicBool::new(false));
         let start_ms = (start_secs.max(0.0) * 1000.0) as u64;
-        let position_ms = Arc::new(AtomicU64::new(start_ms));
+        let base_position_ms = Arc::new(AtomicU64::new(start_ms));
+        let played_frames = Arc::new(AtomicU64::new(0));
         let duration_ms = Arc::new(AtomicU64::new(0));
 
         let reader =
@@ -57,11 +151,13 @@ impl Deck {
             ring: ring.clone(),
             playing: playing.clone(),
             cancelled: cancelled.clone(),
+            seeking: seeking.clone(),
             eof: eof.clone(),
             error: error.clone(),
             seek_req_ms: seek_req_ms.clone(),
             has_seek_req: has_seek_req.clone(),
-            position_ms: position_ms.clone(),
+            base_position_ms: base_position_ms.clone(),
+            played_frames: played_frames.clone(),
             duration_ms: duration_ms.clone(),
             output_rate,
         };
@@ -77,10 +173,12 @@ impl Deck {
                     start_secs,
                     ring,
                     cancelled.clone(),
+                    seeking.clone(),
                     eof.clone(),
                     seek_req_ms,
                     has_seek_req,
-                    position_ms,
+                    base_position_ms,
+                    played_frames,
                     duration_ms,
                 ) {
                     if !cancelled.load(Ordering::Relaxed)
@@ -88,6 +186,7 @@ impl Deck {
                     {
                         *guard = Some(err);
                     }
+                    seeking.store(false, Ordering::Release);
                     eof.store(true, Ordering::Release);
                 }
             })
@@ -107,24 +206,23 @@ impl Deck {
     pub fn seek(&self, secs: f64) {
         let ms = (secs.max(0.0) * 1000.0) as u64;
         self.seek_req_ms.store(ms, Ordering::Relaxed);
-        self.position_ms.store(ms, Ordering::Relaxed);
+        self.base_position_ms.store(ms, Ordering::Relaxed);
+        self.played_frames.store(0, Ordering::Relaxed);
         self.eof.store(false, Ordering::Release);
+        self.seeking.store(true, Ordering::Release);
         self.has_seek_req.store(true, Ordering::Release);
-        if let Ok(mut ring) = self.ring.lock() {
-            ring.clear();
-        }
     }
 
     pub fn stop(&self) {
         self.playing.store(false, Ordering::Relaxed);
         self.cancelled.store(true, Ordering::Release);
-        if let Ok(mut ring) = self.ring.lock() {
-            ring.clear();
-        }
     }
 
     pub fn position_secs(&self) -> f64 {
-        self.position_ms.load(Ordering::Relaxed) as f64 / 1000.0
+        let base_ms = self.base_position_ms.load(Ordering::Relaxed) as f64;
+        let frames = self.played_frames.load(Ordering::Relaxed) as f64;
+        let rate = self.output_rate.max(1) as f64;
+        base_ms / 1000.0 + frames / rate
     }
 
     pub fn duration_secs(&self) -> f64 {
@@ -139,28 +237,23 @@ impl Deck {
         if !self.eof.load(Ordering::Acquire) {
             return false;
         }
-        self.ring.try_lock().map(|r| r.is_empty()).unwrap_or(false)
+        self.ring.buffered_len() == 0
     }
 
     /// Reads stereo samples into `out` (interleaved L/R). Returns number of stereo frames read.
-    /// Uses `try_lock` so the realtime audio callback never blocks.
+    /// Completely lock-free and wait-free so the realtime audio callback never stalls or drops out.
     pub fn pull_stereo(&self, out: &mut [f32], gain: f32) -> usize {
-        if !self.is_playing() || self.cancelled.load(Ordering::Relaxed) {
+        self.ring.apply_pending_clear();
+        if !self.is_playing()
+            || self.cancelled.load(Ordering::Relaxed)
+            || self.seeking.load(Ordering::Acquire)
+        {
             return 0;
         }
-        let Ok(mut ring) = self.ring.try_lock() else {
-            return 0;
-        };
-        let avail_samples = ring.len().min(out.len()) & !1;
-        for sample in out.iter_mut().take(avail_samples) {
-            *sample += ring.pop_front().unwrap_or(0.0) * gain;
-        }
+        let avail_samples = self.ring.pop_add(out, gain);
         let frames = avail_samples / 2;
-        if frames > 0 && self.output_rate > 0 {
-            let delta_ms = (frames as f64 * 1000.0 / self.output_rate as f64).round() as u64;
-            if delta_ms > 0 {
-                self.position_ms.fetch_add(delta_ms, Ordering::Relaxed);
-            }
+        if frames > 0 {
+            self.played_frames.fetch_add(frames as u64, Ordering::Relaxed);
         }
         frames
     }
@@ -178,12 +271,14 @@ fn run_decoder_loop(
     extension: &str,
     output_rate: u32,
     start_secs: f64,
-    ring: Arc<Mutex<VecDeque<f32>>>,
+    ring: Arc<SpscRing>,
     cancelled: Arc<AtomicBool>,
+    seeking: Arc<AtomicBool>,
     eof: Arc<AtomicBool>,
     seek_req_ms: Arc<AtomicU64>,
     has_seek_req: Arc<AtomicBool>,
-    position_ms: Arc<AtomicU64>,
+    base_position_ms: Arc<AtomicU64>,
+    played_frames: Arc<AtomicU64>,
     duration_ms: Arc<AtomicU64>,
 ) -> Result<(), String> {
     let mss = MediaSourceStream::new(Box::new(reader), Default::default());
@@ -237,6 +332,7 @@ fn run_decoder_loop(
     }
 
     let mut sample_buf: Option<SampleBuffer<f32>> = None;
+    let mut out_chunk: Vec<f32> = Vec::with_capacity(8192);
     let mut resample_frac = 0.0_f64;
     let mut prev_l = 0.0_f32;
     let mut prev_r = 0.0_f32;
@@ -260,21 +356,22 @@ fn run_decoder_loop(
                 .is_ok()
             {
                 decoder.reset();
-                position_ms.store(target_ms, Ordering::Relaxed);
+                base_position_ms.store(target_ms, Ordering::Relaxed);
+                played_frames.store(0, Ordering::Relaxed);
                 resample_frac = 0.0;
-                if let Ok(mut q) = ring.lock() {
-                    q.clear();
-                }
+                prev_l = 0.0;
+                prev_r = 0.0;
+                ring.request_clear();
             }
+            seeking.store(false, Ordering::Release);
         }
 
-        // Throttle decoding while ring buffer is comfortably full
+        // Throttle decoding while ring buffer is comfortably full (~2.0 s buffered)
         while !cancelled.load(Ordering::Relaxed) && !has_seek_req.load(Ordering::Acquire) {
-            let len = ring.lock().map(|q| q.len()).unwrap_or(0);
-            if len < MAX_RING_SAMPLES / 2 {
+            if ring.buffered_len() < RING_LOW_WATERMARK {
                 break;
             }
-            std::thread::sleep(Duration::from_millis(12));
+            std::thread::sleep(Duration::from_millis(8));
         }
 
         let packet = match format.next_packet() {
@@ -332,7 +429,7 @@ fn run_decoder_loop(
         }
 
         // Convert to stereo interleaved f32 and resample to `output_rate` if needed
-        let mut out_chunk = Vec::with_capacity(src_frames * 2 + 16);
+        out_chunk.clear();
         if src_rate == output_rate {
             for f in 0..src_frames {
                 let l = samples[f * channels];
@@ -374,8 +471,44 @@ fn run_decoder_loop(
             };
         }
 
-        if let Ok(mut q) = ring.lock() {
-            q.extend(out_chunk);
+        // Push decoded samples into the lock-free ring, waiting briefly only if completely full
+        let mut offset = 0;
+        while offset < out_chunk.len() {
+            if cancelled.load(Ordering::Relaxed) || has_seek_req.load(Ordering::Acquire) {
+                break;
+            }
+            let pushed = ring.push_slice(&out_chunk[offset..]);
+            if pushed > 0 {
+                offset += pushed;
+            } else {
+                std::thread::sleep(Duration::from_millis(4));
+            }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SpscRing;
+
+    #[test]
+    fn spsc_ring_pushes_pops_and_clears_without_locks() {
+        let ring = SpscRing::new();
+        assert_eq!(ring.buffered_len(), 0);
+
+        let input = [0.25_f32, -0.25, 0.5, -0.5, 0.75, -0.75];
+        assert_eq!(ring.push_slice(&input), 6);
+        assert_eq!(ring.buffered_len(), 6);
+
+        let mut out = [0.0_f32; 4];
+        assert_eq!(ring.pop_add(&mut out, 1.0), 4);
+        assert_eq!(out, [0.25, -0.25, 0.5, -0.5]);
+        assert_eq!(ring.buffered_len(), 2);
+
+        ring.request_clear();
+        assert_eq!(ring.buffered_len(), 0);
+        let mut out2 = [0.0_f32; 4];
+        assert_eq!(ring.pop_add(&mut out2, 1.0), 0);
+        assert_eq!(out2, [0.0; 4]);
     }
 }

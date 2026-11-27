@@ -10,6 +10,131 @@ use crate::models::{LastFmCreds, Track};
 const LISTENBRAINZ_SUBMIT_URL: &str = "https://api.listenbrainz.org/1/submit-listens";
 const LISTENBRAINZ_VALIDATE_URL: &str = "https://api.listenbrainz.org/1/validate-token";
 const LASTFM_API_URL: &str = "https://ws.audioscrobbler.com/2.0/";
+const CLIENT_NAME: &str = "Gyro";
+
+fn is_youtube_noise_tag(inner: &str) -> bool {
+    let lower = inner.trim().to_ascii_lowercase();
+    if lower.is_empty() {
+        return true;
+    }
+    const EXACT: &[&str] = &[
+        "official video",
+        "official music video",
+        "official audio",
+        "official lyric video",
+        "official lyrics video",
+        "official visualizer",
+        "official visualiser",
+        "official hd video",
+        "official 4k video",
+        "official mv",
+        "music video",
+        "lyric video",
+        "lyrics video",
+        "lyrics",
+        "audio",
+        "visualizer",
+        "visualiser",
+        "hd",
+        "hq",
+        "4k",
+        "mv",
+        "video oficial",
+        "audio oficial",
+        "letra",
+        "con letra",
+    ];
+    if EXACT.contains(&lower.as_str()) {
+        return true;
+    }
+    lower.starts_with("official ")
+        && (lower.contains("video")
+            || lower.contains("audio")
+            || lower.contains("lyric")
+            || lower.contains("visuali"))
+}
+
+fn extract_feat_body(s: &str) -> Option<&str> {
+    let trimmed = s.trim();
+    let lower = trimmed.to_ascii_lowercase();
+    for prefix in ["feat.", "feat ", "ft.", "ft ", "featuring "] {
+        if lower.starts_with(prefix) {
+            let rest = trimmed[prefix.len()..].trim();
+            if !rest.is_empty() {
+                return Some(rest);
+            }
+        }
+    }
+    None
+}
+
+fn collapse_whitespace(s: &str) -> String {
+    s.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// Cleans YouTube/YTM noise and duplicated `feat.` suffixes from track titles
+/// before scrobbling so ListenBrainz/MusicBrainz MBID matching succeeds more often.
+pub(crate) fn clean_scrobble_title(raw: &str) -> String {
+    let mut s = collapse_whitespace(raw);
+    loop {
+        let trimmed = s.trim_end();
+        let Some((open, close)) = (if trimmed.ends_with(')') {
+            Some(('(', ')'))
+        } else if trimmed.ends_with(']') {
+            Some(('[', ']'))
+        } else {
+            None
+        }) else {
+            break;
+        };
+        let Some(open_idx) = trimmed.rfind(open) else {
+            break;
+        };
+        if open_idx == 0 {
+            break;
+        }
+        let inner = &trimmed[open_idx + 1..trimmed.len() - close.len_utf8()];
+        let prefix = trimmed[..open_idx].trim_end();
+
+        let is_noise = is_youtube_noise_tag(inner);
+        let is_duplicate_feat = extract_feat_body(inner).is_some_and(|feat_artist| {
+            let prefix_lower = prefix.to_lowercase();
+            let feat_lower = feat_artist.to_lowercase();
+            prefix_lower.contains(&feat_lower)
+                && (prefix_lower.contains("feat.")
+                    || prefix_lower.contains("feat ")
+                    || prefix_lower.contains("ft.")
+                    || prefix_lower.contains("ft ")
+                    || prefix_lower.contains("featuring "))
+        });
+
+        if is_noise || is_duplicate_feat {
+            s = prefix.to_string();
+        } else {
+            break;
+        }
+    }
+
+    let cleaned = s.trim().to_string();
+    if cleaned.is_empty() {
+        raw.trim().to_string()
+    } else {
+        cleaned
+    }
+}
+
+pub(crate) fn clean_scrobble_artist(raw: &str) -> String {
+    let trimmed = collapse_whitespace(raw);
+    for suffix in [" - Topic", " - topic", " – Topic"] {
+        if let Some(stripped) = trimmed.strip_suffix(suffix) {
+            let clean = stripped.trim();
+            if !clean.is_empty() {
+                return clean.to_string();
+            }
+        }
+    }
+    trimmed
+}
 
 fn unix_now_secs() -> u64 {
     SystemTime::now()
@@ -107,9 +232,12 @@ pub(crate) fn build_listenbrainz_payload(
     now_playing: bool,
     timestamp: Option<u64>,
 ) -> serde_json::Value {
+    let artist = clean_scrobble_artist(&track.artist);
+    let title = clean_scrobble_title(&track.title);
+
     let mut additional_info = serde_json::Map::new();
-    additional_info.insert("media_player".into(), json!("Gyro"));
-    additional_info.insert("submission_client".into(), json!("Gyro"));
+    additional_info.insert("media_player".into(), json!(CLIENT_NAME));
+    additional_info.insert("submission_client".into(), json!(CLIENT_NAME));
     if let Some(dur) = track.duration_secs
         && dur > 0
     {
@@ -117,12 +245,12 @@ pub(crate) fn build_listenbrainz_payload(
     }
 
     let mut meta = serde_json::Map::new();
-    meta.insert("artist_name".into(), json!(track.artist));
-    meta.insert("track_name".into(), json!(track.title));
+    meta.insert("artist_name".into(), json!(artist));
+    meta.insert("track_name".into(), json!(title));
     if let Some(ref album) = track.album
         && !album.trim().is_empty()
     {
-        meta.insert("release_name".into(), json!(album));
+        meta.insert("release_name".into(), json!(album.trim()));
     }
     meta.insert("additional_info".into(), serde_json::Value::Object(additional_info));
 
@@ -202,7 +330,16 @@ impl Backend {
         if resp.status().is_success() {
             Ok(())
         } else {
-            Err(format!("ListenBrainz HTTP {}", resp.status().as_u16()))
+            let code = resp.status().as_u16();
+            let detail = resp
+                .json::<serde_json::Value>()
+                .await
+                .ok()
+                .and_then(|v| v.get("error").and_then(|e| e.as_str()).map(str::to_string));
+            match detail {
+                Some(err) if !err.trim().is_empty() => Err(format!("ListenBrainz HTTP {code}: {err}")),
+                _ => Err(format!("ListenBrainz HTTP {code}")),
+            }
         }
     }
 
@@ -231,8 +368,8 @@ impl Backend {
         );
         params.insert("api_key".into(), api_key.into());
         params.insert("sk".into(), session_key.into());
-        params.insert("artist".into(), track.artist.clone());
-        params.insert("track".into(), track.title.clone());
+        params.insert("artist".into(), clean_scrobble_artist(&track.artist));
+        params.insert("track".into(), clean_scrobble_title(&track.title));
         if let Some(ref album) = track.album
             && !album.trim().is_empty()
         {
@@ -303,7 +440,10 @@ fn encode_form_urlencoded(params: &BTreeMap<String, String>) -> String {
 mod tests {
     use std::collections::BTreeMap;
 
-    use super::{build_lastfm_signature, build_listenbrainz_payload, md5_hex};
+    use super::{
+        build_lastfm_signature, build_listenbrainz_payload, clean_scrobble_artist,
+        clean_scrobble_title, md5_hex,
+    };
     use crate::models::Track;
 
     #[test]
@@ -313,6 +453,42 @@ mod tests {
         assert_eq!(
             md5_hex(b"message digest"),
             "f96b697d7cb7938d525a2f31aaf161d0"
+        );
+    }
+
+    #[test]
+    fn cleans_scrobble_titles_and_artists() {
+        assert_eq!(
+            clean_scrobble_title("SALMO 23 feat. Marco Barrientos (feat. Marco Barrientos)"),
+            "SALMO 23 feat. Marco Barrientos"
+        );
+        assert_eq!(
+            clean_scrobble_title("Song (feat. Artist) (feat. Artist)"),
+            "Song (feat. Artist)"
+        );
+        assert_eq!(
+            clean_scrobble_title("Feel (Official Music Video) [4K]"),
+            "Feel"
+        );
+        assert_eq!(
+            clean_scrobble_title("DARE (feat. Shaun Ryder) (Official Audio)"),
+            "DARE (feat. Shaun Ryder)"
+        );
+        assert_eq!(
+            clean_scrobble_title("Bohemian Rhapsody (Remastered 2011)"),
+            "Bohemian Rhapsody (Remastered 2011)"
+        );
+        assert_eq!(
+            clean_scrobble_title("Hotel California (Live)"),
+            "Hotel California (Live)"
+        );
+        assert_eq!(
+            clean_scrobble_artist("Robbie Williams - Topic"),
+            "Robbie Williams"
+        );
+        assert_eq!(
+            clean_scrobble_artist("Un Corazón, Kim Richards"),
+            "Un Corazón, Kim Richards"
         );
     }
 
@@ -331,8 +507,8 @@ mod tests {
             is_music: true,
             is_video: false,
             id: "dQw4w9WgXcQ".into(),
-            title: "Never Gonna Give You Up".into(),
-            artist: "Rick Astley".into(),
+            title: "Never Gonna Give You Up (Official Video)".into(),
+            artist: "Rick Astley - Topic".into(),
             artist_id: None,
             album: Some("Whenever You Need Somebody".into()),
             album_id: None,
@@ -344,9 +520,17 @@ mod tests {
         let payload = build_listenbrainz_payload(&track, false, Some(1700000000));
         assert_eq!(payload["listen_type"], "single");
         assert_eq!(payload["payload"][0]["listened_at"], 1700000000);
-        assert_eq!(
-            payload["payload"][0]["track_metadata"]["track_name"],
-            "Never Gonna Give You Up"
-        );
+        let meta = &payload["payload"][0]["track_metadata"];
+        assert_eq!(meta["artist_name"], "Rick Astley");
+        assert_eq!(meta["track_name"], "Never Gonna Give You Up");
+        assert_eq!(meta["additional_info"]["media_player"], "Gyro");
+        assert_eq!(meta["additional_info"]["submission_client"], "Gyro");
+        assert_eq!(meta["additional_info"]["duration"], 213);
+        assert!(meta["additional_info"].get("music_service").is_none());
+        assert!(meta["additional_info"].get("origin_url").is_none());
+
+        let playing_now = build_listenbrainz_payload(&track, true, Some(1700000000));
+        assert_eq!(playing_now["listen_type"], "playing_now");
+        assert!(playing_now["payload"][0].get("listened_at").is_none());
     }
 }

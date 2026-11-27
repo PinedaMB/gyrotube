@@ -127,7 +127,7 @@ impl NativeAudioEngine {
 
         let _ = rate_rx.recv_timeout(Duration::from_secs(2));
 
-        // 100ms status/tick emitter thread
+        // 100ms status/tick emitter thread (never holds mixer lock across channel sends or deck mutexes)
         let mixer_for_tick = mixer.clone();
         let event_for_tick = event_tx.clone();
         let _ = std::thread::Builder::new()
@@ -135,11 +135,22 @@ impl NativeAudioEngine {
             .spawn(move || {
                 loop {
                     std::thread::sleep(Duration::from_millis(100));
-                    let Ok(mut m) = mixer_for_tick.lock() else {
-                        continue;
-                    };
-                    let Some(deck) = m.active_deck.clone() else {
-                        continue;
+
+                    // Snapshot deck pointer and flags under a minimal lock
+                    let (deck, crossfade_secs, crossfade_fired, last_playing_emitted, ended_emitted) = {
+                        let Ok(m) = mixer_for_tick.lock() else {
+                            continue;
+                        };
+                        let Some(deck) = m.active_deck.clone() else {
+                            continue;
+                        };
+                        (
+                            deck,
+                            m.crossfade_secs,
+                            m.crossfade_fired,
+                            m.last_playing_emitted,
+                            m.ended_emitted,
+                        )
                     };
 
                     if let Some(err) = deck.take_error() {
@@ -147,38 +158,69 @@ impl NativeAudioEngine {
                     }
 
                     let playing = deck.is_playing();
-                    if playing != m.last_playing_emitted {
-                        m.last_playing_emitted = playing;
-                        let _ = event_for_tick.try_send(NativeAudioEvent::PlayState { playing });
-                    }
-
                     let pos = deck.position_secs();
                     let dur = deck.duration_secs();
+                    let finished = deck.is_finished();
 
-                    if playing {
+                    let mut emit_play_state: Option<bool> = None;
+                    let mut emit_crossfade = false;
+                    let mut emit_ended = false;
+
+                    if playing != last_playing_emitted {
+                        emit_play_state = Some(playing);
+                    }
+                    if crossfade_secs > 0.0
+                        && !crossfade_fired
+                        && playing
+                        && dur > crossfade_secs + 2.0
+                        && dur - pos <= crossfade_secs
+                    {
+                        emit_crossfade = true;
+                    }
+                    if finished && !ended_emitted {
+                        emit_ended = true;
+                        emit_play_state = Some(false);
+                    }
+
+                    if emit_play_state.is_some() || emit_crossfade || emit_ended {
+                        if let Ok(mut m) = mixer_for_tick.lock() {
+                            // Verify deck hasn't changed before mutating flags
+                            if m.active_deck
+                                .as_ref()
+                                .is_some_and(|d| Arc::ptr_eq(d, &deck))
+                            {
+                                if let Some(p) = emit_play_state {
+                                    m.last_playing_emitted = p;
+                                }
+                                if emit_crossfade {
+                                    m.crossfade_fired = true;
+                                }
+                                if emit_ended {
+                                    m.ended_emitted = true;
+                                    m.last_playing_emitted = false;
+                                }
+                            } else {
+                                continue;
+                            }
+                        }
+                    }
+
+                    if emit_ended {
+                        deck.set_playing(false);
+                    }
+                    if let Some(p) = emit_play_state {
+                        let _ = event_for_tick.try_send(NativeAudioEvent::PlayState { playing: p });
+                    }
+                    if playing && !emit_ended {
                         let _ = event_for_tick.try_send(NativeAudioEvent::Tick {
                             position_secs: pos,
                             duration_secs: dur,
                         });
                     }
-
-                    if m.crossfade_secs > 0.0
-                        && !m.crossfade_fired
-                        && playing
-                        && dur > m.crossfade_secs + 2.0
-                        && dur - pos <= m.crossfade_secs
-                    {
-                        m.crossfade_fired = true;
+                    if emit_crossfade {
                         let _ = event_for_tick.try_send(NativeAudioEvent::CrossfadeTrigger);
                     }
-
-                    if deck.is_finished() && !m.ended_emitted {
-                        m.ended_emitted = true;
-                        m.last_playing_emitted = false;
-                        deck.set_playing(false);
-                        let _ = event_for_tick.try_send(NativeAudioEvent::PlayState {
-                            playing: false,
-                        });
+                    if emit_ended {
                         let _ = event_for_tick.try_send(NativeAudioEvent::Ended);
                     }
                 }
@@ -337,17 +379,35 @@ fn open_cpal_stream(mixer: Arc<Mutex<MixerState>>) -> Result<(cpal::Stream, u32)
 
     let err_fn = |err| eprintln!("[gyro-native-audio] cpal stream error: {err}");
 
+    // Pre-allocated scratch buffer reused across every realtime callback (zero steady-state allocs)
+    let mut stereo_buf: Vec<f32> = vec![0.0_f32; 4096 * 2];
+
     let stream = device
         .build_output_stream(
             &config,
             move |data: &mut [f32], _| {
                 data.fill(0.0);
-                let Ok(mut m) = mixer.try_lock() else {
+
+                // Briefly spin on try_lock so a nanosecond ticker/control lock never drops an audio buffer
+                let mut m = None;
+                for _ in 0..64 {
+                    if let Ok(guard) = mixer.try_lock() {
+                        m = Some(guard);
+                        break;
+                    }
+                    std::hint::spin_loop();
+                }
+                let Some(mut m) = m else {
                     return;
                 };
 
                 let frames = data.len() / channels.max(1);
-                let mut stereo_buf = vec![0.0_f32; frames * 2];
+                let needed = frames * 2;
+                if stereo_buf.len() < needed {
+                    stereo_buf.resize(needed, 0.0);
+                }
+                let stereo = &mut stereo_buf[..needed];
+                stereo.fill(0.0);
 
                 let (active_gain, outgoing_gain, clear_outgoing) = if let Some(ref cf) = m.crossfade
                 {
@@ -362,12 +422,12 @@ fn open_cpal_stream(mixer: Arc<Mutex<MixerState>>) -> Result<(cpal::Stream, u32)
                 };
 
                 if let Some(ref deck) = m.active_deck {
-                    deck.pull_stereo(&mut stereo_buf, active_gain);
+                    deck.pull_stereo(stereo, active_gain);
                 }
                 if outgoing_gain > 0.001
                     && let Some(ref out_deck) = m.outgoing_deck
                 {
-                    out_deck.pull_stereo(&mut stereo_buf, outgoing_gain);
+                    out_deck.pull_stereo(stereo, outgoing_gain);
                 }
                 if clear_outgoing {
                     if let Some(old) = m.outgoing_deck.take() {
@@ -390,7 +450,7 @@ fn open_cpal_stream(mixer: Arc<Mutex<MixerState>>) -> Result<(cpal::Stream, u32)
                     let vol = m.current_volume;
                     let (l, r) = m
                         .dsp
-                        .process_stereo(stereo_buf[f * 2] * vol, stereo_buf[f * 2 + 1] * vol);
+                        .process_stereo(stereo[f * 2] * vol, stereo[f * 2 + 1] * vol);
 
                     if channels == 1 {
                         data[f] = (l + r) * 0.5;
