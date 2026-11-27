@@ -3,6 +3,7 @@
     ArrowLeft,
     AudioLines,
     Check,
+    ChevronDown,
     Download,
     FastForward,
     FolderArchive,
@@ -158,10 +159,34 @@
     { id: "amoled", labelKey: "settings.palette_amoled", colors: ["#000000", "#101014", "#10b981"] },
     { id: "catppuccin", labelKey: "settings.palette_catppuccin", colors: ["#1e1e2e", "#28283d", "#cba6f7"] },
     { id: "nord", labelKey: "settings.palette_nord", colors: ["#2e3440", "#3b4252", "#88c0d0"] },
-    { id: "rose-pine", labelKey: "settings.palette_rose_pine", colors: ["#191724", "#26233a", "#ebbcba"] },
+    { id: "rose-pine", labelKey: "settings.palette_rose_pine", colors: ["#1b131a", "#f8b4cc", "#f48fb1"] },
     { id: "tokyo-night", labelKey: "settings.palette_tokyo_night", colors: ["#1a1b26", "#24283b", "#7aa2f7"] },
     { id: "gruvbox", labelKey: "settings.palette_gruvbox", colors: ["#282828", "#3c3836", "#fe8019"] },
   ] as const;
+
+  let paletteMenuOpen = $state(false);
+  let paletteMenuEl = $state<HTMLDivElement | null>(null);
+  let activePaletteSwatch = $derived(
+    PALETTE_SWATCHES.find((s) => s.id === player.themePalette) ?? PALETTE_SWATCHES[0],
+  );
+
+  $effect(() => {
+    if (!paletteMenuOpen) return;
+    const onPointerDown = (e: PointerEvent) => {
+      if (paletteMenuEl && !paletteMenuEl.contains(e.target as Node)) {
+        paletteMenuOpen = false;
+      }
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") paletteMenuOpen = false;
+    };
+    window.addEventListener("pointerdown", onPointerDown);
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("pointerdown", onPointerDown);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  });
 </script>
 
 <div class="page-clamp !max-w-[780px] space-y-6">
@@ -195,10 +220,10 @@
       {t("settings.appearance")}
     </h2>
     <div
-      class="rounded-2xl bg-[var(--surface)] border border-[var(--border)] divide-y divide-[var(--border)] overflow-hidden"
+      class="rounded-2xl bg-[var(--surface)] border border-[var(--border)] divide-y divide-[var(--border)]"
       style="box-shadow: var(--card-shadow);"
     >
-      <div class="p-3.5 sm:p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-colors hover:bg-[var(--surface-hover)]/35">
+      <div class="p-3.5 sm:p-4 rounded-t-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-colors hover:bg-[var(--surface-hover)]/35">
         <div class="flex items-center gap-3 min-w-0">
           <span class="w-9 h-9 rounded-xl bg-[var(--bg)]/60 border border-[var(--border)] inline-flex items-center justify-center text-[var(--accent-bright)] shrink-0">
             <SunMoon size={16} />
@@ -208,7 +233,7 @@
             <div class="text-[12px] text-[var(--text-muted)]">{t("settings.theme_sub")}</div>
           </div>
         </div>
-        <div class="flex sm:justify-end">
+        <div class="flex sm:justify-end w-full sm:w-auto [&>*]:w-full sm:[&>*]:w-auto [&_button]:flex-1 sm:[&_button]:flex-initial">
           <SegmentedControl
             options={themeOptions}
             value={player.themeMode}
@@ -218,7 +243,7 @@
         </div>
       </div>
 
-      <div class="p-3.5 sm:p-4 space-y-3 transition-colors hover:bg-[var(--surface-hover)]/35">
+      <div class="p-3.5 sm:p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-colors hover:bg-[var(--surface-hover)]/35">
         <div class="flex items-center gap-3 min-w-0">
           <span class="w-9 h-9 rounded-xl bg-[var(--bg)]/60 border border-[var(--border)] inline-flex items-center justify-center text-[var(--accent-bright)] shrink-0">
             <Palette size={16} />
@@ -228,33 +253,74 @@
             <div class="text-[12px] text-[var(--text-muted)]">{t("settings.palette_sub")}</div>
           </div>
         </div>
-        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
-          {#each PALETTE_SWATCHES as sw (sw.id)}
-            {@const active = player.themePalette === sw.id}
-            <button
-              type="button"
-              class="flex items-center justify-between gap-2 px-3 py-2 rounded-xl border text-left transition-all active:scale-[0.98] {active
-                ? 'bg-[var(--accent-soft)] border-[var(--accent-border)] text-[var(--text)]'
-                : 'bg-[var(--bg)]/45 border-[var(--border)] hover:bg-[var(--surface-hover)] text-[var(--text-muted)] hover:text-[var(--text)]'}"
-              aria-pressed={active}
-              onclick={() => player.setThemePalette(sw.id)}
-            >
-              <span class="flex items-center gap-2 min-w-0">
-                <span class="flex items-center -space-x-1 shrink-0" aria-hidden="true">
-                  {#each sw.colors as col}
-                    <span
-                      class="w-3.5 h-3.5 rounded-full border border-white/20"
-                      style="background: {col};"
-                    ></span>
-                  {/each}
-                </span>
-                <span class="text-[12px] font-semibold truncate">{t(sw.labelKey)}</span>
+        <div class="relative w-full sm:w-52 shrink-0" bind:this={paletteMenuEl}>
+          <button
+            type="button"
+            class="w-full flex items-center justify-between gap-2.5 px-3 py-2 rounded-xl bg-[var(--bg)]/65 hover:bg-[var(--surface-hover)] border transition-colors text-left {paletteMenuOpen
+              ? 'border-[var(--accent-border)]'
+              : 'border-[var(--border)]'}"
+            aria-haspopup="listbox"
+            aria-expanded={paletteMenuOpen}
+            aria-label={t("settings.palette")}
+            onclick={() => (paletteMenuOpen = !paletteMenuOpen)}
+          >
+            <span class="flex items-center gap-2.5 min-w-0">
+              <span class="flex items-center -space-x-1 shrink-0" aria-hidden="true">
+                {#each activePaletteSwatch.colors as col}
+                  <span
+                    class="w-3.5 h-3.5 rounded-full border border-white/25"
+                    style="background: {col};"
+                  ></span>
+                {/each}
               </span>
-              {#if active}
-                <Check size={13} class="text-[var(--accent-bright)] shrink-0" />
-              {/if}
-            </button>
-          {/each}
+              <span class="text-[13px] font-semibold text-[var(--text)] truncate">
+                {t(activePaletteSwatch.labelKey)}
+              </span>
+            </span>
+            <ChevronDown
+              size={15}
+              class="text-[var(--text-muted)] shrink-0 transition-transform duration-150 {paletteMenuOpen ? 'rotate-180' : ''}"
+            />
+          </button>
+
+          {#if paletteMenuOpen}
+            <div
+              role="listbox"
+              aria-label={t("settings.palette")}
+              class="absolute right-0 left-0 mt-1.5 z-30 rounded-xl bg-[var(--bg-elevated)] border border-[var(--border-strong)] p-1.5 shadow-[0_14px_34px_rgba(0,0,0,0.42)] space-y-0.5"
+            >
+              {#each PALETTE_SWATCHES as sw (sw.id)}
+                {@const active = player.themePalette === sw.id}
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={active}
+                  class="w-full flex items-center justify-between gap-2.5 px-2.5 py-2 rounded-lg text-left transition-colors {active
+                    ? 'bg-[var(--accent-soft)] text-[var(--text)]'
+                    : 'hover:bg-[var(--surface-hover)] text-[var(--text-muted)] hover:text-[var(--text)]'}"
+                  onclick={() => {
+                    player.setThemePalette(sw.id);
+                    paletteMenuOpen = false;
+                  }}
+                >
+                  <span class="flex items-center gap-2.5 min-w-0">
+                    <span class="flex items-center -space-x-1 shrink-0" aria-hidden="true">
+                      {#each sw.colors as col}
+                        <span
+                          class="w-3.5 h-3.5 rounded-full border border-white/25"
+                          style="background: {col};"
+                        ></span>
+                      {/each}
+                    </span>
+                    <span class="text-[12.5px] font-semibold truncate">{t(sw.labelKey)}</span>
+                  </span>
+                  {#if active}
+                    <Check size={14} class="text-[var(--accent-bright)] shrink-0" />
+                  {/if}
+                </button>
+              {/each}
+            </div>
+          {/if}
         </div>
       </div>
 
@@ -268,7 +334,7 @@
             <div class="text-[12px] text-[var(--text-muted)]">{t("settings.language_sub")}</div>
           </div>
         </div>
-        <div class="flex sm:justify-end">
+        <div class="flex sm:justify-end w-full sm:w-auto [&>*]:w-full sm:[&>*]:w-auto [&_button]:flex-1 sm:[&_button]:flex-initial">
           <SegmentedControl
             options={languageOptions}
             value={player.language}
@@ -287,10 +353,10 @@
       {t("settings.playback")}
     </h2>
     <div
-      class="rounded-2xl bg-[var(--surface)] border border-[var(--border)] divide-y divide-[var(--border)] overflow-hidden"
+      class="rounded-2xl bg-[var(--surface)] border border-[var(--border)] divide-y divide-[var(--border)]"
       style="box-shadow: var(--card-shadow);"
     >
-      <div class="p-3.5 sm:p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-colors hover:bg-[var(--surface-hover)]/35">
+      <div class="p-3.5 sm:p-4 rounded-t-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-colors hover:bg-[var(--surface-hover)]/35">
         <div class="flex items-center gap-3 min-w-0">
           <span class="w-9 h-9 rounded-xl bg-[var(--bg)]/60 border border-[var(--border)] inline-flex items-center justify-center text-[var(--accent-bright)] shrink-0">
             <Music2 size={16} />
@@ -300,7 +366,7 @@
             <div class="text-[12px] text-[var(--text-muted)]">{t("settings.audio_quality_sub")}</div>
           </div>
         </div>
-        <div class="flex sm:justify-end">
+        <div class="flex sm:justify-end w-full sm:w-auto [&>*]:w-full sm:[&>*]:w-auto [&_button]:flex-1 sm:[&_button]:flex-initial">
           <SegmentedControl
             options={qualityOptions}
             value={player.audioQuality}

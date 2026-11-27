@@ -177,6 +177,7 @@
       label: t("player.mode_video"),
       icon: Film,
       disabled:
+        !player.videoFeatureEnabled ||
         player.isOffline ||
         (!player.videoMode && !player.currentTrack?.is_video && !player.canSwitchVideoMode),
     },
@@ -226,7 +227,7 @@
   {/if}
 
   <!-- Song / Video mode toggle -->
-  {#if player.currentTrack}
+  {#if player.currentTrack && player.videoFeatureEnabled}
     <SegmentedControl
       options={modeOptions}
       value={player.videoMode ? "video" : "song"}

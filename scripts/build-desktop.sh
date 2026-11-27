@@ -15,6 +15,15 @@ OUT_DIR="${ROOT_DIR}/output/desktop"
 
 # Avoid linuxdeploy strip errors on modern glibc/ELF distros (e.g. Fedora)
 export NO_STRIP="${NO_STRIP:-true}"
+export APPIMAGE_EXTRACT_AND_RUN="${APPIMAGE_EXTRACT_AND_RUN:-1}"
+
+# On lib64 distros (Fedora, RHEL, openSUSE), point linuxdeploy's gstreamer plugin to lib64/libexec
+if [[ -z "${GSTREAMER_PLUGINS_DIR:-}" && ! -d "/usr/lib/gstreamer-1.0" && -d "/usr/lib64/gstreamer-1.0" ]]; then
+  export GSTREAMER_PLUGINS_DIR="/usr/lib64/gstreamer-1.0"
+fi
+if [[ -z "${GSTREAMER_HELPERS_DIR:-}" && -d "/usr/libexec/gstreamer-1.0" ]]; then
+  export GSTREAMER_HELPERS_DIR="/usr/libexec/gstreamer-1.0"
+fi
 
 # Clean previous bundle staging artifacts so stale versions (e.g. 0.1.0) are never copied over
 rm -rf "${BUNDLE_DIR}"

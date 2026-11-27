@@ -63,19 +63,15 @@ fn configure_linux_audio_env() {
             };
             std::env::set_var("GST_PLUGIN_FEATURE_RANK", rank);
         }
-        if std::env::var_os("APPIMAGE").is_some() {
-            if std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none() {
-                std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
-            }
-            if std::env::var_os("GST_REGISTRY_1_0").is_none()
-                && let Some(cache_dir) = gyrotube_core::models::cache_dir()
-            {
-                let _ = std::fs::create_dir_all(&cache_dir);
-                std::env::set_var(
-                    "GST_REGISTRY_1_0",
-                    cache_dir.join("gst-registry-appimage.bin"),
-                );
-            }
+        if std::env::var_os("APPIMAGE").is_some()
+            && std::env::var_os("GST_REGISTRY_1_0").is_none()
+            && let Some(cache_dir) = gyrotube_core::models::cache_dir()
+        {
+            let _ = std::fs::create_dir_all(&cache_dir);
+            std::env::set_var(
+                "GST_REGISTRY_1_0",
+                cache_dir.join("gst-registry-appimage.bin"),
+            );
         }
     }
 }

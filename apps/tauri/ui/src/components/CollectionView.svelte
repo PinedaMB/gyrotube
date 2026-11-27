@@ -95,14 +95,14 @@
   />
 {:else}
   <div class="page-clamp">
-    <div class="flex flex-wrap items-center justify-between gap-3">
+    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
       <div class="min-w-0 flex-1">
         <h1 class="text-[26px] sm:text-[28px] font-extrabold tracking-[-0.025em] leading-tight">{t("collection.title")}</h1>
         <p class="text-[13px] text-[var(--text-muted)] mt-0.5">
           {t("collection.subtitle")}
         </p>
       </div>
-      <div class="flex items-center gap-2 shrink-0">
+      <div class="flex flex-wrap items-center gap-2 shrink-0">
         <button type="button" class="pill-btn !px-3.5" onclick={() => (spotifyImportOpen = true)}>
           <Download size={14} />
           {t("spotify_import.button")}

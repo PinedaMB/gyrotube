@@ -36,8 +36,8 @@
     style="box-shadow: var(--card-shadow);"
   >
     {#if !device.isAndroid}
-      <div class="p-4 space-y-3 transition-colors hover:bg-[var(--surface-hover)]/35">
-        <div class="flex items-center justify-between gap-4">
+      <div class="p-3.5 sm:p-4 space-y-3 transition-colors hover:bg-[var(--surface-hover)]/35">
+        <div class="flex items-center justify-between gap-3 sm:gap-4">
           <div class="flex items-center gap-3 min-w-0">
             <span class="w-9 h-9 rounded-xl bg-[var(--bg)]/60 border border-[var(--border)] inline-flex items-center justify-center text-[var(--accent-bright)] shrink-0">
               <Gamepad2 size={16} />
@@ -69,7 +69,7 @@
         </div>
 
         {#if player.integrations.discordRpcEnabled}
-          <div class="pl-12 space-y-1.5">
+          <div class="sm:pl-12 space-y-1.5">
             <input
               type="text"
               inputmode="numeric"
@@ -88,8 +88,8 @@
     {/if}
 
     <!-- ListenBrainz -->
-    <div class="p-4 space-y-3 transition-colors hover:bg-[var(--surface-hover)]/35">
-      <div class="flex items-center justify-between gap-4">
+    <div class="p-3.5 sm:p-4 space-y-3 transition-colors hover:bg-[var(--surface-hover)]/35">
+      <div class="flex items-center justify-between gap-3 sm:gap-4">
         <div class="flex items-center gap-3 min-w-0">
           <span class="w-9 h-9 rounded-xl bg-[var(--bg)]/60 border border-[var(--border)] inline-flex items-center justify-center text-[var(--accent-bright)] shrink-0">
             <Radio size={16} />
@@ -121,7 +121,7 @@
       </div>
 
       {#if player.integrations.listenBrainzEnabled}
-        <div class="pl-12 space-y-2">
+        <div class="sm:pl-12 space-y-2">
           <div class="flex gap-2">
             <input
               type="password"
@@ -162,8 +162,8 @@
     </div>
 
     <!-- Last.fm -->
-    <div class="p-4 space-y-3 transition-colors hover:bg-[var(--surface-hover)]/35">
-      <div class="flex items-center justify-between gap-4">
+    <div class="p-3.5 sm:p-4 space-y-3 transition-colors hover:bg-[var(--surface-hover)]/35">
+      <div class="flex items-center justify-between gap-3 sm:gap-4">
         <div class="flex items-center gap-3 min-w-0">
           <span class="w-9 h-9 rounded-xl bg-[var(--bg)]/60 border border-[var(--border)] inline-flex items-center justify-center text-[var(--accent-bright)] shrink-0">
             <Disc3 size={16} />
@@ -195,7 +195,7 @@
       </div>
 
       {#if player.integrations.lastFmEnabled}
-        <div class="pl-12 grid grid-cols-1 sm:grid-cols-3 gap-2">
+        <div class="sm:pl-12 grid grid-cols-1 sm:grid-cols-3 gap-2">
           <input
             type="password"
             value={player.integrations.lastFmApiKey}

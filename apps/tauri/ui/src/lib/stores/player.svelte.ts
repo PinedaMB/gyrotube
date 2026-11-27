@@ -188,7 +188,8 @@ class PlayerStore {
   hiddenTrackIds = $state<Set<string>>(readHiddenTrackIds());
   followedArtists = $state<Artist[]>([]);
 
-  // Video mode (hybrid synced <video muted> alongside master audio deck)
+  // Video mode (temporarily disabled — flip to `true` to re-enable video playback)
+  public readonly videoFeatureEnabled = false;
   videoMode = $state(false);
   videoStream = $state<VideoStreamInfo | null>(null);
   videoLoading = $state(false);
@@ -448,7 +449,7 @@ class PlayerStore {
           onSeek: (s) => this.seek(s),
         });
         void this.syncMprisState();
-        this.videoMode = Boolean(restored.is_video);
+        this.videoMode = this.videoFeatureEnabled && Boolean(restored.is_video);
         this.probeCounterpartForCurrent(restored);
         void api.prefetchAudio(restored).catch(() => {
           // Playback retries if the background preparation fails.
@@ -1754,6 +1755,13 @@ class PlayerStore {
   }
 
   public setVideoMode(enabled: boolean): void {
+    if (!this.videoFeatureEnabled) {
+      this.videoMode = false;
+      this.videoStream = null;
+      this.videoLoading = false;
+      this.videoError = null;
+      return;
+    }
     if (this.videoMode === enabled) return;
     const cur = this.currentTrack;
     const idx = this.currentIndex;
@@ -1993,7 +2001,7 @@ class PlayerStore {
 
   public async loadVideoForCurrent(): Promise<void> {
     const track = this.currentTrack;
-    if (!track || !this.videoMode || !isTauriRuntime()) {
+    if (!this.videoFeatureEnabled || !track || !this.videoMode || !isTauriRuntime()) {
       this.videoStream = null;
       this.videoLoading = false;
       this.videoError = null;
@@ -2241,7 +2249,7 @@ class PlayerStore {
     this.durationSecs = track.duration_secs ?? 0;
     this.lyrics = { type: "None" };
     this.activeLyricIndex = null;
-    this.lyricsLoading = !track.is_video;
+    this.lyricsLoading = !(this.videoFeatureEnabled && Boolean(track.is_video));
     this.translatedLines = null;
     this.translationLoading = false;
     this.lyricsSources = [];
@@ -2251,8 +2259,8 @@ class PlayerStore {
     this.skippedSponsorKeys.clear();
     this.videoStream = null;
     this.videoError = null;
-    this.videoMode = Boolean(track.is_video);
-    if (track.is_video) {
+    this.videoMode = this.videoFeatureEnabled && Boolean(track.is_video);
+    if (this.videoMode) {
       this.partyMode = false;
       if (this.sidebarTab === "lyrics") {
         this.sidebarTab = "player";

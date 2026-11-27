@@ -171,6 +171,7 @@ impl JsChallengeSolver {
     }
 }
 
+#[cfg_attr(not(feature = "js-solver"), allow(dead_code))]
 pub(crate) fn extract_base_js_url(html: &str) -> Option<String> {
     if let Some(pos) = html.find("/s/player/") {
         let after = &html[pos..];
@@ -193,6 +194,7 @@ pub(crate) fn extract_base_js_url(html: &str) -> Option<String> {
     None
 }
 
+#[cfg_attr(not(feature = "js-solver"), allow(dead_code))]
 pub(crate) fn parse_signature_cipher(cipher: &str) -> Option<(String, String, String)> {
     let mut url = None;
     let mut sig = None;
