@@ -163,4 +163,13 @@ export class SessionPersister {
       void api.saveSession(buildSession()).catch(() => {});
     }, delayMs);
   }
+
+  public flushNow(buildSession: () => SessionState): void {
+    if (!isTauriRuntime()) return;
+    if (this.timer !== null) {
+      window.clearTimeout(this.timer);
+      this.timer = null;
+    }
+    void api.saveSession(buildSession()).catch(() => {});
+  }
 }

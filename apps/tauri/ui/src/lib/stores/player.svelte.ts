@@ -289,6 +289,7 @@ class PlayerStore {
   private advancedFromGen = 0;
   private prefetchTimer: number | null = null;
   private lastLocalSpinUpdate = 0;
+  private lastPositionPersistAt = 0;
   private persister = new SessionPersister();
   private routeDepth = 0;
   private routerBound = false;
@@ -339,6 +340,10 @@ class PlayerStore {
         this.checkSponsorBlockSkip(pos, dur > 0 ? dur : this.durationSecs);
         this.trackListeningProgress(pos);
         const now = performance.now();
+        if (this.isPlaying && !this.isLoadingAudio && pos > 1 && now - this.lastPositionPersistAt >= 5000) {
+          this.lastPositionPersistAt = now;
+          void this.persistSession();
+        }
         if (this.spinStatus.local_active && this.isPlaying && !this.isLoadingAudio && now - this.lastLocalSpinUpdate >= 500) {
           this.lastLocalSpinUpdate = now;
           void this.syncSpinSnapshot();
@@ -455,6 +460,9 @@ class PlayerStore {
           // Playback retries if the background preparation fails.
         });
         this.durationSecs = restored.duration_secs ?? 0;
+        const savedPos = Number.isFinite(s.position_secs) ? Math.max(0, s.position_secs) : 0;
+        this.positionSecs =
+          this.durationSecs > 2 && savedPos >= this.durationSecs - 2 ? 0 : savedPos;
         const cover = restored.cover_large_url || restored.cover_url;
         if (cover) {
           void extractDominantRgb(cover).then((rgb) => {
@@ -465,11 +473,23 @@ class PlayerStore {
         void api
           .getLyrics(restored.title, restored.artist, restored.duration_secs, restored.id)
           .then((data) => {
-            if (this.currentTrack?.id === restored.id) this.lyrics = data;
+            if (this.currentTrack?.id === restored.id) {
+              this.lyrics = data;
+              if (this.positionSecs > 0) this.updateActiveLyric(this.positionSecs);
+            }
           })
           .finally(() => {
             if (this.currentTrack?.id === restored.id) this.lyricsLoading = false;
           });
+      }
+      if (typeof window !== "undefined") {
+        const flushPosition = () => {
+          if (this.currentTrack && this.positionSecs > 0) {
+            this.flushSessionNow();
+          }
+        };
+        window.addEventListener("pagehide", flushPosition);
+        window.addEventListener("beforeunload", flushPosition);
       }
     } catch (err) {
       this.showToast(String(err));
@@ -2401,7 +2421,8 @@ class PlayerStore {
     if (!this.currentTrack || this.currentIndex == null) return;
     if (!this.engine.activeDeck.src) {
       if (this.isLoadingAudio) return;
-      await this.playIndex(this.currentIndex);
+      const resumePos = this.positionSecs > 0.5 ? this.positionSecs : 0;
+      await this.playIndex(this.currentIndex, false, resumePos);
       return;
     }
     await this.engine.play();
@@ -2413,6 +2434,7 @@ class PlayerStore {
       return;
     }
     this.engine.pause();
+    void this.persistSession();
   }
 
   public async togglePlay(): Promise<void> {
@@ -2423,7 +2445,8 @@ class PlayerStore {
     if (!this.currentTrack || this.currentIndex == null) return;
     if (!this.engine.activeDeck.src) {
       if (this.isLoadingAudio) return;
-      await this.playIndex(this.currentIndex);
+      const resumePos = this.positionSecs > 0.5 ? this.positionSecs : 0;
+      await this.playIndex(this.currentIndex, false, resumePos);
       return;
     }
     if (this.videoSyncPauseActive || this.awaitingVideoStartGen === this.loadGen) {
@@ -2431,9 +2454,11 @@ class PlayerStore {
       this.clearVideoSyncPause(false);
       this.isLoadingAudio = false;
       this.engine.pause();
+      void this.persistSession();
       return;
     }
     await this.engine.togglePlay();
+    if (!this.isPlaying) void this.persistSession();
   }
 
   public seek(secs: number): void {
@@ -2476,6 +2501,7 @@ class PlayerStore {
     this.syncAndroidForegroundService(this.isPlaying);
     void this.syncSpinSnapshot();
     void this.syncMprisState(true);
+    void this.persistSession();
   }
 
   public async prev(): Promise<void> {
@@ -3020,26 +3046,32 @@ class PlayerStore {
     }
   }
 
+  private buildSessionSnapshot(): SessionState {
+    return {
+      sidebar_collapsed: !this.sidebarOpen,
+      queue: this.queue,
+      unshuffled_queue: this.unshuffledQueue,
+      current_index: this.currentIndex,
+      source_name: this.sourceName,
+      user_volume: this.volume,
+      shuffle: this.shuffle,
+      repeat: this.repeat,
+      position_secs: this.getExactPositionSecs(),
+      crossfade_secs: this.crossfadeSecs,
+      language: this.language,
+      background_playback: this.backgroundPlayback,
+      autoplay_related: this.autoplayRelated,
+      theme_mode: this.themeMode,
+      audio_quality: this.audioQuality,
+    };
+  }
+
   public async persistSession(): Promise<void> {
-    this.persister.schedule(
-      (): SessionState => ({
-        sidebar_collapsed: !this.sidebarOpen,
-        queue: this.queue,
-        unshuffled_queue: this.unshuffledQueue,
-        current_index: this.currentIndex,
-        source_name: this.sourceName,
-        user_volume: this.volume,
-        shuffle: this.shuffle,
-        repeat: this.repeat,
-        position_secs: this.positionSecs,
-        crossfade_secs: this.crossfadeSecs,
-        language: this.language,
-        background_playback: this.backgroundPlayback,
-        autoplay_related: this.autoplayRelated,
-        theme_mode: this.themeMode,
-        audio_quality: this.audioQuality,
-      }),
-    );
+    this.persister.schedule(() => this.buildSessionSnapshot());
+  }
+
+  public flushSessionNow(): void {
+    this.persister.flushNow(() => this.buildSessionSnapshot());
   }
 }
 
