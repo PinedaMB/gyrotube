@@ -190,6 +190,7 @@
   "lyrics.select_max": "Maximum {max} lines per card",
   "lyrics.share_card": "Share lyrics card",
   "lyrics.static": "Static",
+  "lyrics.unsynced_notice": "Unsynced lyrics",
   "lyrics.sync_btn": "Sync",
   "lyrics.synced": "Synced",
   "lyrics.title": "Lyrics",

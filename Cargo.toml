@@ -13,6 +13,15 @@ edition = "2024"
 [profile.dev.package."*"]
 debug = false
 
+[profile.dev.package.rusty-opus]
+opt-level = 3
+
+[profile.dev.package.symphonia-codec-aac]
+opt-level = 2
+
+[profile.dev.package.symphonia-format-mkv]
+opt-level = 2
+
 [profile.release]
 opt-level = "s"
 lto = "thin"

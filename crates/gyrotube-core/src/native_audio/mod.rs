@@ -182,26 +182,26 @@ impl NativeAudioEngine {
                         emit_play_state = Some(false);
                     }
 
-                    if emit_play_state.is_some() || emit_crossfade || emit_ended {
-                        if let Ok(mut m) = mixer_for_tick.lock() {
-                            // Verify deck hasn't changed before mutating flags
-                            if m.active_deck
-                                .as_ref()
-                                .is_some_and(|d| Arc::ptr_eq(d, &deck))
-                            {
-                                if let Some(p) = emit_play_state {
-                                    m.last_playing_emitted = p;
-                                }
-                                if emit_crossfade {
-                                    m.crossfade_fired = true;
-                                }
-                                if emit_ended {
-                                    m.ended_emitted = true;
-                                    m.last_playing_emitted = false;
-                                }
-                            } else {
-                                continue;
+                    if (emit_play_state.is_some() || emit_crossfade || emit_ended)
+                        && let Ok(mut m) = mixer_for_tick.lock()
+                    {
+                        // Verify deck hasn't changed before mutating flags
+                        if m.active_deck
+                            .as_ref()
+                            .is_some_and(|d| Arc::ptr_eq(d, &deck))
+                        {
+                            if let Some(p) = emit_play_state {
+                                m.last_playing_emitted = p;
                             }
+                            if emit_crossfade {
+                                m.crossfade_fired = true;
+                            }
+                            if emit_ended {
+                                m.ended_emitted = true;
+                                m.last_playing_emitted = false;
+                            }
+                        } else {
+                            continue;
                         }
                     }
 
@@ -362,7 +362,7 @@ fn probe_default_sample_rate() -> Option<u32> {
     let host = cpal::default_host();
     let device = host.default_output_device()?;
     let cfg = device.default_output_config().ok()?;
-    Some(cfg.sample_rate().0)
+    Some(cfg.sample_rate())
 }
 
 fn open_cpal_stream(mixer: Arc<Mutex<MixerState>>) -> Result<(cpal::Stream, u32), String> {
@@ -374,7 +374,7 @@ fn open_cpal_stream(mixer: Arc<Mutex<MixerState>>) -> Result<(cpal::Stream, u32)
         .default_output_config()
         .map_err(|e| format!("No se pudo leer la configuración de audio: {e}"))?;
     let channels = supported.channels() as usize;
-    let sample_rate = supported.sample_rate().0;
+    let sample_rate = supported.sample_rate();
     let config: cpal::StreamConfig = supported.into();
 
     let err_fn = |err| eprintln!("[gyro-native-audio] cpal stream error: {err}");
@@ -384,7 +384,7 @@ fn open_cpal_stream(mixer: Arc<Mutex<MixerState>>) -> Result<(cpal::Stream, u32)
 
     let stream = device
         .build_output_stream(
-            &config,
+            config,
             move |data: &mut [f32], _| {
                 data.fill(0.0);
 
@@ -421,13 +421,31 @@ fn open_cpal_stream(mixer: Arc<Mutex<MixerState>>) -> Result<(cpal::Stream, u32)
                     (1.0, 0.0, false)
                 };
 
+                let normalize_on = m.dsp.is_normalize_enabled();
+                let mut active_has_rg = false;
+
                 if let Some(ref deck) = m.active_deck {
-                    deck.pull_stereo(stereo, active_gain);
+                    let rg = if normalize_on {
+                        deck.loudness_db().map(|db| {
+                            active_has_rg = true;
+                            dsp::replaygain_linear(db)
+                        })
+                    } else {
+                        None
+                    }
+                    .unwrap_or(1.0);
+                    deck.pull_stereo(stereo, active_gain * rg);
                 }
                 if outgoing_gain > 0.001
                     && let Some(ref out_deck) = m.outgoing_deck
                 {
-                    out_deck.pull_stereo(stereo, outgoing_gain);
+                    let rg = if normalize_on {
+                        out_deck.loudness_db().map(dsp::replaygain_linear)
+                    } else {
+                        None
+                    }
+                    .unwrap_or(1.0);
+                    out_deck.pull_stereo(stereo, outgoing_gain * rg);
                 }
                 if clear_outgoing {
                     if let Some(old) = m.outgoing_deck.take() {
@@ -448,9 +466,11 @@ fn open_cpal_stream(mixer: Arc<Mutex<MixerState>>) -> Result<(cpal::Stream, u32)
                         m.current_volume += diff.signum() * ramp_step;
                     }
                     let vol = m.current_volume;
-                    let (l, r) = m
-                        .dsp
-                        .process_stereo(stereo[f * 2] * vol, stereo[f * 2 + 1] * vol);
+                    let (l, r) = m.dsp.process_stereo_with_replaygain(
+                        stereo[f * 2] * vol,
+                        stereo[f * 2 + 1] * vol,
+                        active_has_rg,
+                    );
 
                     if channels == 1 {
                         data[f] = (l + r) * 0.5;

@@ -541,9 +541,9 @@ impl Backend {
         // and skipping HLS/DASH manifest downloads.
         #[cfg(feature = "native-audio")]
         let ytdlp_format = match self.innertube.audio_quality() {
-            crate::models::AudioQuality::High => "141/140/139/bestaudio[ext=m4a]",
-            crate::models::AudioQuality::Normal => "140/139/bestaudio[ext=m4a]",
-            crate::models::AudioQuality::Low => "139/140/bestaudio[ext=m4a]",
+            crate::models::AudioQuality::High => "141/251/140/bestaudio",
+            crate::models::AudioQuality::Normal => "250/140/249/bestaudio",
+            crate::models::AudioQuality::Low => "249/139/250/worstaudio/bestaudio",
         };
         #[cfg(not(feature = "native-audio"))]
         let ytdlp_format = match self.innertube.audio_quality() {

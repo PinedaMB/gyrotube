@@ -141,12 +141,24 @@ impl BiquadState {
     }
 }
 
+/// Converts YouTube's `loudnessDb` (offset relative to -14 LUFS; positive = louder)
+/// into a static ReplayGain linear multiplier, clamped safely to `[-12 dB, +6 dB]`.
+#[inline]
+pub fn replaygain_linear(loudness_db: f32) -> f32 {
+    if !loudness_db.is_finite() {
+        return 1.0;
+    }
+    let adj_db = (-loudness_db).clamp(-12.0, 6.0);
+    10.0_f32.powf(adj_db / 20.0)
+}
+
 pub struct DspChain {
     sample_rate: f32,
     config: NativeEqConfig,
     coeffs: [BiquadCoeffs; 5],
     left: [BiquadState; 5],
     right: [BiquadState; 5],
+    eq_preamp: f32,
     env: f32,
     attack_coeff: f32,
     release_coeff: f32,
@@ -161,31 +173,60 @@ impl DspChain {
             coeffs: [BiquadCoeffs::default(); 5],
             left: [BiquadState::default(); 5],
             right: [BiquadState::default(); 5],
+            eq_preamp: 1.0,
             env: 0.0,
             attack_coeff: (-1.0 / (0.005 * sr)).exp(),
             release_coeff: (-1.0 / (0.200 * sr)).exp(),
         }
     }
 
+    pub fn is_normalize_enabled(&self) -> bool {
+        self.config.normalize
+    }
+
     pub fn update_config(&mut self, config: NativeEqConfig) {
         self.config = config;
+        let mut max_boost_db = 0.0_f32;
         for (i, &freq) in EQ_FREQUENCIES.iter().enumerate() {
             let gain = if config.enabled {
                 config.bands[i].clamp(-12.0, 12.0)
             } else {
                 0.0
             };
+            if gain > max_boost_db {
+                max_boost_db = gain;
+            }
             self.coeffs[i] = match i {
                 0 => BiquadCoeffs::low_shelf(self.sample_rate, freq, gain),
                 4 => BiquadCoeffs::high_shelf(self.sample_rate, freq, gain),
                 _ => BiquadCoeffs::peaking(self.sample_rate, freq, 1.0, gain),
             };
         }
+        // Automatic negative pre-amp prevents EQ boosts from driving into the soft limiter
+        self.eq_preamp = if config.enabled && max_boost_db > 0.01 {
+            10.0_f32.powf(-max_boost_db / 20.0)
+        } else {
+            1.0
+        };
     }
 
     #[inline]
-    pub fn process_stereo(&mut self, mut l: f32, mut r: f32) -> (f32, f32) {
+    pub fn process_stereo(&mut self, l: f32, r: f32) -> (f32, f32) {
+        self.process_stereo_with_replaygain(l, r, false)
+    }
+
+    /// Processes a stereo frame through the EQ (with automatic pre-amp), optional fallback
+    /// dynamic normalizer (skipped when per-track ReplayGain is active), and soft limiter.
+    #[inline]
+    pub fn process_stereo_with_replaygain(
+        &mut self,
+        mut l: f32,
+        mut r: f32,
+        has_replaygain: bool,
+    ) -> (f32, f32) {
         if self.config.enabled {
+            l *= self.eq_preamp;
+            r *= self.eq_preamp;
             for i in 0..5 {
                 let c = &self.coeffs[i];
                 l = self.left[i].process(l, c);
@@ -193,7 +234,7 @@ impl DspChain {
             }
         }
 
-        if self.config.normalize {
+        if self.config.normalize && !has_replaygain {
             let peak = l.abs().max(r.abs());
             let coeff = if peak > self.env {
                 self.attack_coeff
@@ -215,7 +256,7 @@ impl DspChain {
             r *= gain;
         }
 
-        // Soft limiter prevents harsh digital clipping when EQ boosts are high
+        // Soft limiter prevents harsh digital clipping when EQ boosts or positive ReplayGain are high
         if self.config.enabled || self.config.normalize {
             l = soft_limit(l);
             r = soft_limit(r);
@@ -238,7 +279,7 @@ fn soft_limit(x: f32) -> f32 {
 mod tests {
     use std::f32::consts::PI;
 
-    use super::{DspChain, NativeEqConfig};
+    use super::{DspChain, NativeEqConfig, replaygain_linear};
 
     #[test]
     fn flat_disabled_dsp_is_exact_passthrough() {
@@ -249,24 +290,56 @@ mod tests {
     }
 
     #[test]
-    fn bass_boost_increases_60hz_sine_amplitude_without_nan() {
+    fn bass_boost_increases_60hz_relative_to_midrange_without_clipping() {
         let mut dsp = DspChain::new(48000.0);
         dsp.update_config(NativeEqConfig {
             enabled: true,
             normalize: false,
             bands: [8.0, 0.0, 0.0, 0.0, 0.0],
         });
-        let mut max_out = 0.0_f32;
+        let mut max_bass = 0.0_f32;
         for n in 0..4800 {
-            let s = 0.2 * (2.0 * PI * 60.0 * n as f32 / 48000.0).sin();
+            let s = 0.5 * (2.0 * PI * 30.0 * n as f32 / 48000.0).sin();
             let (l, r) = dsp.process_stereo(s, s);
             assert!(l.is_finite() && r.is_finite());
             if n > 2400 {
-                max_out = max_out.max(l.abs());
+                max_bass = max_bass.max(l.abs());
             }
         }
-        // At the 60 Hz shelf corner frequency, +8 dB low-shelf yields ~+4 dB (~1.585x -> ~0.317)
-        assert!(max_out > 0.30, "expected bass boost > 0.30, got {max_out}");
+        // With -8 dB auto pre-amp and +8 dB bass shelf, sub-bass stays near ~0.50 without clipping
+        assert!(max_bass > 0.42 && max_bass <= 0.55, "got {max_bass}");
+    }
+
+    #[test]
+    fn eq_auto_preamp_prevents_clipping_on_boost() {
+        let mut dsp = DspChain::new(48000.0);
+        dsp.update_config(NativeEqConfig {
+            enabled: true,
+            normalize: false,
+            bands: [12.0, 0.0, 0.0, 0.0, 0.0],
+        });
+        let mut peak = 0.0_f32;
+        for n in 0..4800 {
+            let s = 0.85 * (2.0 * PI * 30.0 * n as f32 / 48000.0).sin();
+            let (l, _) = dsp.process_stereo(s, s);
+            if n > 2400 {
+                peak = peak.max(l.abs());
+            }
+        }
+        assert!(peak < 0.92, "auto pre-amp should avoid soft limiter saturation, got {peak}");
+    }
+
+    #[test]
+    fn replaygain_attenuates_loud_and_clamps_quiet_tracks() {
+        // +6 dB track -> -6 dB attenuation (~0.501)
+        let atten = replaygain_linear(6.0);
+        assert!((atten - 0.5012).abs() < 0.01, "got {atten}");
+        // Very loud +20 dB track -> clamped to -12 dB (~0.251)
+        let clamped_down = replaygain_linear(20.0);
+        assert!((clamped_down - 0.2512).abs() < 0.01, "got {clamped_down}");
+        // Very quiet -20 dB track -> clamped to +6 dB (~1.995)
+        let clamped_up = replaygain_linear(-20.0);
+        assert!((clamped_up - 1.9953).abs() < 0.01, "got {clamped_up}");
     }
 
     #[test]

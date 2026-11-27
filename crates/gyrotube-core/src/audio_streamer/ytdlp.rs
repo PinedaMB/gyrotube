@@ -186,5 +186,6 @@ pub(super) async fn refresh_ytdlp_audio_stream(
         user_agent: ua,
         headers: parsed.http_headers,
         local_audio: None,
+        loudness_db: None,
     })
 }

@@ -203,6 +203,7 @@ fn local_stream(audio: Arc<LocalAudio>, extension: &str) -> StreamInfo {
         user_agent: None,
         headers: HashMap::new(),
         local_audio: Some(audio),
+        loudness_db: None,
     }
 }
 

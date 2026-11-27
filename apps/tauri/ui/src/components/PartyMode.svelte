@@ -16,13 +16,21 @@
   import { scale } from "svelte/transition";
   import { t } from "../lib/i18n.svelte";
   import {
+    RICHSYNC_LEAD_SECS,
+    computeFeatheredSweepGradient,
+    computeLetterFrame,
+    getWordPhase,
+    hasJoiningScript,
+    letterInlineStyle,
+  } from "../lib/karaokeAnim";
+  import {
     computeLyricOpacity,
     isWaitingForFirstLyric,
     parsePlainStanzas,
     smoothScrollToLyric,
   } from "../lib/lyricsFormat";
   import { player } from "../lib/stores/player.svelte";
-  import { formatDuration, type LyricWord } from "../lib/types";
+  import { formatDuration } from "../lib/types";
   import CoverImage from "./CoverImage.svelte";
   import LyricsOptionsMenu from "./sidebar/LyricsOptionsMenu.svelte";
   import SyncedVideoPlayer from "./SyncedVideoPlayer.svelte";
@@ -99,25 +107,31 @@
     player.lyrics.type === "Synced" && player.lyrics.lines.some((l) => Boolean(l.romanized)),
   );
 
+  let reducedMotion = $state(false);
+
   $effect(() => {
-    liveKaraokePos = player.positionSecs + player.currentLyricsOffset;
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
+    const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
+    reducedMotion = mq.matches;
+    const onChange = (e: MediaQueryListEvent) => {
+      reducedMotion = e.matches;
+    };
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  });
+
+  $effect(() => {
+    liveKaraokePos = player.positionSecs + player.currentLyricsOffset + RICHSYNC_LEAD_SECS;
     if (!hasWordLyrics || !player.isPlaying || !player.partyMode) return;
     let rafId = 0;
     const tick = () => {
-      liveKaraokePos = player.getExactPositionSecs() + player.currentLyricsOffset;
+      liveKaraokePos =
+        player.getExactPositionSecs() + player.currentLyricsOffset + RICHSYNC_LEAD_SECS;
       rafId = requestAnimationFrame(tick);
     };
     rafId = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(rafId);
   });
-
-  function wordProgressPct(word: LyricWord, tSecs: number): number {
-    if (tSecs <= word.start_secs) return 0;
-    if (tSecs >= word.end_secs) return 100;
-    return Math.round(
-      ((tSecs - word.start_secs) / Math.max(0.05, word.end_secs - word.start_secs)) * 100,
-    );
-  }
 
   let plainStanzas = $derived(
     player.lyrics.type === "Plain" ? parsePlainStanzas(player.lyrics.text).stanzas : [],
@@ -418,16 +432,25 @@
               >
                 {#if active && line.words && line.words.length > 0}
                   {#each line.words as word}
-                    {@const pct = wordProgressPct(word, liveKaraokePos)}
-                    {#if pct >= 100}
+                    {@const phase = getWordPhase(word, liveKaraokePos)}
+                    {#if phase === "settled"}
                       <span class="party-karaoke-sung">{word.text}</span>
-                    {:else if pct <= 0}
+                    {:else if phase === "pending"}
                       <span class="party-karaoke-pending">{word.text}</span>
-                    {:else}
+                    {:else if hasJoiningScript(word.text)}
                       <span
                         class="party-karaoke-active"
-                        style="background-image: linear-gradient(90deg, var(--text) 0%, var(--text) {pct}%, color-mix(in srgb, var(--text) 34%, transparent) {pct}%, color-mix(in srgb, var(--text) 34%, transparent) 100%);"
+                        style="background-image: {computeFeatheredSweepGradient(word, liveKaraokePos)};"
                       >{word.text}</span>
+                    {:else}
+                      {@const chars = Array.from(word.text)}
+                      <span class="party-karaoke-group">{#each chars as ch, cIdx}{#if ch === " "}{" "}{:else}<span
+                              class="party-karaoke-letter"
+                              style={letterInlineStyle(
+                                computeLetterFrame(word, cIdx, chars.length, liveKaraokePos, reducedMotion),
+                                true,
+                              )}
+                            >{ch}</span>{/if}{/each}</span>
                     {/if}
                   {/each}
                 {:else}
@@ -465,8 +488,11 @@
           data-lyrics-align={player.lyricsAlign}
           role="region"
           aria-label={t("lyrics.title")}
-          class="party-lyrics-scroll flex-1 min-h-0 overflow-y-auto overflow-x-hidden pt-8 pb-28 lg:pt-12 lg:pb-36 px-1 pr-3 lg:pr-8 space-y-6 lg:space-y-7"
+          class="party-lyrics-scroll flex-1 min-h-0 overflow-y-auto overflow-x-hidden pt-6 pb-24 lg:pt-10 lg:pb-32 px-1 pr-3 lg:pr-8 space-y-5 lg:space-y-6"
         >
+          <p class="text-[13px] font-medium text-[var(--text-muted)]/70 pb-1 select-none">
+            {t("lyrics.unsynced_notice")}
+          </p>
           {#each plainStanzas as stanza, sIdx (sIdx)}
             <div class="flex flex-col gap-2">
               {#each stanza as item, lIdx (`${sIdx}:${lIdx}`)}
@@ -475,7 +501,7 @@
                     {item.text}
                   </div>
                 {:else}
-                  <p class="party-static-line">
+                  <p dir="auto" class="party-static-line">
                     {item.text}
                   </p>
                 {/if}
@@ -636,9 +662,21 @@
     transform-origin: right;
   }
 
-  .party-line:hover {
-    opacity: 0.94 !important;
-    background: color-mix(in srgb, var(--surface-hover) 50%, transparent);
+  @media (hover: hover) and (pointer: fine) {
+    .party-line:hover {
+      opacity: 0.94 !important;
+      background: color-mix(in srgb, var(--surface-hover) 50%, transparent);
+    }
+  }
+
+  .party-line {
+    -webkit-tap-highlight-color: transparent;
+    outline: none;
+  }
+
+  .party-line:focus-visible {
+    outline: 2px solid var(--accent-bright);
+    outline-offset: 2px;
   }
 
   .party-line.active-line {
@@ -663,14 +701,43 @@
     color: transparent;
   }
 
+  .party-karaoke-group {
+    display: inline;
+  }
+
+  .party-karaoke-letter {
+    display: inline-block;
+    color: var(--text);
+    transform-origin: center bottom;
+    will-change: transform, opacity;
+  }
+
   .party-static-line {
     font-family: var(--lyrics-font);
     font-size: clamp(19px, 4.4vw, 25px);
-    font-weight: 700;
+    font-weight: 600;
     line-height: 1.48;
     letter-spacing: -0.02em;
-    color: color-mix(in srgb, var(--text) 88%, transparent);
+    color: color-mix(in srgb, var(--text) 85%, transparent);
     margin: 0;
+  }
+
+  [data-lyrics-size="sm"] .party-static-line {
+    font-size: clamp(16px, 3.6vw, 21px);
+  }
+
+  [data-lyrics-size="lg"] .party-static-line {
+    font-size: clamp(22px, 5vw, 30px);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .party-line.active-line {
+      transform: none;
+    }
+    .party-karaoke-letter {
+      translate: none !important;
+      scale: none !important;
+    }
   }
 
   .party-intro-dot {

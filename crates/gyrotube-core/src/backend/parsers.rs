@@ -114,6 +114,7 @@ pub(super) fn stream_from_ytdlp_json(raw: &[u8]) -> Result<StreamInfo, String> {
             .map(|(_, v)| v.clone()),
         headers: audio.http_headers,
         local_audio: None,
+        loudness_db: None,
     })
 }
 

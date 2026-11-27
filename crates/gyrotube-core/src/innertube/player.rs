@@ -193,9 +193,29 @@ impl InnerTubeClient {
 
         #[cfg(feature = "native-audio")]
         let candidates: &[(u64, &str)] = match self.audio_quality() {
-            AudioQuality::High => &[(141, "m4a"), (140, "m4a"), (139, "m4a"), (18, "mp4")],
-            AudioQuality::Normal => &[(140, "m4a"), (139, "m4a"), (18, "mp4")],
-            AudioQuality::Low => &[(139, "m4a"), (140, "m4a"), (18, "mp4")],
+            AudioQuality::High => &[
+                (141, "m4a"),
+                (251, "webm"),
+                (140, "m4a"),
+                (250, "webm"),
+                (139, "m4a"),
+                (18, "mp4"),
+            ],
+            AudioQuality::Normal => &[
+                (250, "webm"),
+                (140, "m4a"),
+                (249, "webm"),
+                (251, "webm"),
+                (139, "m4a"),
+                (18, "mp4"),
+            ],
+            AudioQuality::Low => &[
+                (249, "webm"),
+                (139, "m4a"),
+                (250, "webm"),
+                (140, "m4a"),
+                (18, "mp4"),
+            ],
         };
 
         #[cfg(all(target_os = "macos", not(feature = "native-audio")))]
@@ -292,6 +312,10 @@ impl InnerTubeClient {
             }
             let size = format["contentLength"].as_str().and_then(|v| v.parse().ok());
             let kbps = (format["bitrate"].as_u64().unwrap_or(128_000) / 1000).max(48);
+            let loudness_db = response["playerConfig"]["audioConfig"]["loudnessDb"]
+                .as_f64()
+                .map(|v| v as f32)
+                .filter(|v| v.is_finite());
             let mut headers = HashMap::new();
             headers.insert("User-Agent".to_string(), user_agent.to_string());
             return Ok((
@@ -301,6 +325,7 @@ impl InnerTubeClient {
                     user_agent: Some(user_agent.into()),
                     headers,
                     local_audio: None,
+                    loudness_db,
                 },
                 extension,
                 size,

@@ -18,6 +18,7 @@ use super::parsers::*;
             user_agent: None,
             headers: HashMap::new(),
             local_audio: None,
+            loudness_db: None,
         };
         backend
             .stream_cache
@@ -45,6 +46,7 @@ use super::parsers::*;
                     user_agent: None,
                     headers: HashMap::new(),
                     local_audio: None,
+                    loudness_db: None,
                 },
             ),
         );
@@ -68,6 +70,7 @@ use super::parsers::*;
                 user_agent: None,
                 headers: HashMap::new(),
                 local_audio: None,
+                loudness_db: None,
             }),
         );
         assert!(backend.cached_track_stream(&track).is_none());
@@ -116,6 +119,7 @@ use super::parsers::*;
                     user_agent: None,
                     headers: HashMap::new(),
                     local_audio: None,
+                    loudness_db: None,
                 },
             ),
         );
@@ -355,6 +359,7 @@ use super::parsers::*;
             user_agent: None,
             headers: HashMap::new(),
             local_audio: None,
+            loudness_db: None,
         };
         assert!(stream_url_is_fresh(
             Instant::now() - Duration::from_secs(240),

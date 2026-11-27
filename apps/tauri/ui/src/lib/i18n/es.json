@@ -190,6 +190,7 @@
   "lyrics.select_max": "Máximo {max} líneas por tarjeta",
   "lyrics.share_card": "Compartir tarjeta de letra",
   "lyrics.static": "Estática",
+  "lyrics.unsynced_notice": "Letras sin sincronizar",
   "lyrics.sync_btn": "Sincronizar",
   "lyrics.synced": "Sincronizada",
   "lyrics.title": "Letra",

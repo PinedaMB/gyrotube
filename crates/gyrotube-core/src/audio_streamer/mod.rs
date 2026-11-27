@@ -48,12 +48,14 @@ pub struct NativeStreamSource {
     pub file_path: PathBuf,
     pub extension: String,
     pub progress_rx: Option<watch::Receiver<ChunkProgress>>,
+    pub loudness_db: Option<f32>,
 }
 
 pub(super) struct StreamSession {
     pub(super) file_path: PathBuf,
     pub(super) mime_type: String,
     pub(super) progress_rx: watch::Receiver<ChunkProgress>,
+    pub(super) loudness_db: Option<f32>,
 }
 
 #[derive(Clone)]
@@ -240,6 +242,7 @@ impl AudioStreamer {
             file_path,
             mime_type: mime_for_ext(&ext).to_string(),
             progress_rx,
+            loudness_db: None,
         });
         if let Ok(mut map) = self.sessions.write() {
             map.insert(session_key.clone(), session);
@@ -284,6 +287,7 @@ impl AudioStreamer {
                     file_path: path,
                     extension: ext,
                     progress_rx: None,
+                    loudness_db: None,
                 });
             }
             if parsed.port() == Some(self.port)
@@ -301,6 +305,7 @@ impl AudioStreamer {
                     file_path: session.file_path.clone(),
                     extension: ext,
                     progress_rx: Some(session.progress_rx.clone()),
+                    loudness_db: session.loudness_db,
                 });
             }
         }
@@ -316,6 +321,7 @@ impl AudioStreamer {
                 file_path: path,
                 extension: ext,
                 progress_rx: None,
+                loudness_db: None,
             });
         }
 
@@ -400,10 +406,12 @@ impl AudioStreamer {
         });
 
         let session_key = self.allocate_session_key(video_id);
+        let loudness_db = remote.loudness_db;
         let session = Arc::new(StreamSession {
             file_path: staging_file_path.clone(),
             mime_type: mime_for_ext(&ext).to_string(),
             progress_rx: progress_rx.clone(),
+            loudness_db,
         });
         if let Ok(mut map) = self.sessions.write() {
             map.insert(session_key.clone(), session);
@@ -619,6 +627,7 @@ impl AudioStreamer {
             user_agent: None,
             headers: HashMap::new(),
             local_audio: None,
+            loudness_db,
         })
     }
 
@@ -707,6 +716,7 @@ impl AudioStreamer {
             file_path: staging_file_path.clone(),
             mime_type: mime_for_ext(&ext).to_string(),
             progress_rx: progress_rx.clone(),
+            loudness_db: None,
         });
         if let Ok(mut map) = self.sessions.write() {
             map.insert(session_key.clone(), session);
@@ -802,6 +812,7 @@ impl AudioStreamer {
             user_agent: None,
             headers: HashMap::new(),
             local_audio: None,
+            loudness_db: None,
         })
     }
 }

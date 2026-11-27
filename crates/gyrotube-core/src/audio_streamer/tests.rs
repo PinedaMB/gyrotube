@@ -84,6 +84,7 @@ async fn streams_audio_in_blocks_before_full_download_completes() {
         user_agent: Some("GyroTubeTest/1.0".to_string()),
         headers: HashMap::new(),
         local_audio: None,
+        loudness_db: None,
     };
 
     let started = std::time::Instant::now();
@@ -128,6 +129,7 @@ async fn supports_byte_range_requests_on_progressive_stream() {
         user_agent: None,
         headers: HashMap::new(),
         local_audio: None,
+        loudness_db: None,
     };
 
     let local_stream = streamer
@@ -161,6 +163,7 @@ async fn rejects_sources_that_serve_the_start_but_block_the_rest() {
         user_agent: None,
         headers: HashMap::new(),
         local_audio: None,
+        loudness_db: None,
     };
     let client = reqwest::Client::new();
     assert!(fetch_range_block_url(&client, &remote.url, &remote, 0, INITIAL_HTTP_BLOCK_BYTES - 1).await.is_ok());
@@ -198,6 +201,7 @@ async fn a_stream_that_fails_after_buffering_cannot_be_reused() {
         file_path: PathBuf::new(),
         mime_type: "audio/webm".into(),
         progress_rx: rx.clone(),
+        loudness_db: None,
     }));
     assert!(streamer.can_reuse_url(&url));
     tx.send_replace(ChunkProgress {

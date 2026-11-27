@@ -1,5 +1,15 @@
 <script lang="ts">
-  import { Check, Copy, Download, Share2, X } from "lucide-svelte";
+  import {
+    AlignCenter,
+    AlignLeft,
+    AlignRight,
+    Check,
+    Copy,
+    Download,
+    Languages,
+    Share2,
+    X,
+  } from "lucide-svelte";
   import { fade } from "svelte/transition";
   import { getAndroidBridge } from "../../lib/androidBridge";
   import { api, isTauriRuntime } from "../../lib/api";
@@ -10,6 +20,7 @@
     coverSwatchGradient,
     lyricsCardFilename,
     renderLyricsCard,
+    type LyricsCardAlign,
     type LyricsCardAspect,
     type LyricsCardThemeId,
   } from "../../lib/lyricsCard";
@@ -20,19 +31,32 @@
   interface Props {
     open: boolean;
     lines: string[];
+    translations?: (string | null)[];
     onClose: () => void;
   }
 
-  let { open, lines, onClose }: Props = $props();
+  let { open, lines, translations = [], onClose }: Props = $props();
 
   let canvasEl = $state<HTMLCanvasElement | null>(null);
   let theme = $state<LyricsCardThemeId>("cover");
   let aspect = $state<LyricsCardAspect>("portrait");
+  let align = $state<LyricsCardAlign>(player.lyricsAlign);
+  let includeTranslation = $state(true);
   let busy = $state(false);
   let copied = $state(false);
   let saved = $state(false);
   let feedback = $state<{ text: string; kind: "ok" | "err" } | null>(null);
   let feedbackTimer: number | undefined;
+
+  let hasTranslations = $derived(translations.some((tr) => Boolean(tr?.trim())));
+  let activeTranslations = $derived(
+    hasTranslations && includeTranslation ? translations : undefined,
+  );
+  let coverThumbUrl = $derived(
+    player.currentTrack
+      ? (player.trackCoverUrl(player.currentTrack, false) ?? player.currentTrack.cover_url ?? null)
+      : null,
+  );
 
   function showModalFeedback(text: string, kind: "ok" | "err" = "ok") {
     feedback = { text, kind };
@@ -54,6 +78,8 @@
     const coverUrl = player.trackCoverUrl(track, true) ?? track.cover_url ?? null;
     void renderLyricsCard(canvasEl, {
       lines,
+      translations: activeTranslations,
+      align,
       title: track.title,
       artist: track.artist,
       coverUrl,
@@ -233,43 +259,112 @@
       ></canvas>
     </div>
 
-    <!-- Theme & aspect controls -->
-    <div class="flex items-center justify-between gap-3">
-      <div class="flex items-center gap-2" role="radiogroup" aria-label={t("lyrics.card_theme")}>
-        {#each LYRICS_CARD_THEMES as item}
+    <!-- Theme, alignment, translation & aspect controls -->
+    <div class="space-y-2.5">
+      <div class="flex items-center justify-between gap-3">
+        <div class="flex items-center gap-2" role="radiogroup" aria-label={t("lyrics.card_theme")}>
+          {#each LYRICS_CARD_THEMES as item}
+            <button
+              type="button"
+              role="radio"
+              aria-checked={theme === item.id}
+              aria-label={item.id}
+              class="relative w-7 h-7 rounded-full border-2 overflow-hidden transition-transform active:scale-90 {theme === item.id
+                ? 'border-[var(--accent-bright)] scale-110 shadow-md'
+                : 'border-white/20 opacity-80 hover:opacity-100'}"
+              style="background: {item.id === 'cover' ? coverSwatchGradient(player.ambientRgb) : item.swatch};"
+              onclick={() => (theme = item.id)}
+            >
+              {#if item.id === "blur" && coverThumbUrl}
+                <img
+                  src={coverThumbUrl}
+                  alt=""
+                  class="w-full h-full object-cover scale-125 blur-[2px]"
+                />
+              {/if}
+            </button>
+          {/each}
+        </div>
+
+        <div class="inline-flex items-center rounded-full p-0.5 bg-[var(--surface)] border border-[var(--border)] text-[11.5px] font-bold">
+          <button
+            type="button"
+            class="px-2.5 py-1 rounded-full transition-colors {aspect === 'portrait'
+              ? 'bg-[var(--accent)] text-white'
+              : 'text-[var(--text-muted)] hover:text-[var(--text)]'}"
+            onclick={() => (aspect = "portrait")}
+          >
+            4:5
+          </button>
+          <button
+            type="button"
+            class="px-2.5 py-1 rounded-full transition-colors {aspect === 'square'
+              ? 'bg-[var(--accent)] text-white'
+              : 'text-[var(--text-muted)] hover:text-[var(--text)]'}"
+            onclick={() => (aspect = "square")}
+          >
+            1:1
+          </button>
+        </div>
+      </div>
+
+      <div class="flex items-center justify-between gap-2">
+        <div
+          class="inline-flex items-center rounded-full p-0.5 bg-[var(--surface)] border border-[var(--border)]"
+          role="radiogroup"
+          aria-label="Alignment"
+        >
           <button
             type="button"
             role="radio"
-            aria-checked={theme === item.id}
-            aria-label={item.id}
-            class="w-7 h-7 rounded-full border-2 transition-transform active:scale-90 {theme === item.id
-              ? 'border-[var(--accent-bright)] scale-110 shadow-md'
-              : 'border-white/20 opacity-80 hover:opacity-100'}"
-            style="background: {item.id === 'cover' ? coverSwatchGradient(player.ambientRgb) : item.swatch};"
-            onclick={() => (theme = item.id)}
-          ></button>
-        {/each}
-      </div>
+            aria-checked={align === "left"}
+            aria-label="Left"
+            class="w-8 h-7 rounded-full inline-flex items-center justify-center transition-colors {align === 'left'
+              ? 'bg-[var(--accent)] text-white'
+              : 'text-[var(--text-muted)] hover:text-[var(--text)]'}"
+            onclick={() => (align = "left")}
+          >
+            <AlignLeft size={13} />
+          </button>
+          <button
+            type="button"
+            role="radio"
+            aria-checked={align === "center"}
+            aria-label="Center"
+            class="w-8 h-7 rounded-full inline-flex items-center justify-center transition-colors {align === 'center'
+              ? 'bg-[var(--accent)] text-white'
+              : 'text-[var(--text-muted)] hover:text-[var(--text)]'}"
+            onclick={() => (align = "center")}
+          >
+            <AlignCenter size={13} />
+          </button>
+          <button
+            type="button"
+            role="radio"
+            aria-checked={align === "right"}
+            aria-label="Right"
+            class="w-8 h-7 rounded-full inline-flex items-center justify-center transition-colors {align === 'right'
+              ? 'bg-[var(--accent)] text-white'
+              : 'text-[var(--text-muted)] hover:text-[var(--text)]'}"
+            onclick={() => (align = "right")}
+          >
+            <AlignRight size={13} />
+          </button>
+        </div>
 
-      <div class="inline-flex items-center rounded-full p-0.5 bg-[var(--surface)] border border-[var(--border)] text-[11.5px] font-bold">
-        <button
-          type="button"
-          class="px-2.5 py-1 rounded-full transition-colors {aspect === 'portrait'
-            ? 'bg-[var(--accent)] text-white'
-            : 'text-[var(--text-muted)] hover:text-[var(--text)]'}"
-          onclick={() => (aspect = "portrait")}
-        >
-          4:5
-        </button>
-        <button
-          type="button"
-          class="px-2.5 py-1 rounded-full transition-colors {aspect === 'square'
-            ? 'bg-[var(--accent)] text-white'
-            : 'text-[var(--text-muted)] hover:text-[var(--text)]'}"
-          onclick={() => (aspect = "square")}
-        >
-          1:1
-        </button>
+        {#if hasTranslations}
+          <button
+            type="button"
+            aria-pressed={includeTranslation}
+            class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11.5px] font-semibold border transition-colors {includeTranslation
+              ? 'bg-[var(--accent-soft)] border-[var(--accent-border)] text-[var(--accent-bright)]'
+              : 'bg-[var(--surface)] border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text)]'}"
+            onclick={() => (includeTranslation = !includeTranslation)}
+          >
+            <Languages size={13} />
+            {t("lyrics.translate_label")}
+          </button>
+        {/if}
       </div>
     </div>
 

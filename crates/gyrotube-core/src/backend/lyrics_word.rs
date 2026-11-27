@@ -424,8 +424,9 @@ impl Backend {
 
 /// Ensures every synced line has word-level timing:
 /// - Preserves real word/syllable timestamps whenever provided by Better Lyrics / LyricsPlus / ELRC.
-/// - For line-only sources (YTM, LRCLIB, Apple Line), distributes proportional per-word timing
-///   across `[time_secs, end_secs]` weighted by character length so karaoke fill works on all songs.
+/// - For line-only sources (YTM, LRCLIB, Apple Line), distributes sequential non-overlapping
+///   per-word timing weighted by character length over a brisk sweep window (~0.75–1.85 s)
+///   so the line sweeps continuously from left to right without overlapping words or dragging.
 pub(crate) fn ensure_word_timings(lines: &mut [SyncedLyricLine]) {
     let total_lines = lines.len();
     for i in 0..total_lines {
@@ -450,24 +451,33 @@ pub(crate) fn ensure_word_timings(lines: &mut [SyncedLyricLine]) {
         if tokens.is_empty() {
             continue;
         }
+
+        let span = (end - start).max(0.25);
+        // Sequential sweep window: brisk left-to-right progression without waiting the full line span
+        let sweep_span = (char_count * 0.045)
+            .clamp(0.75, 1.85)
+            .min(span * 0.85)
+            .max(0.25);
+        let sweep_end = start + sweep_span;
+
         let weights: Vec<f64> = tokens
             .iter()
-            .map(|w| (w.chars().count() as f64).max(1.0) + 0.6)
+            .map(|w| (w.chars().count() as f64).max(1.0) + 0.4)
             .collect();
         let total_weight: f64 = weights.iter().sum();
-        let span = (end - start).max(0.25);
 
+        let count = tokens.len();
         let mut cursor = start;
-        let mut words = Vec::with_capacity(tokens.len());
+        let mut words = Vec::with_capacity(count);
         for (idx, (tok, w)) in tokens.iter().zip(weights.iter()).enumerate() {
-            let dur = (span * (*w / total_weight)).max(0.06);
-            let word_end = if idx + 1 == tokens.len() {
-                end.max(cursor + 0.06)
+            let dur = (sweep_span * (*w / total_weight)).max(0.05);
+            let word_end = if idx + 1 == count {
+                sweep_end.max(cursor + 0.05)
             } else {
-                (cursor + dur).min(end)
+                (cursor + dur).min(sweep_end)
             };
             let mut text = (*tok).to_string();
-            if idx + 1 < tokens.len() {
+            if idx + 1 < count {
                 text.push(' ');
             }
             words.push(LyricWord {

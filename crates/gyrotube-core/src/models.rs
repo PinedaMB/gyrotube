@@ -135,6 +135,7 @@ pub struct StreamInfo {
     pub user_agent: Option<String>,
     pub headers: std::collections::HashMap<String, String>,
     pub local_audio: Option<std::sync::Arc<crate::audio_cache::LocalAudio>>,
+    pub loudness_db: Option<f32>,
 }
 
 pub fn upgrade_cover_url(url: &str, target_size: i32) -> String {
