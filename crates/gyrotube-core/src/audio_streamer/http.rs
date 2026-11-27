@@ -7,6 +7,123 @@ use tokio::net::TcpStream;
 
 use super::{FALLBACK_SEEKABLE_BYTES, ProxyTarget, StreamSession};
 
+const PROXY_CHUNK_BYTES: u64 = 1024 * 1024;
+
+fn content_range_total(resp: &reqwest::Response) -> Option<u64> {
+    resp.headers()
+        .get(reqwest::header::CONTENT_RANGE)?
+        .to_str()
+        .ok()?
+        .rsplit_once('/')?
+        .1
+        .trim()
+        .parse()
+        .ok()
+}
+
+async fn fetch_proxy_chunk(
+    client: &reqwest::Client,
+    target: &ProxyTarget,
+    start: u64,
+    end: u64,
+) -> Option<reqwest::Response> {
+    for attempt in 0..3u64 {
+        if let Ok(resp) = client
+            .get(&target.url)
+            .header("User-Agent", &target.user_agent)
+            .header("Range", format!("bytes={start}-{end}"))
+            .send()
+            .await
+        {
+            let status = resp.status();
+            if status.as_u16() == 206 {
+                return Some(resp);
+            }
+            if status.is_client_error() {
+                return None;
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(150 * (attempt + 1))).await;
+    }
+    None
+}
+
+/// Streams `[start, final_end]` to the client as sequential 1 MiB upstream ranges,
+/// prefetching the next chunk while the current one is being written and
+/// re-requesting the remainder if an upstream body ends early.
+async fn stream_proxy_chunks(
+    write_half: &mut tokio::net::tcp::OwnedWriteHalf,
+    client: &reqwest::Client,
+    target: &ProxyTarget,
+    first: reqwest::Response,
+    start: u64,
+    final_end: u64,
+) {
+    let mut current = Some(first);
+    let mut pos = start;
+    while pos <= final_end {
+        let cur_end = (pos + PROXY_CHUNK_BYTES - 1).min(final_end);
+        let next_start = cur_end + 1;
+        let next_handle = (next_start <= final_end).then(|| {
+            let c = client.clone();
+            let t = target.clone();
+            let ne = (next_start + PROXY_CHUNK_BYTES - 1).min(final_end);
+            tokio::spawn(async move { fetch_proxy_chunk(&c, &t, next_start, ne).await })
+        });
+
+        let mut written: u64 = 0;
+        let expected = cur_end - pos + 1;
+        let mut retries = 0;
+        let mut client_gone = false;
+        while written < expected {
+            let mut resp = match current.take() {
+                Some(r) => r,
+                None => match fetch_proxy_chunk(client, target, pos + written, cur_end).await {
+                    Some(r) => r,
+                    None => break,
+                },
+            };
+            while let Ok(Some(chunk)) = resp.chunk().await {
+                let remaining = (expected - written) as usize;
+                let slice = &chunk[..chunk.len().min(remaining)];
+                if write_half.write_all(slice).await.is_err() {
+                    client_gone = true;
+                    break;
+                }
+                written += slice.len() as u64;
+                if written >= expected {
+                    break;
+                }
+            }
+            if client_gone || written >= expected {
+                break;
+            }
+            retries += 1;
+            if retries > 3 {
+                break;
+            }
+        }
+
+        if client_gone || written < expected {
+            if let Some(h) = next_handle {
+                h.abort();
+            }
+            return;
+        }
+        pos = next_start;
+        current = match next_handle {
+            Some(h) => h.await.ok().flatten(),
+            None => None,
+        };
+        if current.is_none() && pos <= final_end {
+            current = fetch_proxy_chunk(client, target, pos, (pos + PROXY_CHUNK_BYTES - 1).min(final_end)).await;
+            if current.is_none() {
+                return;
+            }
+        }
+    }
+}
+
 pub(super) fn stream_session_key(path: &str) -> Option<&str> {
     let raw_key = path.split('?').next()?.strip_prefix("/stream/")?;
     Some(raw_key.rsplit_once('.').map_or(raw_key, |(key, _)| key))
@@ -144,6 +261,46 @@ pub(super) async fn handle_client(
             write_half.write_all(hdr.as_bytes()).await?;
             return Ok(());
         };
+
+        // googlevideo throttles long open-ended ranges to ~realtime (measured 155–386 KB/s)
+        // while short 1 MiB ranges download at full link speed (~2 MB/s). Split every GET
+        // into pipelined 1 MiB upstream requests so <video> never starves its buffer.
+        if !method.eq_ignore_ascii_case("HEAD") {
+            let requested = range_header.as_deref().and_then(parse_range_header);
+            let start = requested.map_or(0, |(s, _)| s);
+            let client_end = requested.and_then(|(_, e)| e);
+            let first_end = client_end.map_or(start + PROXY_CHUNK_BYTES - 1, |e| {
+                e.min(start + PROXY_CHUNK_BYTES - 1)
+            });
+            if client_end.is_none_or(|e| e >= start)
+                && let Some(first) = fetch_proxy_chunk(&client, &target, start, first_end).await
+                && let Some(total) = content_range_total(&first)
+                && total > start
+            {
+                let final_end = client_end.unwrap_or(total - 1).min(total - 1);
+                let len = final_end - start + 1;
+                let content_type = first
+                    .headers()
+                    .get(reqwest::header::CONTENT_TYPE)
+                    .and_then(|v| v.to_str().ok())
+                    .unwrap_or(&target.mime_type)
+                    .to_string();
+                let hdr = if requested.is_some() {
+                    format!(
+                        "HTTP/1.1 206 Partial Content\r\n{CORS_HEADERS}Content-Type: {content_type}\r\nAccept-Ranges: bytes\r\nContent-Range: bytes {start}-{final_end}/{total}\r\nContent-Length: {len}\r\nConnection: close\r\n\r\n"
+                    )
+                } else {
+                    format!(
+                        "HTTP/1.1 200 OK\r\n{CORS_HEADERS}Content-Type: {content_type}\r\nAccept-Ranges: bytes\r\nContent-Length: {len}\r\nConnection: close\r\n\r\n"
+                    )
+                };
+                write_half.write_all(hdr.as_bytes()).await?;
+                stream_proxy_chunks(&mut write_half, &client, &target, first, start, final_end).await;
+                let _ = write_half.shutdown().await;
+                return Ok(());
+            }
+        }
+
         let mut req = if method.eq_ignore_ascii_case("HEAD") {
             client.head(&target.url)
         } else {

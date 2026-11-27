@@ -18,6 +18,7 @@
   import { device } from "../lib/stores/device.svelte";
   import { player } from "../lib/stores/player.svelte";
   import { formatDuration } from "../lib/types";
+  import { WebGLVideoBlitter } from "../lib/webglVideoBlitter";
 
   interface Props {
     class?: string;
@@ -26,6 +27,7 @@
   let { class: className = "" }: Props = $props();
 
   let videoEl = $state<HTMLVideoElement | null>(null);
+  let canvasEl = $state<HTMLCanvasElement | null>(null);
   let ready = $state(false);
   let playbackError = $state(false);
   let isFullscreen = $state(false);
@@ -38,6 +40,47 @@
   let lastSeekAt = 0;
   let notifiedReadyForUrl: string | null = null;
   let hideHudTimer: number | null = null;
+
+  // On Linux WebKitGTK, direct HTML5 <video> DMABUF overlays flicker on several GPUs.
+  // Uploading video frames through a minimal WebGL shader onto a <canvas> keeps the
+  // blit on the GPU while routing output through the normal DOM compositor texture path.
+  const useCanvasRenderer =
+    typeof navigator !== "undefined" &&
+    !device.isAndroid &&
+    /Linux/i.test(navigator.userAgent);
+
+  let blitter: WebGLVideoBlitter | null = null;
+  let blitterCanvas: HTMLCanvasElement | null = null;
+  let lastDrawnVideoTime = -1;
+
+  function drawVideoFrame(force = false) {
+    if (!useCanvasRenderer) return;
+    const video = videoEl;
+    const canvas = canvasEl;
+    if (!video || !canvas || video.readyState < 2) return;
+    const vw = video.videoWidth;
+    const vh = video.videoHeight;
+    if (vw <= 0 || vh <= 0) return;
+
+    if (!force && video.currentTime === lastDrawnVideoTime) return;
+    lastDrawnVideoTime = video.currentTime;
+
+    if (!blitter || blitterCanvas !== canvas) {
+      blitter?.dispose();
+      blitter = new WebGLVideoBlitter(canvas);
+      blitterCanvas = canvas;
+    }
+
+    const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+    const maxW = isFullscreen
+      ? Math.min(vw, 1280)
+      : Math.min(vw, Math.max(320, Math.round((canvas.clientWidth || 320) * dpr)));
+    const scale = Math.min(1, maxW / vw);
+    const targetW = Math.max(2, Math.round(vw * scale));
+    const targetH = Math.max(2, Math.round(vh * scale));
+
+    blitter.draw(video, targetW, targetH);
+  }
 
   let displayPos = $derived(seeking ? seekDraft : player.positionSecs);
   let progressPct = $derived(
@@ -54,7 +97,6 @@
     if (!el || !player.videoStream) return;
     if (hiddenDoc || !player.isPlaying) {
       if (!el.paused) el.pause();
-      if (el.playbackRate !== 1) el.playbackRate = 1;
       return;
     }
     if (el.seeking) return;
@@ -64,22 +106,22 @@
       const clamped = Number.isFinite(el.duration)
         ? Math.min(target, Math.max(0, el.duration - 0.1))
         : target;
-      const signedDrift = clamped - el.currentTime;
-      const drift = Math.abs(signedDrift);
+      const drift = Math.abs(clamped - el.currentTime);
       const now = Date.now();
 
-      if (forceSeek || (drift > 0.6 && now - lastSeekAt > 600)) {
+      // Never mutate `el.playbackRate` here: on Linux WebKitGTK/GStreamer, changing
+      // playbackRate triggers a flushing seek that drops frames and causes flicker.
+      // Let the video run freely at 1.0x within a 450ms tolerance window; only seek
+      // immediately on large jumps (e.g. user scrub > 1.2s) or after a 2s cooldown.
+      const largeJump = drift > 1.2 && now - lastSeekAt > 350;
+      const moderateDrift = drift > 0.45 && now - lastSeekAt > 2000;
+      if (forceSeek || largeJump || moderateDrift) {
         lastSeekAt = now;
-        if (el.playbackRate !== 1) el.playbackRate = 1;
         try {
           el.currentTime = clamped;
         } catch {
           // ignore seek before buffered
         }
-      } else if (drift > 0.08) {
-        el.playbackRate = signedDrift > 0 ? 1.06 : 0.94;
-      } else if (drift <= 0.05 && el.playbackRate !== 1) {
-        el.playbackRate = 1;
       }
     }
     if (el.paused) {
@@ -91,23 +133,27 @@
     const el = videoEl;
     const url = player.videoStream?.url ?? null;
     if (!el || !url) return;
+    const firstReady = !ready;
     ready = true;
-    const target = Math.max(0, player.getExactPositionSecs());
-    if (el.readyState >= 1 && Math.abs(el.currentTime - target) > 0.12 && !el.seeking) {
-      const clamped = Number.isFinite(el.duration)
-        ? Math.min(target, Math.max(0, el.duration - 0.1))
-        : target;
-      try {
-        lastSeekAt = Date.now();
-        el.currentTime = clamped;
-      } catch {
-        // ignore seek before buffered
+    if (firstReady) {
+      const target = Math.max(0, player.getExactPositionSecs());
+      if (el.readyState >= 1 && Math.abs(el.currentTime - target) > 0.25 && !el.seeking) {
+        const clamped = Number.isFinite(el.duration)
+          ? Math.min(target, Math.max(0, el.duration - 0.1))
+          : target;
+        try {
+          lastSeekAt = Date.now();
+          el.currentTime = clamped;
+        } catch {
+          // ignore seek before buffered
+        }
       }
     }
     if (notifiedReadyForUrl !== url) {
       notifiedReadyForUrl = url;
       player.notifyVideoReady(el);
     }
+    drawVideoFrame(true);
     syncPlayback(false);
   }
 
@@ -116,12 +162,19 @@
     ready = false;
     playbackError = false;
     lastSeekAt = 0;
+    lastDrawnVideoTime = -1;
     notifiedReadyForUrl = null;
   });
 
   $effect(() => {
+    void isFullscreen;
+    if (useCanvasRenderer && ready) {
+      drawVideoFrame(true);
+    }
+  });
+
+  $effect(() => {
     void player.isPlaying;
-    void player.positionSecs;
     void hiddenDoc;
     void player.videoStream?.url;
     syncPlayback(false);
@@ -129,8 +182,52 @@
 
   $effect(() => {
     if (!player.isPlaying || !ready || hiddenDoc || !player.videoStream) return;
-    const timer = window.setInterval(() => syncPlayback(false), 120);
+    const timer = window.setInterval(() => syncPlayback(false), 500);
     return () => window.clearInterval(timer);
+  });
+
+  $effect(() => {
+    if (!useCanvasRenderer || !ready || hiddenDoc || !player.videoStream) return;
+    const video = videoEl;
+    if (!video) return;
+
+    drawVideoFrame();
+    if (!player.isPlaying) return;
+
+    let stopped = false;
+    type VideoWithVfc = HTMLVideoElement & {
+      requestVideoFrameCallback?: (cb: () => void) => number;
+      cancelVideoFrameCallback?: (id: number) => void;
+    };
+    const vfcVideo = video as VideoWithVfc;
+
+    if (typeof vfcVideo.requestVideoFrameCallback === "function") {
+      let handle = 0;
+      const onFrame = () => {
+        if (stopped) return;
+        drawVideoFrame();
+        handle = vfcVideo.requestVideoFrameCallback!(onFrame);
+      };
+      handle = vfcVideo.requestVideoFrameCallback(onFrame);
+      return () => {
+        stopped = true;
+        if (typeof vfcVideo.cancelVideoFrameCallback === "function") {
+          vfcVideo.cancelVideoFrameCallback(handle);
+        }
+      };
+    }
+
+    let rafId = 0;
+    const tick = () => {
+      if (stopped) return;
+      drawVideoFrame();
+      rafId = window.requestAnimationFrame(tick);
+    };
+    rafId = window.requestAnimationFrame(tick);
+    return () => {
+      stopped = true;
+      window.cancelAnimationFrame(rafId);
+    };
   });
 
   function scheduleHudHide() {
@@ -213,6 +310,9 @@
     document.addEventListener("visibilitychange", onVis);
     window.addEventListener("keydown", onKeyDown);
     return () => {
+      blitter?.dispose();
+      blitter = null;
+      blitterCanvas = null;
       if (hideHudTimer !== null) window.clearTimeout(hideHudTimer);
       document.removeEventListener("visibilitychange", onVis);
       window.removeEventListener("keydown", onKeyDown);
@@ -240,19 +340,26 @@
     <video
       bind:this={videoEl}
       src={player.videoStream.url}
+      crossorigin="anonymous"
       muted
       playsinline
       preload="auto"
-      class="w-full h-full object-contain transition-opacity duration-200 {ready ? 'opacity-100' : 'opacity-0'}"
+      class={useCanvasRenderer
+        ? "absolute top-0 left-0 w-8 h-8 opacity-[0.001] pointer-events-none"
+        : "w-full h-full object-contain"}
+      style={useCanvasRenderer ? undefined : "transform: translateZ(0); backface-visibility: hidden;"}
       onclick={() => {
-        if (isFullscreen) {
+        if (!useCanvasRenderer && isFullscreen) {
           scheduleHudHide();
           void player.togglePlay();
         }
       }}
-      ondblclick={toggleFullscreen}
+      ondblclick={() => {
+        if (!useCanvasRenderer) toggleFullscreen();
+      }}
       onloadeddata={handleVideoReady}
       oncanplay={handleVideoReady}
+      onseeked={() => drawVideoFrame(true)}
       onerror={() => {
         ready = false;
         playbackError = true;
@@ -260,8 +367,22 @@
       }}
     ></video>
 
+    {#if useCanvasRenderer}
+      <canvas
+        bind:this={canvasEl}
+        class="w-full h-full object-contain"
+        onclick={() => {
+          if (isFullscreen) {
+            scheduleHudHide();
+            void player.togglePlay();
+          }
+        }}
+        ondblclick={toggleFullscreen}
+      ></canvas>
+    {/if}
+
     {#if !ready}
-      <div class="absolute inset-0 flex items-center justify-center bg-black/40 pointer-events-none">
+      <div class="absolute inset-0 flex items-center justify-center bg-black pointer-events-none">
         <div class="w-9 h-9 rounded-full border-2 border-white/15 border-t-[var(--accent-bright)] animate-spin"></div>
       </div>
     {/if}

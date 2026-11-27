@@ -1895,7 +1895,12 @@ class PlayerStore {
     this.videoLoading = true;
     this.videoError = null;
     this.videoStream = null;
-    const maxHeight = typeof window !== "undefined" && window.innerWidth < 768 ? 720 : 1080;
+    const isLinuxDesktop =
+      typeof navigator !== "undefined" &&
+      !device.isAndroid &&
+      /Linux/i.test(navigator.userAgent);
+    const maxHeight =
+      (typeof window !== "undefined" && window.innerWidth < 768) || isLinuxDesktop ? 720 : 1080;
     try {
       const info = await api.resolveVideoStream(track.id, maxHeight);
       if (this.videoGen === gen && this.currentTrack?.id === track.id && this.videoMode) {

@@ -210,3 +210,76 @@ async fn a_stream_that_fails_after_buffering_cannot_be_reused() {
     let response = reqwest::Client::new().get(url).send().await.unwrap();
     assert_eq!(response.status(), reqwest::StatusCode::BAD_GATEWAY);
 }
+
+/// Live throughput + byte-exactness check for the chunked `/proxy/` endpoint.
+/// Run with: GYRO_PROXY_TEST_URL=<googlevideo url> GYRO_PROXY_TEST_REF=<local ref file>
+/// cargo test -p gyrotube-core chunked_proxy_live -- --ignored --nocapture
+#[tokio::test(flavor = "multi_thread")]
+#[ignore]
+async fn chunked_proxy_live_throughput_and_integrity() {
+    let Ok(remote) = std::env::var("GYRO_PROXY_TEST_URL") else {
+        return;
+    };
+    crate::tls::ensure_crypto_provider();
+    let streamer = super::AudioStreamer::start_new().await.expect("streamer");
+    let local = streamer.serve_remote_proxy("proxytest", &remote, "Mozilla/5.0", "video/webm");
+
+    let client = reqwest::Client::new();
+    let t0 = std::time::Instant::now();
+    let mut resp = client
+        .get(&local)
+        .header("Range", "bytes=0-")
+        .send()
+        .await
+        .expect("proxy request");
+    println!(
+        "status={} content-range={:?} content-length={:?}",
+        resp.status(),
+        resp.headers().get("content-range"),
+        resp.headers().get("content-length")
+    );
+    let mut body: Vec<u8> = Vec::new();
+    while t0.elapsed() < std::time::Duration::from_secs(12) {
+        match resp.chunk().await {
+            Ok(Some(c)) => body.extend_from_slice(&c),
+            _ => break,
+        }
+    }
+    let secs = t0.elapsed().as_secs_f64();
+    println!(
+        "proxy bytes={} in {:.2}s => {:.0} KB/s",
+        body.len(),
+        secs,
+        body.len() as f64 / 1024.0 / secs
+    );
+
+    if let Ok(ref_path) = std::env::var("GYRO_PROXY_TEST_REF") {
+        let reference = std::fs::read(ref_path).expect("ref file");
+        let n = body.len().min(reference.len());
+        assert!(n > 0);
+        assert_eq!(&body[..n], &reference[..n], "proxy bytes differ from reference");
+        println!("integrity OK over {n} bytes");
+    }
+
+    // Mid-file seek like <video> does
+    let mut seek = client
+        .get(&local)
+        .header("Range", "bytes=5000000-")
+        .send()
+        .await
+        .expect("seek request");
+    println!("seek status={} content-range={:?}", seek.status(), seek.headers().get("content-range"));
+    let mut seek_body = Vec::new();
+    while seek_body.len() < 3_000_000 {
+        match seek.chunk().await {
+            Ok(Some(c)) => seek_body.extend_from_slice(&c),
+            _ => break,
+        }
+    }
+    if let Ok(ref_path) = std::env::var("GYRO_PROXY_TEST_REF") {
+        let reference = std::fs::read(ref_path).expect("ref file");
+        let n = seek_body.len().min(reference.len().saturating_sub(5_000_000));
+        assert_eq!(&seek_body[..n], &reference[5_000_000..5_000_000 + n], "seek bytes differ");
+        println!("seek integrity OK over {n} bytes");
+    }
+}

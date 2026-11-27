@@ -377,13 +377,16 @@ impl Backend {
         // Desktop: prefer yt-dlp (solves YouTube n-parameter / PO-token reliably without 403)
         #[cfg(not(target_os = "android"))]
         {
+            // Linux: prefer VP9. Distro GStreamer builds often ship only `openh264dec`
+            // (Constrained Baseline oriented, single-threaded) for H.264, while `avdec_vp9`
+            // is multithreaded and decodes ~3x faster on low-end iGPUs without VA-API.
             #[cfg(target_os = "linux")]
             let fmt = format!(
                 "bestvideo[vcodec^=vp9][height<={max_height}]/bestvideo[ext=webm][height<={max_height}]/bestvideo[vcodec^=avc1][height<={max_height}]/18"
             );
             #[cfg(not(target_os = "linux"))]
             let fmt = format!(
-                "bestvideo[vcodec^=avc1][height<={max_height}]/bestvideo[ext=mp4][height<={max_height}]/bestvideo[ext=webm][height<={max_height}]/18"
+                "bestvideo[vcodec^=avc1][height<={max_height}]/bestvideo[ext=mp4][height<={max_height}]/bestvideo[vcodec^=vp9][height<={max_height}]/bestvideo[ext=webm][height<={max_height}]/18"
             );
             let mut cmd = crate::audio_streamer::ytdlp_command();
             cmd.kill_on_drop(true)
