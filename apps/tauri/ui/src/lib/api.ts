@@ -237,4 +237,24 @@ export const api = {
       nowPlaying,
       timestamp: timestamp ?? null,
     }),
+  nativeAudioLoad: (
+    url: string,
+    startSecs: number,
+    useCrossfade: boolean,
+    startPaused: boolean,
+  ): Promise<void> =>
+    call("native_audio_load", { url, startSecs, useCrossfade, startPaused }),
+  nativeAudioPlay: (): Promise<void> => call("native_audio_play"),
+  nativeAudioPause: (): Promise<void> => call("native_audio_pause"),
+  nativeAudioStop: (): Promise<void> => call("native_audio_stop"),
+  nativeAudioSeek: (secs: number): Promise<void> => call("native_audio_seek", { secs }),
+  nativeAudioSetVolume: (volume: number): Promise<void> =>
+    call("native_audio_set_volume", { volume }),
+  nativeAudioSetCrossfade: (secs: number): Promise<void> =>
+    call("native_audio_set_crossfade", { secs }),
+  nativeAudioSetEq: (
+    enabled: boolean,
+    normalize: boolean,
+    bands: [number, number, number, number, number],
+  ): Promise<void> => call("native_audio_set_eq", { enabled, normalize, bands }),
 };

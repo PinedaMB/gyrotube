@@ -5,6 +5,8 @@ pub mod i18n;
 pub mod innertube;
 pub mod jam;
 pub mod models;
+#[cfg(feature = "native-audio")]
+pub mod native_audio;
 pub mod spin_remote;
 pub mod tls;
 pub mod updater;

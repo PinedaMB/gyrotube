@@ -1,6 +1,7 @@
 import { getAndroidBridge, getAndroidWindow } from "../androidBridge";
 import { api, isTauriRuntime } from "../api";
 import { DualDeckAudioEngine, extractDominantRgb } from "../audioEngine";
+import { NativeRustAudioEngine, type AudioEngineBackend } from "../nativeAudioEngine";
 import { t } from "../i18n.svelte";
 import {
   EQ_PRESETS,
@@ -286,7 +287,7 @@ class PlayerStore {
   private persister = new SessionPersister();
   private routeDepth = 0;
   private routerBound = false;
-  private engine: DualDeckAudioEngine;
+  private engine: AudioEngineBackend;
   private audioDuckFactor = 1.0;
 
   currentTrack = $derived(
@@ -309,8 +310,8 @@ class PlayerStore {
   private followedArtistIdSet = $derived(new Set(this.followedArtists.map((a) => a.id)));
 
   constructor() {
-    this.engine = new DualDeckAudioEngine({
-      onTimeUpdate: (pos, dur) => {
+    const callbacks = {
+      onTimeUpdate: (pos: number, dur: number) => {
         // While a new track is resolving, ignore trailing timeupdate ticks from the outgoing deck
         if (this.inFlightTransitionGen === this.loadGen && this.isLoadingAudio) {
           return;
@@ -338,7 +339,7 @@ class PlayerStore {
           void this.syncSpinSnapshot();
         }
       },
-      onPlayStateChange: (playing) => {
+      onPlayStateChange: (playing: boolean) => {
         this.isPlaying = playing;
         if (playing) this.isLoadingAudio = false;
         this.syncAndroidForegroundService(playing);
@@ -371,11 +372,15 @@ class PlayerStore {
           void this.next(true);
         }
       },
-      onError: (msg) => {
+      onError: (msg: string) => {
         this.isLoadingAudio = false;
         this.showToast(msg);
       },
-    });
+    };
+    this.engine =
+      isTauriRuntime() && !device.isAndroid
+        ? new NativeRustAudioEngine(callbacks)
+        : new DualDeckAudioEngine(callbacks);
     this.engine.applyEqSettings(this.eqSettings);
   }
 

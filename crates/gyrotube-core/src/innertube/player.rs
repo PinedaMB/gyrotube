@@ -92,6 +92,22 @@ impl InnerTubeClient {
                     "racyCheckOk": true,
                 }),
             ),
+            "WEB" => (
+                YTM_USER_AGENT,
+                "1",
+                "2.20250310.01.00",
+                json!({
+                    "context": { "client": {
+                        "clientName": "WEB",
+                        "clientVersion": "2.20250310.01.00",
+                        "hl": "en",
+                        "gl": "US"
+                    } },
+                    "videoId": video_id,
+                    "contentCheckOk": true,
+                    "racyCheckOk": true,
+                }),
+            ),
             _ => (
                 "Mozilla/5.0 (Macintosh; Intel Mac OS X 15_7_3) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15",
                 "101",
@@ -175,7 +191,14 @@ impl InnerTubeClient {
             .chain(muxed.into_iter().flatten())
             .collect();
 
-        #[cfg(target_os = "macos")]
+        #[cfg(feature = "native-audio")]
+        let candidates: &[(u64, &str)] = match self.audio_quality() {
+            AudioQuality::High => &[(141, "m4a"), (140, "m4a"), (139, "m4a"), (18, "mp4")],
+            AudioQuality::Normal => &[(140, "m4a"), (139, "m4a"), (18, "mp4")],
+            AudioQuality::Low => &[(139, "m4a"), (140, "m4a"), (18, "mp4")],
+        };
+
+        #[cfg(all(target_os = "macos", not(feature = "native-audio")))]
         let candidates: &[(u64, &str)] = match self.audio_quality() {
             AudioQuality::High => &[
                 (141, "m4a"),
@@ -198,7 +221,7 @@ impl InnerTubeClient {
             ],
         };
 
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(not(any(target_os = "macos", feature = "native-audio")))]
         let candidates: &[(u64, &str)] = match self.audio_quality() {
             AudioQuality::High => &[
                 (251, "webm"),
@@ -232,16 +255,30 @@ impl InnerTubeClient {
             {
                 continue;
             }
-            let Some(format) = all_formats
-                .iter()
-                .find(|f| f["itag"].as_u64() == Some(itag) && f["url"].is_string())
-            else {
+            let Some(format) = all_formats.iter().find(|f| {
+                f["itag"].as_u64() == Some(itag)
+                    && (f["url"].is_string()
+                        || f["signatureCipher"].is_string()
+                        || f["cipher"].is_string())
+            }) else {
                 continue;
             };
-            let Some(url) = format["url"]
+            let direct_url = format["url"].as_str();
+            let sig_cipher = format["signatureCipher"]
                 .as_str()
-                .and_then(|url| reqwest::Url::parse(url).ok())
-            else {
+                .or_else(|| format["cipher"].as_str());
+            let resolved_url = if direct_url.is_some() && profile != "WEB" {
+                direct_url.unwrap().to_string()
+            } else {
+                let Ok(deciphered) = js_solver::JsChallengeSolver::global()
+                    .decipher_format_url(&self.http, direct_url, sig_cipher, profile == "WEB")
+                    .await
+                else {
+                    continue;
+                };
+                deciphered
+            };
+            let Some(url) = reqwest::Url::parse(&resolved_url).ok() else {
                 continue;
             };
             if url.scheme() != "https"

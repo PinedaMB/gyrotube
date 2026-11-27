@@ -101,12 +101,32 @@ pub fn audio_extension(extension: &str) -> bool {
     AUDIO_EXTENSIONS.contains(&extension)
 }
 
+/// Returns whether the extension can be decoded by the active playback backend.
+/// On desktop (`native-audio`), pure-Rust Symphonia decodes M4A/AAC, MP3, OGG/Vorbis, and FLAC
+/// (excluding WebM/Opus so legacy `.webm` cache entries are transparently refreshed as `.m4a`).
+pub fn is_playable_extension(extension: &str) -> bool {
+    #[cfg(feature = "native-audio")]
+    {
+        matches!(
+            extension,
+            "m4a" | "mp4" | "aac" | "mp3" | "ogg" | "oga" | "flac" | "wav"
+        )
+    }
+    #[cfg(not(feature = "native-audio"))]
+    {
+        audio_extension(extension)
+    }
+}
+
 // Filesystem modification time records the last time the app used the cache entry.
 pub fn find(video_id: &str, dir: &Path) -> Option<StreamInfo> {
     let mut cache = cache().lock().ok()?;
     let legacy = [("m4a", false), ("webm", false)];
     let current = AUDIO_EXTENSIONS.iter().map(|&ext| (ext, true));
     for (extension, downloaded) in legacy.into_iter().chain(current) {
+        if !is_playable_extension(extension) {
+            continue;
+        }
         let prefix = if downloaded { ".ytdlp." } else { "." };
         let path = dir.join(format!("{video_id}{prefix}{extension}"));
         if fs::symlink_metadata(&path)
@@ -196,7 +216,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let pinned = dir.path().join("abcdefghijk.m4a");
         let oldest = dir.path().join("bcdefghijkl.ytdlp.webm");
-        let reused = dir.path().join("cdefghijklm.ytdlp.opus");
+        let reused = dir.path().join("cdefghijklm.ytdlp.mp3");
         let unrelated = dir.path().join("other.json");
         let staging = tempfile::tempdir_in(dir.path()).unwrap();
         let partial = staging.path().join("audio.webm.part");

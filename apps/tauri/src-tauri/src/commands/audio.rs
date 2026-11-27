@@ -240,3 +240,93 @@ pub async fn save_lyrics_card_png(
         .map_err(|e| format!("No se pudo guardar la imagen: {e}"))?;
     Ok(target_path.to_string_lossy().to_string())
 }
+
+#[tauri::command]
+pub async fn native_audio_load(
+    state: State<'_, AppCoreState>,
+    url: String,
+    start_secs: f64,
+    use_crossfade: bool,
+    start_paused: bool,
+) -> Result<(), String> {
+    #[cfg(desktop)]
+    {
+        let streamer = AudioStreamer::global().await?;
+        let source = streamer.open_native_source(&url)?;
+        state
+            .native_audio
+            .load(source, start_secs, use_crossfade, start_paused)
+    }
+    #[cfg(not(desktop))]
+    {
+        let _ = (state, url, start_secs, use_crossfade, start_paused);
+        Err("Native audio engine is desktop-only".into())
+    }
+}
+
+#[tauri::command]
+pub fn native_audio_play(state: State<'_, AppCoreState>) {
+    #[cfg(desktop)]
+    state.native_audio.play();
+    #[cfg(not(desktop))]
+    let _ = state;
+}
+
+#[tauri::command]
+pub fn native_audio_pause(state: State<'_, AppCoreState>) {
+    #[cfg(desktop)]
+    state.native_audio.pause();
+    #[cfg(not(desktop))]
+    let _ = state;
+}
+
+#[tauri::command]
+pub fn native_audio_stop(state: State<'_, AppCoreState>) {
+    #[cfg(desktop)]
+    state.native_audio.stop();
+    #[cfg(not(desktop))]
+    let _ = state;
+}
+
+#[tauri::command]
+pub fn native_audio_seek(state: State<'_, AppCoreState>, secs: f64) {
+    #[cfg(desktop)]
+    state.native_audio.seek(secs);
+    #[cfg(not(desktop))]
+    let _ = (state, secs);
+}
+
+#[tauri::command]
+pub fn native_audio_set_volume(state: State<'_, AppCoreState>, volume: f32) {
+    #[cfg(desktop)]
+    state.native_audio.set_volume(volume);
+    #[cfg(not(desktop))]
+    let _ = (state, volume);
+}
+
+#[tauri::command]
+pub fn native_audio_set_crossfade(state: State<'_, AppCoreState>, secs: f64) {
+    #[cfg(desktop)]
+    state.native_audio.set_crossfade_secs(secs);
+    #[cfg(not(desktop))]
+    let _ = (state, secs);
+}
+
+#[tauri::command]
+pub fn native_audio_set_eq(
+    state: State<'_, AppCoreState>,
+    enabled: bool,
+    normalize: bool,
+    bands: [f32; 5],
+) {
+    #[cfg(desktop)]
+    state.native_audio.set_eq(
+        gyrotube_core::native_audio::NativeEqConfig {
+            enabled,
+            normalize,
+            bands,
+        },
+    );
+    #[cfg(not(desktop))]
+    let _ = (state, enabled, normalize, bands);
+}

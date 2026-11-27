@@ -106,10 +106,23 @@ pub fn run() {
             Backend::trim_audio_cache_on_startup();
 
             // Construct core state AFTER init_storage_dirs so Android has valid writable dirs
+            #[cfg(desktop)]
+            let (core_state, jam_cmd_rx, remote_rx, native_audio_rx) = AppCoreState::new();
+            #[cfg(not(desktop))]
             let (core_state, jam_cmd_rx, remote_rx) = AppCoreState::new();
             app.manage(core_state);
             app.manage(mpris::MprisHandle::start(app.handle().clone()));
             app.manage(discord_rpc::DiscordRpcHandle::start());
+
+            #[cfg(desktop)]
+            {
+                let handle_for_audio = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    while let Ok(ev) = native_audio_rx.recv().await {
+                        let _ = handle_for_audio.emit("native-audio:event", ev);
+                    }
+                });
+            }
 
             // Bridge SPIN LAN & Remote host commands to the frontend via Tauri events
             let handle_for_jam = app.handle().clone();
@@ -311,6 +324,14 @@ pub fn run() {
             commands::open_external_url,
             commands::save_lyrics_card_png,
             commands::save_backup_json,
+            commands::native_audio_load,
+            commands::native_audio_play,
+            commands::native_audio_pause,
+            commands::native_audio_stop,
+            commands::native_audio_seek,
+            commands::native_audio_set_volume,
+            commands::native_audio_set_crossfade,
+            commands::native_audio_set_eq,
             mpris::mpris_sync_state,
             discord_rpc::discord_rpc_sync,
         ])

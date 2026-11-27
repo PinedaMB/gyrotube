@@ -120,8 +120,10 @@ impl Backend {
             let name = name.to_string_lossy();
             if let Some((id, ext)) = name.split_once('.')
                 && validate_video_id(id).is_ok()
-                && (matches!(ext, "m4a" | "webm")
-                    || ext.strip_prefix("ytdlp.").is_some_and(audio_cache::audio_extension))
+                && (audio_cache::is_playable_extension(ext)
+                    || ext
+                        .strip_prefix("ytdlp.")
+                        .is_some_and(audio_cache::is_playable_extension))
                 && !ids.iter().any(|existing| existing == id)
             {
                 ids.push(id.to_string());
@@ -534,6 +536,13 @@ impl Backend {
 
         // Fallback: extract stream URL via yt-dlp excluding tv_samsung (which triggers 6s ad / 403)
         // and skipping HLS/DASH manifest downloads.
+        #[cfg(feature = "native-audio")]
+        let ytdlp_format = match self.innertube.audio_quality() {
+            crate::models::AudioQuality::High => "141/140/139/bestaudio[ext=m4a]",
+            crate::models::AudioQuality::Normal => "140/139/bestaudio[ext=m4a]",
+            crate::models::AudioQuality::Low => "139/140/bestaudio[ext=m4a]",
+        };
+        #[cfg(not(feature = "native-audio"))]
         let ytdlp_format = match self.innertube.audio_quality() {
             crate::models::AudioQuality::High => "251/140/bestaudio",
             crate::models::AudioQuality::Normal => "250/249/140/bestaudio",
@@ -666,7 +675,15 @@ impl Backend {
                 "--remote-components",
                 "ejs:github",
             ])
-            .args(["-f", "251/140/bestaudio", "-o"])
+            .args([
+                "-f",
+                if cfg!(feature = "native-audio") {
+                    "141/140/139/bestaudio[ext=m4a]"
+                } else {
+                    "251/140/bestaudio"
+                },
+                "-o",
+            ])
             .arg(staging.path().join("audio.%(ext)s"))
             .arg("--")
             .arg(format!("https://music.youtube.com/watch?v={video_id}"));

@@ -44,6 +44,12 @@ pub struct ChunkProgress {
     pub error: Option<String>,
 }
 
+pub struct NativeStreamSource {
+    pub file_path: PathBuf,
+    pub extension: String,
+    pub progress_rx: Option<watch::Receiver<ChunkProgress>>,
+}
+
 pub(super) struct StreamSession {
     pub(super) file_path: PathBuf,
     pub(super) mime_type: String,
@@ -259,6 +265,61 @@ impl AudioStreamer {
             .to_file_path()
             .map_err(|()| format!("Cached URL is not a local file path: {file_url}"))?;
         self.serve_local_file(video_id, path)
+    }
+
+    /// Resolves a loopback stream URL, `file://` URL, or local file path directly into a
+    /// `NativeStreamSource` so `NativeAudioEngine` can read progressively from disk without HTTP.
+    pub fn open_native_source(&self, url_or_path: &str) -> Result<NativeStreamSource, String> {
+        if let Ok(parsed) = reqwest::Url::parse(url_or_path) {
+            if parsed.scheme() == "file" {
+                let path = parsed
+                    .to_file_path()
+                    .map_err(|()| format!("Invalid local file URL: {url_or_path}"))?;
+                let ext = path
+                    .extension()
+                    .and_then(|s| s.to_str())
+                    .map(normalize_ext)
+                    .unwrap_or_else(|| "m4a".to_string());
+                return Ok(NativeStreamSource {
+                    file_path: path,
+                    extension: ext,
+                    progress_rx: None,
+                });
+            }
+            if parsed.port() == Some(self.port)
+                && let Some(key) = stream_session_key(parsed.path())
+                && let Ok(sessions) = self.sessions.read()
+                && let Some(session) = sessions.get(key)
+            {
+                let ext = session
+                    .file_path
+                    .extension()
+                    .and_then(|s| s.to_str())
+                    .map(normalize_ext)
+                    .unwrap_or_else(|| "m4a".to_string());
+                return Ok(NativeStreamSource {
+                    file_path: session.file_path.clone(),
+                    extension: ext,
+                    progress_rx: Some(session.progress_rx.clone()),
+                });
+            }
+        }
+
+        let path = PathBuf::from(url_or_path);
+        if path.is_file() {
+            let ext = path
+                .extension()
+                .and_then(|s| s.to_str())
+                .map(normalize_ext)
+                .unwrap_or_else(|| "m4a".to_string());
+            return Ok(NativeStreamSource {
+                file_path: path,
+                extension: ext,
+                progress_rx: None,
+            });
+        }
+
+        Err(format!("Unsupported native audio source: {url_or_path}"))
     }
 
     pub async fn start_chunked_http_stream(

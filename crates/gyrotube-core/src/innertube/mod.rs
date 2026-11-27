@@ -1,4 +1,5 @@
 mod browse;
+pub(crate) mod js_solver;
 mod parsers;
 mod player;
 #[cfg(test)]
@@ -25,6 +26,17 @@ const VISITOR_DATA_TTL: Duration = Duration::from_secs(6 * 60 * 60);
 const DETAILS_CACHE_TTL: Duration = Duration::from_secs(5 * 60);
 const DETAILS_CACHE_MAX: usize = 64;
 
+#[cfg(feature = "js-solver")]
+pub const DEFAULT_PLAYER_PROFILES: &[&str] = &[
+    "ANDROID_VR",
+    "VISIONOS",
+    "ANDROID_VR_LEGACY",
+    "TV_EMBEDDED",
+    "IOS",
+    "WEB",
+];
+
+#[cfg(not(feature = "js-solver"))]
 pub const DEFAULT_PLAYER_PROFILES: &[&str] = &[
     "ANDROID_VR",
     "VISIONOS",

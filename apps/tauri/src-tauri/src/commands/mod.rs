@@ -34,6 +34,8 @@ pub struct SpinState {
 pub struct AppCoreState {
     pub backend: Backend,
     pub active_audio_lease: Mutex<Option<Arc<LocalAudio>>>,
+    #[cfg(desktop)]
+    pub native_audio: gyrotube_core::native_audio::NativeAudioEngine,
     pub spin: Mutex<SpinState>,
     pub background_playback: Arc<AtomicBool>,
     #[cfg_attr(not(desktop), allow(dead_code))]
@@ -41,6 +43,36 @@ pub struct AppCoreState {
 }
 
 impl AppCoreState {
+    #[cfg(desktop)]
+    pub fn new() -> (
+        Self,
+        async_channel::Receiver<JamRequest>,
+        async_channel::Receiver<RemoteUpdate>,
+        async_channel::Receiver<gyrotube_core::native_audio::NativeAudioEvent>,
+    ) {
+        let (cmd_tx, cmd_rx) = async_channel::unbounded();
+        let (remote_tx, remote_rx) = async_channel::unbounded();
+        let (native_audio, native_audio_rx) = gyrotube_core::native_audio::NativeAudioEngine::start();
+        let state = Self {
+            backend: Backend::new(),
+            active_audio_lease: Mutex::new(None),
+            native_audio,
+            spin: Mutex::new(SpinState {
+                snapshot: Arc::new(RwLock::new(JamSnapshot::default())),
+                server: None,
+                cmd_tx,
+                remote_role: RemoteRole::Idle,
+                host_publisher: None,
+                guest_session: None,
+                remote_tx,
+            }),
+            background_playback: Arc::new(AtomicBool::new(true)),
+            quitting: Arc::new(AtomicBool::new(false)),
+        };
+        (state, cmd_rx, remote_rx, native_audio_rx)
+    }
+
+    #[cfg(not(desktop))]
     pub fn new() -> (
         Self,
         async_channel::Receiver<JamRequest>,

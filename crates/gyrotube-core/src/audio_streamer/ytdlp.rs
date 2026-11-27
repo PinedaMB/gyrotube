@@ -122,9 +122,14 @@ pub(super) async fn refresh_ytdlp_audio_stream(
     itag: Option<&str>,
     ext: &str,
 ) -> Option<StreamInfo> {
+    let fallback_fmt = if cfg!(feature = "native-audio") {
+        "140/141/139/bestaudio[ext=m4a]"
+    } else {
+        "251/140/bestaudio"
+    };
     let format_selector = match itag {
-        Some(tag) if !tag.is_empty() => format!("{tag}/bestaudio[ext={ext}]/251/140/bestaudio"),
-        _ => format!("bestaudio[ext={ext}]/251/140/bestaudio"),
+        Some(tag) if !tag.is_empty() => format!("{tag}/bestaudio[ext={ext}]/{fallback_fmt}"),
+        _ => format!("bestaudio[ext={ext}]/{fallback_fmt}"),
     };
     let watch_url = format!("https://music.youtube.com/watch?v={video_id}");
     let out = tokio::time::timeout(

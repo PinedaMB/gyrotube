@@ -16,13 +16,14 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 async-channel = "2.5.0"
-gyrotube-core = { path = "../../../crates/gyrotube-core" }
+gyrotube-core = { path = "../../../crates/gyrotube-core", features = ["js-solver"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 tauri = { version = "2", features = [] }
 tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros", "sync", "time"] }
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+gyrotube-core = { path = "../../../crates/gyrotube-core", features = ["native-audio", "js-solver"] }
 tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-updater = "2"
 
