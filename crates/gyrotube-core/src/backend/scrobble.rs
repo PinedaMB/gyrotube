@@ -49,10 +49,10 @@ pub(crate) fn md5_hex(input: &[u8]) -> String {
     let (mut a0, mut b0, mut c0, mut d0): (u32, u32, u32, u32) =
         (0x67452301, 0xefcdab89, 0x98badcfe, 0x10325476);
 
-    for chunk in msg.chunks_exact(64) {
+    for chunk in msg.as_chunks::<64>().0 {
         let mut m = [0u32; 16];
-        for (i, word) in chunk.chunks_exact(4).enumerate() {
-            m[i] = u32::from_le_bytes([word[0], word[1], word[2], word[3]]);
+        for (i, word) in chunk.as_chunks::<4>().0.iter().enumerate() {
+            m[i] = u32::from_le_bytes(*word);
         }
         let (mut a, mut b, mut c, mut d) = (a0, b0, c0, d0);
         for i in 0..64 {

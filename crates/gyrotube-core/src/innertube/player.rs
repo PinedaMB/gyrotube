@@ -267,8 +267,10 @@ impl InnerTubeClient {
             let sig_cipher = format["signatureCipher"]
                 .as_str()
                 .or_else(|| format["cipher"].as_str());
-            let resolved_url = if direct_url.is_some() && profile != "WEB" {
-                direct_url.unwrap().to_string()
+            let resolved_url = if let Some(u) = direct_url
+                && profile != "WEB"
+            {
+                u.to_string()
             } else {
                 let Ok(deciphered) = js_solver::JsChallengeSolver::global()
                     .decipher_format_url(&self.http, direct_url, sig_cipher, profile == "WEB")

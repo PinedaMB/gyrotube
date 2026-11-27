@@ -123,13 +123,13 @@ pub(crate) fn parse_ttml(xml: &str) -> Option<Vec<SyncedLyricLine>> {
             let between = &span_cursor[..s_idx];
             if !between.is_empty() && !words.is_empty() {
                 let plain_between = strip_xml_tags(between);
-                if plain_between.chars().all(|c| c.is_whitespace()) && !plain_between.is_empty() {
-                    if let Some(last) = words.last_mut()
-                        && !last.text.ends_with(' ')
-                    {
-                        last.text.push(' ');
-                        full_text.push(' ');
-                    }
+                if plain_between.chars().all(|c| c.is_whitespace())
+                    && !plain_between.is_empty()
+                    && let Some(last) = words.last_mut()
+                    && !last.text.ends_with(' ')
+                {
+                    last.text.push(' ');
+                    full_text.push(' ');
                 }
             }
 

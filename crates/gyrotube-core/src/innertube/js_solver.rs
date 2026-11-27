@@ -1,8 +1,14 @@
+#[cfg(feature = "js-solver")]
 use std::collections::HashMap;
-use std::sync::{OnceLock, RwLock};
+use std::sync::OnceLock;
+#[cfg(feature = "js-solver")]
+use std::sync::RwLock;
+#[cfg(feature = "js-solver")]
 use std::time::{Duration, Instant};
 
+#[cfg(feature = "js-solver")]
 const PLAYER_JS_TTL: Duration = Duration::from_secs(6 * 60 * 60);
+#[cfg(feature = "js-solver")]
 const WEB_UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36";
 
 #[cfg(feature = "js-solver")]
@@ -11,11 +17,10 @@ struct CachedPlayerJs {
     source: String,
 }
 
-#[cfg(not(feature = "js-solver"))]
-struct CachedPlayerJs;
-
 pub struct JsChallengeSolver {
+    #[cfg(feature = "js-solver")]
     player_js: RwLock<Option<CachedPlayerJs>>,
+    #[cfg(feature = "js-solver")]
     n_cache: RwLock<HashMap<String, String>>,
 }
 
@@ -24,7 +29,9 @@ static GLOBAL_SOLVER: OnceLock<JsChallengeSolver> = OnceLock::new();
 impl JsChallengeSolver {
     pub fn global() -> &'static Self {
         GLOBAL_SOLVER.get_or_init(|| Self {
+            #[cfg(feature = "js-solver")]
             player_js: RwLock::new(None),
+            #[cfg(feature = "js-solver")]
             n_cache: RwLock::new(HashMap::new()),
         })
     }
@@ -198,10 +205,8 @@ pub(crate) fn parse_signature_cipher(cipher: &str) -> Option<(String, String, St
         match k.as_ref() {
             "url" => url = Some(v.into_owned()),
             "s" => sig = Some(v.into_owned()),
-            "sp" => {
-                if !v.is_empty() {
-                    sp = v.into_owned();
-                }
+            "sp" if !v.is_empty() => {
+                sp = v.into_owned();
             }
             _ => {}
         }
