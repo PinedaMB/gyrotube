@@ -809,6 +809,9 @@ class PlayerStore {
       if (this.loadGen === expectedGen) {
         this.lyricsSources = list;
         this.lyricsSourcesTrackId = track.id;
+        if (!this.activeLyricsSourceId && list.length > 0) {
+          this.activeLyricsSourceId = this.inferActiveLyricsSourceId(list);
+        }
       }
     } catch {
       if (this.loadGen === expectedGen) {
@@ -819,6 +822,38 @@ class PlayerStore {
         this.lyricsSourcesLoading = false;
       }
     }
+  }
+
+  private inferActiveLyricsSourceId(list: LyricsSourceOption[]): string | null {
+    const cur = this.lyrics;
+    if (cur.type === "Synced" && cur.lines.length > 0) {
+      const first = cur.lines[0];
+      const exact = list.find(
+        (opt) =>
+          opt.data.type === "Synced" &&
+          opt.data.lines.length === cur.lines.length &&
+          opt.data.lines[0]?.text === first.text &&
+          Math.abs((opt.data.lines[0]?.time_secs ?? -999) - first.time_secs) < 0.05,
+      );
+      if (exact) return exact.id;
+      const byFirst = list.find(
+        (opt) =>
+          opt.data.type === "Synced" &&
+          opt.data.lines[0]?.text === first.text &&
+          Math.abs((opt.data.lines[0]?.time_secs ?? -999) - first.time_secs) < 0.25,
+      );
+      if (byFirst) return byFirst.id;
+      return list.find((opt) => opt.data.type === "Synced")?.id ?? list[0]?.id ?? null;
+    }
+    if (cur.type === "Plain") {
+      const curTrim = cur.text.trim();
+      const exact = list.find(
+        (opt) => opt.data.type === "Plain" && opt.data.text.trim() === curTrim,
+      );
+      if (exact) return exact.id;
+      return list.find((opt) => opt.data.type === "Plain")?.id ?? list[0]?.id ?? null;
+    }
+    return null;
   }
 
   public selectLyricsSource(opt: LyricsSourceOption): void {

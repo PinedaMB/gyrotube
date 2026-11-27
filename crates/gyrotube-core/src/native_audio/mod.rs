@@ -375,7 +375,17 @@ fn open_cpal_stream(mixer: Arc<Mutex<MixerState>>) -> Result<(cpal::Stream, u32)
         .map_err(|e| format!("No se pudo leer la configuración de audio: {e}"))?;
     let channels = supported.channels() as usize;
     let sample_rate = supported.sample_rate();
-    let config: cpal::StreamConfig = supported.into();
+    let preferred_buf = match *supported.buffer_size() {
+        cpal::SupportedBufferSize::Range { min, max } => {
+            // ~42 ms at 48 kHz (2000–2048 frames): eliminates ALSA/PipeWire XRUN underruns
+            // while keeping pause/seek latency imperceptible.
+            let target = (sample_rate / 24).clamp(1024, 4096);
+            cpal::BufferSize::Fixed(target.clamp(min, max))
+        }
+        cpal::SupportedBufferSize::Unknown => cpal::BufferSize::Default,
+    };
+    let mut config: cpal::StreamConfig = supported.into();
+    config.buffer_size = preferred_buf;
 
     let err_fn = |err| eprintln!("[gyro-native-audio] cpal stream error: {err}");
 

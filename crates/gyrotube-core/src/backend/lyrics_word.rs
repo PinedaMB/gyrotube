@@ -453,11 +453,11 @@ pub(crate) fn ensure_word_timings(lines: &mut [SyncedLyricLine]) {
         }
 
         let span = (end - start).max(0.25);
-        // Sequential sweep window: brisk left-to-right progression without waiting the full line span
-        let sweep_span = (char_count * 0.045)
-            .clamp(0.75, 1.85)
-            .min(span * 0.85)
-            .max(0.25);
+        // Sequential sweep window: crisp left-to-right progression (~0.45–1.05 s)
+        let sweep_span = (char_count * 0.028)
+            .clamp(0.45, 1.05)
+            .min(span * 0.70)
+            .max(0.20);
         let sweep_end = start + sweep_span;
 
         let weights: Vec<f64> = tokens
